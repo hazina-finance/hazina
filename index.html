@@ -435,7 +435,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='5 Nov 2026 · lending & fees';
+const APP_BUILD='5 Nov 2026 · net worth';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -715,7 +715,8 @@ function lendInfo(id,upto){
 }
 const owedToMe=upto=>sum(P.borrowers||[],b=>lendInfo(b.id,upto).out);
 function netWorth(upto){
-  const b=bal(upto);const assets=sum(P.assets,a=>num(a.amount))+b.total+Math.max(0,b.avail)+owedToMe(upto),liab=sum(P.debts,debtLeft);return{assets,liab,nw:assets-liab};
+  const b=bal(upto),savings=b.total,avail=b.avail,liab=sum(P.debts,debtLeft),other=sum(P.assets,a=>num(a.amount)),owed=owedToMe(upto);
+  const assets=savings+avail;return{savings,avail,assets,liab,nw:assets-liab,other,owed,nwAll:assets+other+owed-liab};
 }
 /* suggested savings for a new income: same split as the last income from this source, else the plan's percentages */
 function suggestSaves(src,amt){
@@ -841,7 +842,7 @@ function vDashboard(){
    ${firstRun()?openingCard():''}
    <div class="card hero s12">
     <div><div class="eyebrow">Available to spend · ${cur?'now':'end of '+esc(mLabel(mk))}</div><div class="nw ${a.close.avail<0?'neg':''}">${M(a.close.avail)}</div>
-      <div class="nwsplit"><div><span>Total savings</span><br><b>${M(a.close.total)}</b></div><div><span>Net worth</span><br><b>${M(w.nw)}</b></div><div><span>Debts left</span><br><b>${M(w.liab)}</b></div>${owedToMe()?`<div><span>Owed to you</span><br><b>${M(owedToMe())}</b></div>`:''}</div></div>
+      <div class="nwsplit"><div><span>Total savings</span><br><b>${M(a.close.total)}</b></div><div title="Total savings + Available to spend − debts"><span>Net worth</span><br><b>${M(w.nw)}</b></div><div><span>Debts left</span><br><b>${M(w.liab)}</b></div>${owedToMe()?`<div><span>Owed to you</span><br><b>${M(owedToMe())}</b></div>`:''}</div></div>
     <div><div class="eyebrow">${esc(mLabel(mk))}</div>
      <div class="kpis" style="margin-top:8px">
       <div class="kpi"><small>Income received</small><b>${M(a.income)}</b><small>of ${M(p.inc)} planned</small></div>
@@ -1105,13 +1106,18 @@ function vGoals(){
 
 function payoffMonths(d){const B=debtLeft(d),Pm=num(d.monthly),r=num(d.rate)/100/12;if(B<=0)return 0;if(Pm<=0)return Infinity;if(r===0)return Math.ceil(B/Pm);if(Pm<=B*r)return Infinity;return Math.ceil(-Math.log(1-r*B/Pm)/Math.log(1+r))}
 function debtFinish(d){const n=payoffMonths(d);if(n===0)return 'done';if(n===Infinity)return null;const paidNow=debtPays(d).some(t=>t.date.slice(0,7)===curMK());return addM(curMK(),paidNow?n:n-1)}
+function debtClearedOn(d){if(debtLeft(d)>0||!num(d.owed))return '';let c=0;for(const t of debtPays(d).sort((x,y)=>x.date.localeCompare(y.date))){c+=num(t.amt);if(c>=num(d.owed)-0.5)return t.date}return ''}
+const yearAgo=()=>{const x=new Date();x.setFullYear(x.getFullYear()-1);return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate())};
+function debtShown(d){const c=debtClearedOn(d);return !c||c>=yearAgo()||ui.showOld}
 function vDebt(){
-  const w=netWorth(),ds=P.debts,b=bal();
+  const w=netWorth(),b=bal(),ds=P.debts,ya=yearAgo();
+  const keyed=ds.filter(d=>num(d.owed)>0),visible=keyed.filter(debtShown),hiddenDebts=keyed.length-visible.length;
   const open=ds.filter(d=>debtLeft(d)>0);
   const fins=open.map(debtFinish);const freeDate=fins.includes(null)?null:fins.length?fins.slice().sort().pop():'done';
   const snow=open.slice().sort((a,b)=>debtLeft(a)-debtLeft(b)),aval=open.slice().sort((a,b)=>num(b.rate)-num(a.rate));
-  const progress=ds.map(d=>{const paid=debtPaid(d),owed=num(d.owed),left=debtLeft(d),n=debtPays(d).length,pm=payoffMonths(d),fin=debtFinish(d),pc=pct(Math.min(paid,owed),owed);
-    return `<div class="debtp"><div class="card-h" style="margin-bottom:6px"><div><b>${esc(d.name)}</b> ${left<=0&&owed?'<span class="pill good">Cleared</span>':pm===Infinity?'<span class="pill bad">Instalment too low to clear</span>':''}</div>${left>0?`<button class="addrow" style="margin:0" data-act="payDebt" data-id="${d.id}">+ Log instalment</button>`:''}</div>
+  const progress=visible.map(d=>{const paid=debtPaid(d),owed=num(d.owed),left=debtLeft(d),n=debtPays(d).length,pm=payoffMonths(d),fin=debtFinish(d),pc=pct(Math.min(paid,owed),owed),cl=debtClearedOn(d);
+    return `<div class="debtp"><div class="card-h" style="margin-bottom:6px"><div><b>${esc(d.name)}</b> ${left<=0&&owed?`<span class="pill good">Cleared${cl?' on '+esc(fmtD(cl)):''}</span>`:pm===Infinity?'<span class="pill bad">Instalment too low to clear</span>':''}</div><div class="inline-actions">${left>0?`<button class="addrow" style="margin:0" data-act="payDebt" data-id="${d.id}">+ Log instalment</button>`:''}<button class="addrow" style="margin:0;color:var(--bad)" data-act="debtDelAsk" data-id="${d.id}">Delete</button></div></div>
+      ${ui.confirm==='ddel:'+d.id?`<div class="tip" style="margin-bottom:10px"><b>Delete “${esc(d.name)}”?</b> ${n?`Its ${n} logged instalment${n===1?' stays':'s stay'} in your spending history.`:'Nothing has been paid on it yet.'} You can undo straight after.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="debtDel" data-id="${d.id}">Delete</button><button class="btn ghost" data-act="cancelDel">Keep it</button></div></div>`:''}
       <div class="dbar"><i style="width:${pc.toFixed(1)}%"></i><span>${Math.round(pc)}% paid</span></div>
       <div class="dstats"><div><small>Paid so far</small><b>${M(paid)}</b><small>${n} instalment${n===1?'':'s'}</small></div><div><small>Remaining</small><b>${M(left)}</b><small>of ${M(owed)}</small></div><div><small>Monthly instalment</small><b>${M(num(d.monthly))}</b><small>${num(d.rate)?num(d.rate)+'% a year':'no interest'}</small></div><div><small>Expected completion</small><b>${fin==='done'?'Done':fin?esc(mLabel(fin)):'—'}</b><small>${pm&&pm!==Infinity?pm+' more instalment'+(pm===1?'':'s'):''}</small></div></div></div>`}).join('');
   return `${banner()}<div class="pageh"><div><h1>Debt freedom &amp; net worth</h1><p>Add each loan or item you pay in instalments, such as solar. Every instalment you log as an expense lowers the balance until it’s cleared.</p></div></div>
@@ -1122,31 +1128,34 @@ function vDebt(){
        <p class="small" style="opacity:.75;margin:10px 0 0">${freeDate===null?'At least one instalment is too low to cover its interest. Raise it to get a completion date.':'Completion dates assume you keep paying the monthly instalment.'}</p></div>
    </div>
    <div class="card s12"><div class="card-h"><h2>Money owed to me (lent)</h2><div class="inline-actions"><b>${M(owedToMe())} still owed</b><button class="btn sm" data-act="lendNew">+ Lend money</button></div></div>
-    ${(P.borrowers||[]).length?lentRows(P.borrowers.map(b=>({b,i:lendInfo(b.id)})).sort((x,y)=>y.i.out-x.i.out||y.i.last.localeCompare(x.i.last)),false):'<div class="empty">No lending recorded yet. Use <b>+ Lend money</b> to record money you lend, then <b>Record repayment</b> as it comes back.</div>'}
+    ${(P.borrowers||[]).length?lentRows(P.borrowers.map(b=>({b,i:lendInfo(b.id)})).filter(x=>x.i.out>0||!x.i.last||x.i.last>=ya||ui.showOld).sort((x,y)=>y.i.out-x.i.out||y.i.last.localeCompare(x.i.last)),false):'<div class="empty">No lending recorded yet. Use <b>+ Lend money</b> to record money you lend, then <b>Record repayment</b> as it comes back.</div>'}
     ${(P.borrowers||[]).length?`<details style="margin-top:12px"><summary class="small">Edit names and notes</summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Person</th><th>Note</th><th></th></tr></thead><tbody>${P.borrowers.map(b=>`<tr><td>${inp('borrowers',b.id,'name',b.name,{type:'text',cls:'wide'})}</td><td>${inp('borrowers',b.id,'note',b.note||'',{type:'text',cls:'wide'})}</td><td><button class="x" data-del="borrowers|${b.id}" aria-label="Remove ${esc(b.name)}">×</button></td></tr>`).join('')}</tbody></table></div></details>`:''}</div>
-   <div class="card s12"><div class="card-h"><h2>Payment progress</h2></div>${progress||'<div class="empty">No debts yet. Add one below, for example “Solar system” with the total amount and monthly instalment.</div>'}</div>
+   <div class="card s12"><div class="card-h"><h2>Payment progress</h2><span class="small muted">Debts you’re paying, plus any cleared in the last 12 months</span></div>${progress||'<div class="empty">No debts entered yet. Add one below, for example “Solar loan” with the total amount owed and the monthly instalment.</div>'}
+    ${hiddenDebts||ui.showOld?`<button class="addrow" data-act="toggleOld">${ui.showOld?'Hide debts cleared more than a year ago':'Show '+hiddenDebts+' debt'+(hiddenDebts===1?'':'s')+' cleared more than a year ago'}</button>`:''}</div>
    <div class="card s12"><div class="card-h"><h2>Debts &amp; instalment items</h2><b>Remaining ${M(w.liab)}</b></div>
     <div class="tw"><table><thead><tr><th>Item / loan</th><th class="n">Total amount owed</th><th class="n">Monthly instalment</th><th class="n">Interest % a year</th><th>Comments</th><th></th></tr></thead><tbody>
-    ${ds.map(d=>`<tr><td>${inp('debts',d.id,'name',d.name,{type:'text',cls:'wide'})}</td><td class="n">${inp('debts',d.id,'owed',d.owed)}</td><td class="n">${inp('debts',d.id,'monthly',d.monthly)}</td><td class="n">${inp('debts',d.id,'rate',d.rate)}</td><td>${inp('debts',d.id,'note',d.note,{type:'text',cls:'wide'})}</td><td><button class="x" data-del="debts|${d.id}" aria-label="Remove debt">×</button></td></tr>`).join('')}
+    ${ds.filter(debtShown).map(d=>`<tr><td>${inp('debts',d.id,'name',d.name,{type:'text',cls:'wide'})}${num(d.owed)?'':'<div class="small" style="color:var(--warn)">Enter the total amount owed</div>'}</td><td class="n">${inp('debts',d.id,'owed',d.owed)}</td><td class="n">${inp('debts',d.id,'monthly',d.monthly)}</td><td class="n">${inp('debts',d.id,'rate',d.rate)}</td><td>${inp('debts',d.id,'note',d.note,{type:'text',cls:'wide'})}</td><td><button class="x" data-del="debts|${d.id}" aria-label="Remove debt">×</button></td></tr>`).join('')}
     </tbody></table></div><button class="addrow" data-add="debts">+ Add debt or instalment item</button>
-    <p class="note">“Total amount owed” is the balance on the day you start tracking. Log each instalment with <b>+ Log → Expense</b> and pick the item under “Debt repayments”, or use <b>+ Log instalment</b> above.</p></div>
+    <p class="note">“Total amount owed” is the balance on the day you start tracking. Log each instalment with <b>+ Log → Expense</b> and pick the item under “Loans &amp; instalments”, or use <b>+ Log instalment</b> above. Delete items you no longer need with ×.</p></div>
    <div class="card s6"><div class="card-h"><h2>Debt snowball order</h2></div><p class="small muted" style="margin-top:0">Pay the minimum on all, then put extra on the smallest balance first. Quick wins build momentum.</p>
     ${snow.map((d,i)=>`<div class="ins"><div class="rank">${i+1}</div><div class="t"><b>${esc(d.name)}</b></div><div>${M(debtLeft(d))}</div></div>`).join('')||'<p class="muted">No open debts.</p>'}</div>
    <div class="card s6"><div class="card-h"><h2>Debt avalanche order</h2></div><p class="small muted" style="margin-top:0">Put extra on the highest interest rate first. This costs the least interest overall.</p>
     ${aval.map((d,i)=>`<div class="ins"><div class="rank">${i+1}</div><div class="t"><b>${esc(d.name)}</b></div><div>${num(d.rate)}%</div></div>`).join('')||'<p class="muted">No open debts.</p>'}</div>
-   <div class="card s7"><div class="card-h"><h2>Assets · what I own</h2><b>${M(w.assets)}</b></div>
-    <div class="tw"><table><thead><tr><th>Account / asset class</th><th class="n">Amount</th><th>Purpose</th><th></th></tr></thead><tbody>
-    <tr><td><span class="pill">Available to spend</span></td><td class="n">${M(Math.max(0,b.avail))}</td><td class="small muted">From tracker</td><td></td></tr>
-    ${P.chambers.map(c=>`<tr><td>${chPill(c.id)} <span class="small muted">savings account</span></td><td class="n">${M(b.ch[c.id]||0)}</td><td class="small muted">Balance from tracker</td><td></td></tr>`).join('')}
-    ${P.assets.map(x=>`<tr><td>${inp('assets',x.id,'name',x.name,{type:'text',cls:'wide'})}</td><td class="n">${inp('assets',x.id,'amount',x.amount)}</td><td>${inp('assets',x.id,'purpose',x.purpose,{type:'text'})}</td><td><button class="x" data-del="assets|${x.id}" aria-label="Remove asset">×</button></td></tr>`).join('')}
-    </tbody></table></div><button class="addrow" data-add="assets">+ Add asset</button></div>
    <div class="card s5"><div class="card-h"><h2>Net worth statement</h2></div>
-    <div class="kv"><span>Total assets</span><b>${M(w.assets)}</b></div>
-    ${ds.map(d=>`<div class="kv small"><span class="muted">${esc(d.name)}</span><span>${M(-debtLeft(d))}</span></div>`).join('')}
-    <div class="kv"><span>Total liabilities</span><b>${M(-w.liab)}</b></div>
+    ${P.chambers.map(c=>`<div class="kv small"><span class="muted">${esc(c.name)}</span><span>${M(b.ch[c.id]||0)}</span></div>`).join('')}
+    <div class="kv"><span>Total savings (all accounts)</span><b>${M(w.savings)}</b></div>
+    <div class="kv"><span>+ Available to spend</span><b>${M(w.avail)}</b></div>
+    <div class="kv" style="border-top:1px solid var(--line);padding-top:8px"><span>= Money you have</span><b>${M(w.assets)}</b></div>
+    ${ds.filter(d=>debtLeft(d)>0).map(d=>`<div class="kv small"><span class="muted">${esc(d.name)}</span><span>${M(-debtLeft(d))}</span></div>`).join('')}
+    <div class="kv"><span>− Debts still owed</span><b>${M(-w.liab)}</b></div>
     <div class="total-line"><span class="eyebrow">Net worth</span><b class="${w.nw<0?'neg':'pos'}">${M(w.nw)}</b></div>
-    <div class="split" style="margin-top:14px"><i style="width:${pct(w.assets,w.assets+w.liab||1)}%;background:var(--good)">Assets</i><i style="width:${pct(w.liab,w.assets+w.liab||1)}%;background:var(--bad)">${w.liab?'Debt':''}</i></div>
-    <p class="note">Debt-to-asset ratio: ${pct(w.liab,w.assets).toFixed(1)}%</p></div>
+    <div class="split" style="margin-top:14px"><i style="width:${pct(Math.max(0,w.assets),Math.max(0,w.assets)+w.liab||1)}%;background:var(--good)">Money</i><i style="width:${pct(w.liab,Math.max(0,w.assets)+w.liab||1)}%;background:var(--bad)">${w.liab?'Debt':''}</i></div>
+    <p class="note">Net worth = total savings + Available to spend − debts. ${w.other||w.owed?`Not included: other assets ${fmt(w.other)}${w.owed?' and money owed to you '+fmt(w.owed):''}. Including them, it would be ${fmt(w.nwAll)}.`:''}</p></div>
+   <div class="card s7"><div class="card-h"><h2>Other assets</h2><b>${M(w.other)}</b></div>
+    <p class="small muted" style="margin-top:0">Land, shares, bonds, vehicles and similar. Listed for your records only. They are not counted in net worth.</p>
+    <div class="tw"><table><thead><tr><th>Asset</th><th class="n">Value</th><th>Purpose</th><th></th></tr></thead><tbody>
+    ${P.assets.map(x=>`<tr><td>${inp('assets',x.id,'name',x.name,{type:'text',cls:'wide'})}</td><td class="n">${inp('assets',x.id,'amount',x.amount)}</td><td>${inp('assets',x.id,'purpose',x.purpose,{type:'text'})}</td><td><button class="x" data-del="assets|${x.id}" aria-label="Remove asset">×</button></td></tr>`).join('')||'<tr><td colspan="4" class="muted">None listed.</td></tr>'}
+    </tbody></table></div><button class="addrow" data-add="assets">+ Add asset</button></div>
   </section>`;
 }
 
@@ -1518,7 +1527,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-del],[data-add],[data-act]');if(!t)return;
   if(t.dataset.act==='exitView'){exitView();return}
   if(t.dataset.act==='viewAs'){viewAs(t.dataset.id,t.dataset.name);return}
-  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh','selOn','selDelete','ngOpen','ngAdd','pclear','pdelask','pdel','gdelask','gdel','lendNew','lendMore','repayFor','woAsk','wo'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
+  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh','selOn','selDelete','ngOpen','ngAdd','pclear','pdelask','pdel','gdelask','gdel','lendNew','lendMore','repayFor','woAsk','wo','debtDelAsk','debtDel'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
   if(t.dataset.del){const [coll,id]=t.dataset.del.split('|');
     const ids=[...document.querySelectorAll(`#app [data-del^="${coll}|"]`)].map(b=>b.dataset.del.split('|')[1]);const i=ids.indexOf(id);const nb=ids[i+1]||ids[i-1];
     if(deleteRows([coll+'|'+id])){if(nb&&matchMedia('(pointer:fine)').matches){const f=document.querySelector(`[id^="f-${coll}-${nb}-"]`);ui.focusNext=f?f.id:null}render()}return}
@@ -1536,6 +1545,9 @@ document.addEventListener('click',e=>{
   if(t.dataset.act==='repayFor'){const i=lendInfo(t.dataset.id);openLog({t:{type:'repay',who:t.dataset.id,amt:i.out,date:todayStr(),saves:{}}});return}
   if(t.dataset.act==='woAsk'){ui.confirm='wo:'+t.dataset.id;render();return}
   if(t.dataset.act==='wo'){const id=t.dataset.id,i=lendInfo(id);if(i.out>0){const d=todayStr(),mk=d.slice(0,7);(TX[mk]=TX[mk]||[]).push({id:nid(),type:'writeoff',who:id,amt:i.out,date:d,desc:''});saveTx(mk);toast('Written off '+fmt(i.out)+'. You can delete it in the Daily Tracker if they pay later.')}ui.confirm=null;render();return}
+  if(t.dataset.act==='debtDelAsk'){ui.confirm='ddel:'+t.dataset.id;render();return}
+  if(t.dataset.act==='debtDel'){ui.confirm=null;if(deleteRows(['debts|'+t.dataset.id]))render();return}
+  if(t.dataset.act==='toggleOld'){ui.showOld=!ui.showOld;render();return}
   if(t.dataset.act==='selOn'){ui.selMode=true;ui.sel=new Set();render();return}
   if(t.dataset.act==='selOff'){ui.selMode=false;ui.sel=new Set();render();return}
   if(t.dataset.act==='selNone'){ui.sel=new Set();document.querySelectorAll('.selbox,.selall').forEach(b=>b.checked=false);selCount();return}
