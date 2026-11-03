@@ -444,7 +444,14 @@ $('#loginForm').addEventListener('submit',async e=>{
   btn.disabled=true;btn.textContent='Signing in…';m.hidden=true;
   try{const {data,error}=await sb.auth.signInWithPassword({email,password});
     if(error)throw error;$('#liPw').value='';await afterLogin(data.user)}
-  catch(err){m.textContent=!navigator.onLine?'You are offline. Connect to the internet to sign in.':/confirm/i.test(err.message||'')?'This account’s email is not confirmed. Ask your administrator.':'Email or password is incorrect.';m.hidden=false}
+  catch(err){const em=String((err&&err.message)||err||'');
+    m.textContent=!navigator.onLine?'You are offline. Connect to the internet to sign in.'
+      :/invalid login credentials/i.test(em)?'Email or password is incorrect.'
+      :/confirm/i.test(em)?'This account’s email is not confirmed. In Supabase, open Authentication → Users and confirm it, or ask your administrator.'
+      :/api key|apikey|jwt|unauthorized|401/i.test(em)?'Setup problem: the anon key in config.js is not accepted by Supabase. Copy the anon public key again (Project Settings → API Keys → Legacy API Keys).'
+      :/fetch|network|load failed|name not resolved/i.test(em)?'Setup problem: the app cannot reach Supabase. Check the Project URL in config.js (it should look like https://abcd.supabase.co).'
+      :'Sign-in failed: '+em;
+    m.hidden=false;console.error('Sign-in error',err)}
   btn.disabled=false;btn.textContent='Sign in';
 });
 async function signOut(){
