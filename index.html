@@ -200,6 +200,30 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .kv b{font-weight:700}
 .inline-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* planner groups */
+.chips{display:flex;gap:8px;flex-wrap:wrap;position:relative}
+.chip{border:1px solid var(--line);border-left:4px solid var(--band,var(--line));background:var(--surface);color:var(--ink);border-radius:12px;padding:8px 12px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
+.chip b{font-size:.9rem}.chip small{font-size:.75rem;color:var(--ink-2)}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}.chip[aria-selected="true"] small{color:inherit;opacity:.85}
+.chip.add{border-style:dashed;border-left-width:1px;color:var(--accent)}
+.chip.newg{flex-direction:row;align-items:center;gap:6px;border-left-width:1px;cursor:default}
+.chip.newg input{border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0;width:170px;background:var(--surface)}
+.chip.newg .btn{min-height:36px;padding:6px 12px}
+@media (max-width:640px){.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}.chip{flex:none}}
+.grphead{display:flex;flex-direction:column;gap:2px;min-width:0}
+.grpname{font-family:var(--f-display);font-weight:700;font-size:1.05rem;border:1px solid transparent;border-radius:8px;padding:4px 6px;margin-left:-6px;background:transparent;min-width:0;max-width:100%}
+.grpname:hover{border-color:var(--line)}.grpname:focus{border-color:var(--accent);outline:none;background:var(--surface)}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:.85rem}
+.btn.danger-t{color:var(--bad)}
+/* faster editing */
+.selbox,.selall{width:20px;height:20px;accent-color:var(--bad);cursor:pointer;margin:0 6px}
+.selbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:45;background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.22);border-radius:14px;padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 32px)}
+.selbar .btn{min-height:40px;padding:8px 14px}
+body:has(.selbar) .fab{display:none}
+body:has(.selbar) .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+.toast{display:flex;gap:14px;align-items:center}
+.toastbtn{background:transparent;border:1px solid currentColor;color:inherit;border-radius:8px;padding:4px 10px;font-weight:700;cursor:pointer}
 /* v1.2 searchable pickers, reports */
 .cb{position:relative;min-width:0}
 .cb-in{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:10px 30px 10px 11px;min-height:44px}
@@ -390,7 +414,7 @@ function exampleTx(P){
 
 /* ---------- state ---------- */
 let P=null, TX={};
-const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{type:'',cat:'',q:''},rep:{type:'expense',preset:'month',cat:'',ch:'',src:'',item:'',from:'',to:''},common:'count',confirm:null};
+const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{type:'',cat:'',q:''},planGroup:lsGet('hz-pg')||'all',rep:{type:'expense',preset:'month',cat:'',ch:'',src:'',item:'',from:'',to:''},common:'count',confirm:null};
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
@@ -802,55 +826,104 @@ function vDashboard(){
 function inp(coll,id,field,val,{type='number',cls='',ph=''}={}){
   const isNum=type==='number';return `<input id="f-${coll}-${id}-${field}" data-bind="${coll}|${id}|${field}" type="${isNum?'text':type}" ${isNum?'inputmode="decimal" autocomplete="off"':''} value="${esc(isNum?fmtIn(val):(val??''))}" class="${isNum?'m numin ':''}${cls}" placeholder="${isNum?(ph||'0'):ph}" aria-label="${esc(field)}">`}
 function vPlanner(){
-  const mk=ui.month,p=plan(mk),R=P.settings.rule,S=P.settings;
-  const subRows=(group)=>{const subs=group==='wants'?['Wants']:[...new Set([...SUBS,...P.cats.filter(c=>c.group==='needs').map(c=>c.sub)])];
-    return subs.map(sb=>{const list=P.cats.filter(c=>c.group===group&&c.sub===sb);const t=sum(list,c=>num(c.budget));
-      return `<tr class="sub"><td colspan="2">${esc(sb)}</td><td class="n">${M(t)}</td><td class="n">${pct(t,p.inc).toFixed(1)}%</td><td></td></tr>`+
-      list.map(c=>`<tr><td colspan="2">${inp('cats',c.id,'name',c.name,{type:'text',cls:'wide'})}</td><td class="n">${c.id===P.shopLink?M(num(c.budget))+'<div><a class="pill" href="#shopping">from Shopping</a></div>':inp('cats',c.id,'budget',c.budget)}</td><td class="n pctin">${c.id===P.shopLink?pct(num(c.budget),p.inc).toFixed(1)+'%':inp('cats',c.id,'pctOfInc',+pct(num(c.budget),p.inc).toFixed(2))}</td><td><button class="x" data-del="cats|${c.id}" aria-label="Remove ${esc(c.name)}">×</button></td></tr>`).join('')+
-      `<tr><td colspan="5"><button class="addrow" data-add="cats|${group}|${esc(sb)}">+ Add to ${esc(sb)}</button></td></tr>`}).join('')};
-  const ruleCard=(k,label,actual,color)=>{const ideal=R[k]/100*p.inc,ap=pct(actual,p.inc);const st=k==='save'?(ap>=R[k]?'good':'warn'):(ap<=R[k]?'good':ap<=R[k]+10?'warn':'bad');
-    return `<div class="r" style="border-top:4px solid ${color}"><div class="eyebrow">${label}</div><div class="big">${R[k]}%</div><div class="small" style="margin:8px 0 4px">Ideal ${M(ideal)}</div><div class="small">Planned ${M(actual)} · <span class="pill ${st}">${ap.toFixed(0)}%</span></div></div>`};
-  return `${banner()}<div class="pageh"><div><h1>Monthly Budget Planner</h1><p>Your standing plan for every month. Planned projects apply to ${esc(mLabel(mk))}. Changes save as you leave each field.</p></div></div>
-  <section class="grid">
-   <div class="card s12"><div class="card-h"><h2>The ${R.needs}-${R.save}-${R.wants} rule of thumb</h2><a class="small" href="#setup">Change the split</a></div>
-    <div class="rule">${ruleCard('needs','Mandatory bills &amp; expenses',p.needs+p.proj,'var(--c1)')}${ruleCard('save','Savings, investments &amp; debt',p.save+p.debt,'var(--gold)')}${ruleCard('wants','Wants, giving &amp; miscellaneous',p.wants,'var(--c5)')}</div></div>
-   <div class="card s6"><div class="card-h"><h2>Income</h2><span class="small muted">Monthly, planned</span></div>
-    <div class="fgrid" style="margin-bottom:12px">
-      <div class="field"><label for="f-settings---gross">Gross salary</label>${inp('settings','-','gross',S.gross)}</div>
-    </div>
+  const mk=ui.month,p=plan(mk),R=P.settings.rule,S=P.settings,inc=p.inc;
+  const hid=P.hiddenSubs||[];const needsSubs=[...new Set([...SUBS.filter(x=>!hid.includes(x)),...(P.extraSubs||[]),...P.cats.filter(c=>c.group==='needs').map(c=>c.sub)])];
+  const G=[{k:'inc',name:'Income',kind:'inc',total:inc,count:P.sources.length,band:'var(--good)'},...needsSubs.map(sb=>{const l=P.cats.filter(c=>c.group==='needs'&&c.sub===sb);return{k:'sub:'+sb,name:sb,kind:'cats',group:'needs',sub:sb,total:sum(l,c=>num(c.budget)),count:l.length,band:'var(--c1)'}}),
+    (()=>{const l=P.cats.filter(c=>c.group==='wants');return{k:'wants',name:'Wants & giving',kind:'cats',group:'wants',sub:'Wants',total:sum(l,c=>num(c.budget)),count:l.length,band:'var(--c5)'}})(),
+    {k:'loans',name:'Loans & instalments',kind:'loans',total:p.debt,count:P.debts.length,band:'var(--gold)'},
+    {k:'proj',name:'Planned projects',kind:'proj',total:p.proj,count:P.projects.filter(x=>x.month===mk).length,band:'var(--c1)'},
+    {k:'sav',name:'Savings & investments',kind:'sav',total:p.save,count:P.chambers.length,band:'var(--gold)'}];
+  let sel=ui.planGroup||'all';if(sel!=='all'&&!G.some(g=>g.k===sel))sel='all';
+  const g=G.find(x=>x.k===sel);
+  const pctCell=(coll,id,amt,locked)=>`<td class="n pctin">${locked?pct(amt,inc).toFixed(1)+'%':inp(coll,id,'pctOfInc',+pct(amt,inc).toFixed(2))}</td>`;
+  const catRow=c=>`<tr><td colspan="2">${inp('cats',c.id,'name',c.name,{type:'text',cls:'wide'})}</td><td class="n">${c.id===P.shopLink?M(num(c.budget))+'<div><a class="pill" href="#shopping">from Shopping</a></div>':inp('cats',c.id,'budget',c.budget)}</td>${pctCell('cats',c.id,num(c.budget),c.id===P.shopLink)}<td><button class="x" data-del="cats|${c.id}" aria-label="Remove ${esc(c.name)}">×</button></td></tr>`;
+  const catTable=(group,subs,showSub)=>`<div class="tw"><table><thead><tr><th colspan="2">Item</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th></th></tr></thead><tbody>
+    ${subs.map(sb=>{const l=P.cats.filter(c=>c.group===group&&c.sub===sb),t=sum(l,c=>num(c.budget));
+      return (showSub?`<tr class="sub"><td colspan="2">${esc(sb)}</td><td class="n">${M(t)}</td><td class="n">${pct(t,inc).toFixed(1)}%</td><td></td></tr>`:'')+(l.map(catRow).join('')||`<tr><td colspan="5" class="muted">No items yet.</td></tr>`)+
+      `<tr><td colspan="5"><button class="addrow" data-add="cats|${group}|${esc(sb)}">+ Add item to ${esc(sb)}</button></td></tr>`}).join('')}</tbody></table></div>`;
+  const loansTable=()=>`<div class="tw"><table><thead><tr><th>Loan / item</th><th class="n">Total owed</th><th class="n">Monthly instalment</th><th class="n">% of income</th><th class="n">Remaining</th><th></th></tr></thead><tbody>
+    ${P.debts.map(d=>`<tr><td>${inp('debts',d.id,'name',d.name,{type:'text',cls:'wide'})}</td><td class="n">${inp('debts',d.id,'owed',d.owed)}</td><td class="n">${inp('debts',d.id,'monthly',d.monthly)}</td>${pctCell('debts',d.id,num(d.monthly))}<td class="n">${M(debtLeft(d))}</td><td><button class="x" data-del="debts|${d.id}" aria-label="Remove ${esc(d.name)}">×</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No loans yet. Add one, for example “Solar loan”.</td></tr>'}
+    </tbody></table></div><button class="addrow" data-add="debts">+ Add loan or instalment item</button>
+    <p class="note">Each loan is an expense category under “Loans &amp; instalments”. Logging an expense against it counts as an instalment and lowers what you owe.</p>`;
+  const projTable=()=>`<div class="tw"><table><thead><tr><th>Project</th><th>Month</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th class="n">Spent</th><th></th></tr></thead><tbody>
+    ${P.projects.map(x=>`<tr><td>${inp('projects',x.id,'name',x.name,{type:'text',cls:'wide'})}</td><td>${inp('projects',x.id,'month',x.month,{type:'month'})}</td><td class="n">${inp('projects',x.id,'budget',x.budget)}</td>${pctCell('projects',x.id,num(x.budget))}<td class="n">${M(projSpent(x))}</td><td><button class="x" data-del="projects|${x.id}" aria-label="Remove project">×</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No planned projects.</td></tr>'}
+    </tbody></table></div><button class="addrow" data-add="projects">+ Add project</button>`;
+  const savTable=()=>`<div class="tw"><table><thead><tr><th>Account</th><th class="n">% of income</th><th class="n">Amount (Ksh)</th></tr></thead><tbody>
+    ${P.chambers.map(c=>`<tr><td>${chPill(c.id)}</td><td class="n">${inp('chambers',c.id,'pct',+chPct(c).toFixed(2))}</td><td class="n">${inp('chambers',c.id,'amt',Math.round(chTarget(c)))}</td></tr>`).join('')}
+    <tr class="tot"><td>Total savings</td><td class="n">${pct(p.save,inc).toFixed(1)}%</td><td class="n">${M(p.save)}</td></tr></tbody></table></div>
+    <p class="note">Key in a % and the amount follows, or key in an amount and the % follows. Add or rename accounts in <a href="#setup">Setup</a>.</p>`;
+  const incomeBody=()=>`<div class="fgrid" style="margin-bottom:12px"><div class="field"><label for="f-settings---gross">Gross salary</label>${inp('settings','-','gross',S.gross)}</div></div>
     <div class="linked" style="margin-bottom:6px">
       <div class="field"><label for="f-settings---netPct">Net as % of gross</label>${inp('settings','-','netPct',+num(S.netPct).toFixed(4))}</div><span class="swap" aria-hidden="true">⇄</span>
       <div class="field"><label for="f-settings---netAmt">Net salary</label>${inp('settings','-','netAmt',Math.round(netSalary()))}</div></div>
-    <p class="note">Type a percentage to derive net pay, or type the net amount from your payslip and the percentage updates.</p>
     <div class="tw" style="margin-top:10px"><table><thead><tr><th>Source</th><th class="n">Amount</th><th class="n">Share</th></tr></thead><tbody>
-     <tr><td>Net Salary</td><td class="n">${M(netSalary())}</td><td class="n small muted">${pct(netSalary(),p.inc).toFixed(1)}%</td></tr>
-     ${P.sources.filter(x=>x.id!=='salary').map(x=>`<tr><td>${esc(x.name)}</td><td class="n">${inp('income','-',x.id,P.income[x.id])}</td><td class="n small muted">${pct(num(P.income[x.id]),p.inc).toFixed(1)}%</td></tr>`).join('')}
+     <tr><td>Net Salary</td><td class="n">${M(netSalary())}</td><td class="n small muted">${pct(netSalary(),inc).toFixed(1)}%</td></tr>
+     ${P.sources.filter(x=>x.id!=='salary').map(x=>`<tr><td>${esc(x.name)}</td><td class="n">${inp('income','-',x.id,P.income[x.id])}</td><td class="n small muted">${pct(num(P.income[x.id]),inc).toFixed(1)}%</td></tr>`).join('')}
      <tr><td colspan="3" class="small muted">Add or rename income sources in <a href="#setup">Setup</a>.</td></tr>
-     <tr class="tot"><td>Total income</td><td class="n">${M(p.inc)}</td><td class="n">100%</td></tr></tbody></table></div></div>
-   <div class="card s6"><div class="card-h"><h2>Summary</h2><span class="small muted">${esc(mLabel(mk))}</span></div>
-    ${[['Total income',p.inc],['Savings & investments',-p.save],['Debt repayments',-p.debt],['Mandatory bills (needs)',-p.needs],['Wants & miscellaneous',-p.wants],['Planned projects',-p.proj]].map(([l,v])=>`<div class="kv"><span>${l}</span><b>${M(v)}</b></div>`).join('')}
+     <tr class="tot"><td>Total income</td><td class="n">${M(inc)}</td><td class="n">100%</td></tr></tbody></table></div>`;
+  // split computed from what is keyed in
+  const parts=[['needs','Needs: bills & expenses',p.needs+p.proj,'var(--c1)'],['save','Savings, investments & loans',p.save+p.debt,'var(--gold)'],['wants','Wants & giving',p.wants,'var(--c5)']];
+  const base=inc||p.total||1,free=Math.max(0,inc-p.total);
+  const splitCard=`<div class="card s7"><div class="card-h"><h2>Your split</h2><span class="small muted">Worked out from what you keyed in · guide ${R.needs}/${R.save}/${R.wants}</span></div>
+    <div class="split" style="height:34px">${parts.map(([k,l,v,c])=>`<i style="width:${pct(v,base)}%;background:${c}">${pct(v,base)>=6?Math.round(pct(v,base))+'%':''}</i>`).join('')}${free>0?`<i style="width:${pct(free,base)}%;background:var(--surface-2);color:var(--ink-2)">${pct(free,base)>=6?Math.round(pct(free,base))+'% free':''}</i>`:''}</div>
+    <div class="rule" style="margin-top:12px">${parts.map(([k,l,v,c])=>{const ap=pct(v,base),gd=R[k];const st=k==='save'?(ap>=gd?'good':'warn'):(ap<=gd?'good':ap<=gd+10?'warn':'bad');
+      return `<div class="r" style="border-top:4px solid ${c}"><div class="eyebrow">${l}</div><div class="big">${Math.round(ap)}%</div><div class="small" style="margin:8px 0 4px">${M(v)} a month</div><div class="small muted">Guide ${gd}% · <span class="pill ${st}">${st==='good'?'within guide':k==='save'?'below guide':'above guide'}</span></div></div>`}).join('')}</div>
+    ${free>0?`<p class="note">${M(free)} (${Math.round(pct(free,base))}%) of planned income is not yet allocated.</p>`:p.left<0?`<p class="note neg">Planned outflows exceed income by ${M(-p.left)}.</p>`:''}</div>`;
+  const chips=`<div class="chips" role="tablist" aria-label="Plan categories">
+    <button class="chip" role="tab" data-act="pgrp" data-v="all" aria-selected="${sel==='all'}"><b>All</b><small>${M(p.total)}</small></button>
+    ${G.map(x=>`<button class="chip" role="tab" data-act="pgrp" data-v="${esc(x.k)}" aria-selected="${sel===x.k}" style="--band:${x.band}"><b>${esc(x.name)}</b><small>${M(x.total)} · ${x.count} item${x.count===1?'':'s'}</small></button>`).join('')}
+    ${ui.newGroup?`<span class="chip newg"><input id="ngName" type="text" placeholder="Group name, e.g. Farm" maxlength="40"><button class="btn" data-act="ngAdd">Add</button><button class="x" data-act="ngCancel" aria-label="Cancel">×</button></span>`:`<button class="chip add" data-act="ngOpen"><b>+ New group</b><small>for your own items</small></button>`}
+  </div>`;
+  let panel='';
+  if(g){
+    const conf=ui.confirm==='pdel:'+g.k;
+    const head=`<div class="card-h"><div class="grphead">${g.kind==='cats'&&g.group==='needs'?`<input id="grpName" class="grpname" value="${esc(g.name)}" aria-label="Group name" title="Click to rename this group">`:`<h2>${esc(g.name)}</h2>`}<span class="small muted">${M(g.total)} · ${pct(g.total,inc).toFixed(1)}% of income</span></div>
+      <div class="inline-actions">${g.kind==='inc'?'':g.kind!=='sav'?`<button class="btn ghost sm" data-act="pclear" data-v="${esc(g.k)}">Clear all amounts</button><button class="btn ghost sm danger-t" data-act="pdelask" data-v="${esc(g.k)}">Delete all items</button>`:`<button class="btn ghost sm" data-act="pclear" data-v="sav">Clear all targets</button>`}${g.kind==='cats'&&g.group==='needs'&&!g.count?`<button class="btn ghost sm" data-act="pgrem" data-v="${esc(g.k)}">Remove empty group</button>`:''}</div></div>
+      ${conf?`<div class="tip" style="margin-bottom:10px"><b>Delete all ${g.count} items in ${esc(g.name)}?</b> You can undo straight after.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="pdel" data-v="${esc(g.k)}">Delete all</button><button class="btn ghost" data-act="cancelDel">Keep them</button></div></div>`:''}`;
+    panel=`<div class="card s12">${head}${g.kind==='inc'?incomeBody():g.kind==='cats'?catTable(g.group,[g.sub],false):g.kind==='loans'?loansTable():g.kind==='proj'?projTable():savTable()}</div>`;
+  } else {
+    panel=`<div class="card s6"><div class="card-h"><h2>Income</h2><span class="small muted">Monthly, planned</span></div>${incomeBody()}</div>
+     <div class="card s6"><div class="card-h"><h2>Savings &amp; investments</h2><b>${M(p.save)}</b></div>${savTable()}</div>
+     <div class="card s6"><div class="card-h"><h2>Needs: bills &amp; expenses</h2><b>${M(p.needs)}</b></div>${catTable('needs',needsSubs,true)}</div>
+     <div class="card s6"><div class="card-h"><h2>Wants &amp; giving</h2><b>${M(p.wants)}</b></div>${catTable('wants',['Wants'],false)}
+       <div class="card-h" style="margin-top:22px"><h2>Planned projects</h2><b>${M(p.proj)}</b></div>${projTable()}</div>
+     <div class="card s6"><div class="card-h"><h2>Loans &amp; instalments</h2><a class="small" href="#debt">See payment progress</a></div>${loansTable()}</div>`;
+  }
+  return `${banner()}<div class="pageh"><div><h1>Monthly Budget Planner</h1><p>Your standing plan for every month. Tap a group below to work on just those items. Planned projects apply to ${esc(mLabel(mk))}.</p></div></div>
+  <section class="grid">
+   ${splitCard}
+   <div class="card s5"><div class="card-h"><h2>Summary</h2><span class="small muted">${esc(mLabel(mk))}</span></div>
+    ${[['Total income',inc],['Savings & investments',-p.save],['Loans & instalments',-p.debt],['Needs: bills & expenses',-p.needs],['Wants & giving',-p.wants],['Planned projects',-p.proj]].map(([l,v])=>`<div class="kv"><span>${l}</span><b>${M(v)}</b></div>`).join('')}
     <div class="total-line"><span class="eyebrow">${p.left>=0?'Excess':'Deficit'}</span><b class="${p.left<0?'neg':'pos'}">${M(p.left)}</b></div>
-    ${p.left<0?`<p class="note neg">Planned outflows exceed income by ${M(-p.left)}. Trim wants or lower a savings target.</p>`:p.left>0?`<p class="note">Unallocated money. Consider adding it to a savings chamber.</p>`:''}
-   </div>
-   <div class="card s6"><div class="card-h"><h2>Savings &amp; investments</h2><span class="small muted">Pay yourself first</span></div>
-    <div class="tw"><table><thead><tr><th>Chamber</th><th class="n">% of income</th><th class="n">Amount</th></tr></thead><tbody>
-    ${P.chambers.map(c=>`<tr><td><span class="pill" style="background:color-mix(in srgb,${chColor(c)} 18%,transparent);color:${chColor(c)}">${esc(c.name)}</span></td><td class="n">${inp('chambers',c.id,'pct',+chPct(c).toFixed(2))}</td><td class="n">${inp('chambers',c.id,'amt',Math.round(chTarget(c)))}</td></tr>`).join('')}
-    <tr class="tot"><td>Total savings</td><td class="n">${pct(p.save,p.inc).toFixed(1)}%</td><td class="n">${M(p.save)}</td></tr></tbody></table></div>
-    <p class="note">Key in a % and the amount follows, or key in an amount and the % follows.</p></div>
-   <div class="card s6"><div class="card-h"><h2>Loans &amp; instalments</h2><a class="small" href="#debt">See payment progress</a></div>
-    <div class="tw"><table><thead><tr><th>Loan / item</th><th class="n">Total owed</th><th class="n">Monthly instalment</th><th class="n">% of income</th><th class="n">Remaining</th><th></th></tr></thead><tbody>
-    ${P.debts.map(d=>`<tr><td>${inp('debts',d.id,'name',d.name,{type:'text',cls:'wide'})}</td><td class="n">${inp('debts',d.id,'owed',d.owed)}</td><td class="n">${inp('debts',d.id,'monthly',d.monthly)}</td><td class="n pctin">${inp('debts',d.id,'pctOfInc',+pct(num(d.monthly),planIncome()).toFixed(2))}</td><td class="n">${M(debtLeft(d))}</td><td><button class="x" data-del="debts|${d.id}" aria-label="Remove ${esc(d.name)}">×</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">No loans yet. Add one, for example “Solar loan”.</td></tr>'}
-    <tr class="tot"><td>Total</td><td></td><td class="n">${M(p.debt)}</td><td class="n">${pct(p.debt,p.inc).toFixed(1)}%</td><td class="n">${M(sum(P.debts,debtLeft))}</td><td></td></tr></tbody></table></div>
-    <button class="addrow" data-add="debts">+ Add loan or instalment item</button>
-    <p class="note">Each loan is an expense category under “Loans &amp; instalments”. When you log an expense against it, that payment counts as an instalment and lowers what you owe.</p></div>
-   <div class="card s6"><div class="card-h"><h2>Mandatory bills &amp; expenses</h2><b>${M(p.needs)}</b></div><div class="tw"><table><thead><tr><th colspan="2">Category</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th></th></tr></thead><tbody>${subRows('needs')}</tbody></table></div></div>
-   <div class="card s6"><div class="card-h"><h2>Wants, giving &amp; miscellaneous</h2><b>${M(p.wants)}</b></div><div class="tw"><table><thead><tr><th colspan="2">Category</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th></th></tr></thead><tbody>${subRows('wants')}</tbody></table></div>
-     <div class="card-h" style="margin-top:22px"><h2>Planned project expenses</h2><b>${M(p.proj)}</b></div>
-     <div class="tw"><table><thead><tr><th>Project</th><th>Month</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th class="n">Spent</th><th></th></tr></thead><tbody>
-     ${P.projects.map(x=>`<tr><td>${inp('projects',x.id,'name',x.name,{type:'text',cls:'wide'})}</td><td>${inp('projects',x.id,'month',x.month,{type:'month'})}</td><td class="n">${inp('projects',x.id,'budget',x.budget)}</td><td class="n pctin">${inp('projects',x.id,'pctOfInc',+pct(num(x.budget),planIncome()).toFixed(2))}</td><td class="n">${M(projSpent(x))}</td><td><button class="x" data-del="projects|${x.id}" aria-label="Remove project">×</button></td></tr>`).join('')}
-     </tbody></table></div><button class="addrow" data-add="projects">+ Add project</button></div>
+    ${p.left<0?`<p class="note neg">Planned outflows exceed income by ${M(-p.left)}. Trim wants or lower a savings target.</p>`:p.left>0?`<p class="note">Unallocated money. Consider adding it to a savings account.</p>`:''}</div>
+   <div class="card s12 chipcard">${chips}</div>
+   ${panel}
   </section>`;
 }
+function planGroupAction(act,k){
+  const snap=JSON.stringify(P);const mk=ui.month;
+  const items=k==='wants'?P.cats.filter(c=>c.group==='wants'):k.startsWith('sub:')?P.cats.filter(c=>c.group==='needs'&&c.sub===k.slice(4)):k==='loans'?P.debts:k==='proj'?P.projects.filter(x=>x.month===mk):[];
+  if(act==='clear'){
+    if(k==='sav')P.chambers.forEach(c=>{c.mode='amt';c.amt=0;c.pct=0});
+    else items.forEach(x=>{if(k==='loans')x.monthly=0;else if(!(k!=='proj'&&x.id===P.shopLink))x.budget=0});
+    saveP();toastAction('Amounts cleared','Undo',()=>{P=migrate(JSON.parse(snap));saveP();render()});
+  } else if(act==='delete'){
+    const ids=new Set(items.map(x=>x.id));
+    if(k==='loans')P.debts=P.debts.filter(x=>!ids.has(x.id));else if(k==='proj')P.projects=P.projects.filter(x=>!ids.has(x.id));
+    else{if(ids.has(P.shopLink))P.shopLink=null;P.cats=P.cats.filter(x=>!ids.has(x.id));if(k.startsWith('sub:')){P.extraSubs=P.extraSubs||[];if(!P.extraSubs.includes(k.slice(4)))P.extraSubs.push(k.slice(4))}}
+    saveP();toastAction(ids.size+' item'+(ids.size===1?'':'s')+' deleted','Undo',()=>{P=migrate(JSON.parse(snap));saveP();render()});
+  }
+  ui.confirm=null;render();
+}
+document.addEventListener('change',e=>{
+  if(e.target.id!=='grpName')return;
+  const k=ui.planGroup||'';if(!k.startsWith('sub:'))return;const old=k.slice(4),nw=e.target.value.trim();
+  if(!nw||nw===old){e.target.value=old;return}
+  if(SUBS.includes(nw)||P.cats.some(c=>c.group==='needs'&&c.sub===nw)){toast('A group with that name already exists');e.target.value=old;return}
+  P.cats.forEach(c=>{if(c.group==='needs'&&c.sub===old)c.sub=nw});
+  P.extraSubs=(P.extraSubs||[]).filter(x=>x!==old);if(!SUBS.includes(nw))P.extraSubs.push(nw);if(SUBS.includes(old)){P.hiddenSubs=P.hiddenSubs||[];if(!P.hiddenSubs.includes(old))P.hiddenSubs.push(old)}
+  ui.planGroup='sub:'+nw;lsSet('hz-pg',ui.planGroup);saveP();toast('Group renamed');render();
+});
 
 function txRow(t){
   const v=num(t.amt);let title,meta,sign='−',ic,cls=t.type;
@@ -1232,7 +1305,7 @@ function repCsv(){
 /* ---------- render ---------- */
 function render(){
   if(!P)return;_bal={};
-  const act=document.activeElement&&document.activeElement.id;const sel=act&&document.activeElement.selectionStart;
+  const act=document.activeElement&&document.activeElement.id;const sel=act&&document.activeElement.selectionStart;const sy=window.scrollY;
   $('#mLabel').textContent=mLabel(ui.month);
   $('#tabs').innerHTML=views().map(([k,l])=>`<a href="#${k}" ${ui.view===k?'aria-current="page"':''}>${l}</a>`).join('');
   const f={dashboard:vDashboard,planner:vPlanner,tracker:vTracker,goals:vGoals,debt:vDebt,shopping:vShopping,setup:vSetup,users:vUsers,reports:vReports}[ui.view]||vDashboard;
@@ -1240,9 +1313,68 @@ function render(){
   if(store.viewing)$('#app').querySelectorAll('input,select').forEach(el=>{el.disabled=true});
   document.body.classList.toggle('private',ui.priv);
   $('#privBtn').setAttribute('aria-pressed',ui.priv);$('#privTxt').textContent=ui.priv?'Show figures':'Hide figures';
-  if(act){const el=document.getElementById(act);if(el&&el!==document.body){el.focus();try{if(sel!=null&&el.setSelectionRange)el.setSelectionRange(sel,sel)}catch(e){}}}
+  decorateSelect();
+  const sc=document.querySelector('.chip[aria-selected="true"]');if(sc){const bx=sc.parentElement;bx.scrollLeft=sc.offsetLeft-bx.clientWidth/2+sc.offsetWidth/2}
+  window.scrollTo(0,sy);
+  const fid=ui.focusNext||act;ui.focusNext=null;
+  if(fid){const el=document.getElementById(fid);if(el&&el!==document.body){try{el.focus({preventScroll:true})}catch(e){el.focus()}
+    if(fid===act){try{if(sel!=null&&el.setSelectionRange)el.setSelectionRange(sel,sel)}catch(e){}}else{try{el.select()}catch(e){}const r=el.getBoundingClientRect();if(r.top<70||r.bottom>window.innerHeight-90)el.scrollIntoView({block:'center'})}}}
 }
-function route(){const h=location.hash.slice(1);ui.view=views().some(v=>v[0]===h)?h:'dashboard';if(ui.view==='users')ui.users=null;ui.confirm=null;render();window.scrollTo(0,0)}
+/* ---------- faster editing: select several to delete, undo, Enter moves down ---------- */
+ui.sel=new Set();
+function decorateSelect(){
+  const old=$('#selbar');if(old)old.remove();
+  const dels=[...document.querySelectorAll('#app button.x[data-del]')];
+  if(!dels.length||store.viewing){ui.selMode=false;return}
+  const ph=document.querySelector('#app .pageh');
+  if(ph&&!ui.selMode){const b=document.createElement('button');b.className='btn ghost';b.dataset.act='selOn';b.textContent='Select several to delete';ph.appendChild(b)}
+  if(!ui.selMode)return;
+  dels.forEach(btn=>{const k=btn.dataset.del;const c=document.createElement('input');c.type='checkbox';c.className='selbox';c.dataset.sel=k;c.checked=ui.sel.has(k);c.setAttribute('aria-label','Select '+(btn.getAttribute('aria-label')||'row').replace(/^Remove /,''));btn.replaceWith(c)});
+  document.querySelectorAll('#app table').forEach(tb=>{const boxes=tb.querySelectorAll('.selbox');if(!boxes.length)return;const th=tb.querySelector('thead tr th:last-child');if(!th)return;
+    const a=document.createElement('input');a.type='checkbox';a.className='selall';a.title='Select all in this table';a.setAttribute('aria-label','Select all in this table');a.checked=[...boxes].every(x=>x.checked);th.innerHTML='';th.appendChild(a)});
+  const bar=document.createElement('div');bar.id='selbar';bar.className='selbar';
+  bar.innerHTML=`<span><b>${ui.sel.size}</b> selected</span><button class="btn danger" data-act="selDelete" ${ui.sel.size?'':'disabled'}>Delete selected</button><button class="btn ghost" data-act="selNone">Clear selection</button><button class="btn ghost" data-act="selOff">Done</button>`;
+  document.body.appendChild(bar);
+}
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.classList&&t.classList.contains('selbox')){t.checked?ui.sel.add(t.dataset.sel):ui.sel.delete(t.dataset.sel);const tb=t.closest('table'),a=tb&&tb.querySelector('.selall');if(a)a.checked=[...tb.querySelectorAll('.selbox')].every(x=>x.checked);selCount()}
+  else if(t.classList&&t.classList.contains('selall')){t.closest('table').querySelectorAll('.selbox').forEach(b=>{b.checked=t.checked;t.checked?ui.sel.add(b.dataset.sel):ui.sel.delete(b.dataset.sel)});selCount()}
+});
+function addGroup(){
+  const n=($('#ngName')||{value:''}).value.trim();if(!n){toast('Type a name for the group');return}
+  const exists=[...SUBS,...(P.extraSubs||[]),...P.cats.map(c=>c.sub)].some(x=>x.toLowerCase()===n.toLowerCase())&&!(P.hiddenSubs||[]).includes(n);
+  if(exists){toast('That group already exists');return}
+  P.hiddenSubs=(P.hiddenSubs||[]).filter(x=>x!==n);P.extraSubs=P.extraSubs||[];P.extraSubs.push(n);
+  const id=nid();P.cats.push({id,name:'New item',group:'needs',sub:n,budget:0});
+  ui.newGroup=false;ui.planGroup='sub:'+n;lsSet('hz-pg',ui.planGroup);ui.focusNext='f-cats-'+id+'-name';saveP();render();
+}
+document.addEventListener('keydown',e=>{if(e.target.id==='ngName'&&e.key==='Enter'){e.preventDefault();addGroup()}else if(e.target.id==='ngName'&&e.key==='Escape'){ui.newGroup=false;render()}});
+function selCount(){const bar=$('#selbar');if(!bar)return;bar.querySelector('b').textContent=ui.sel.size;bar.querySelector('[data-act=selDelete]').disabled=!ui.sel.size}
+function deleteRows(keys){
+  const snap=JSON.stringify(P);let done=0,kept=0;
+  keys.forEach(k=>{const [coll,id]=k.split('|');if(!P[coll])return;
+    if(coll==='chambers'&&allTx().some(x=>x.ch===id||x.to===id||(x.saves&&num(x.saves[id])>0))){kept++;return}
+    if(coll==='sources'&&allTx().some(x=>x.src===id)){kept++;return}
+    if(coll==='cats'&&P.shopLink===id)P.shopLink=null;
+    if(coll==='sources')delete P.income[id];
+    const before=P[coll].length;P[coll]=P[coll].filter(x=>x.id!==id);if(P[coll].length<before)done++});
+  if(!done){if(kept)toast('Accounts or sources with logged money can’t be deleted. Rename them instead.');return 0}
+  if(P.shopLink)syncShop();saveP();
+  toastAction((done===1?'1 item deleted':done+' items deleted')+(kept?' · '+kept+' kept (has logged money)':''),'Undo',()=>{P=migrate(JSON.parse(snap));saveP();render();toast('Restored')});
+  return done;
+}
+let holdRender=false,pendingRender=false;
+document.addEventListener('pointerdown',e=>{if(e.target.closest&&e.target.closest('[data-del],[data-add],[data-act],.selbox,.selall'))holdRender=true},true);
+document.addEventListener('pointerup',()=>{if(holdRender)setTimeout(()=>{holdRender=false;if(pendingRender){pendingRender=false;render()}},60)},true);
+document.addEventListener('keydown',e=>{
+  const el=e.target;if(e.key!=='Enter'||!el.dataset||!el.dataset.bind||el.type==='month')return;
+  e.preventDefault();const [coll,,field]=el.dataset.bind.split('|');
+  const list=[...document.querySelectorAll(`#app [data-bind^="${coll}|"][data-bind$="|${field}"]`)];const i=list.indexOf(el);
+  const next=list[i+1];ui.focusNext=next?next.id:null;el.blur();
+  if(next&&document.activeElement!==next){const n=document.getElementById(ui.focusNext);if(n){try{n.focus({preventScroll:true})}catch(x){n.focus()}try{n.select()}catch(x){}n.scrollIntoView({block:'nearest'});ui.focusNext=null}}
+});
+function route(){ui.selMode=false;ui.sel=new Set();const h=location.hash.slice(1);ui.view=views().some(v=>v[0]===h)?h:'dashboard';if(ui.view==='users')ui.users=null;ui.confirm=null;render();window.scrollTo(0,0)}
 
 /* ---------- edits ---------- */
 document.addEventListener('change',e=>{
@@ -1265,20 +1397,29 @@ document.addEventListener('change',e=>{
     else if(field==='pctOfInc'){it[coll==='debts'?'monthly':'budget']=Math.round(num(v)/100*planIncome())}
     else it[field]=v;}
   if(coll==='shop')syncShop();
-  saveP();render();
+  saveP();if(holdRender)pendingRender=true;else render();
 });
 document.addEventListener('input',e=>{if(e.target.id==='fQ'){ui.txFilter.q=e.target.value;debounce(render,0)();}});
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-del],[data-add],[data-act]');if(!t)return;
   if(t.dataset.act==='exitView'){exitView();return}
   if(t.dataset.act==='viewAs'){viewAs(t.dataset.id,t.dataset.name);return}
-  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
+  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh','selOn','selDelete','ngOpen','ngAdd','pclear','pdelask','pdel','pgrem'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
   if(t.dataset.del){const [coll,id]=t.dataset.del.split('|');
-    if(coll==='chambers'&&allTx().some(x=>x.ch===id||x.to===id||(x.saves&&num(x.saves[id])>0))){toast('This account has logged money. Rename it instead.');return}
-    if(coll==='sources'&&allTx().some(x=>x.src===id)){toast('This source has logged income. Rename it instead.');return}
-    if(coll==='cats'&&P.shopLink===id)P.shopLink=null;
-    if(coll==='sources')delete P.income[id];
-    P[coll]=P[coll].filter(x=>x.id!==id);saveP();render();return}
+    const ids=[...document.querySelectorAll(`#app [data-del^="${coll}|"]`)].map(b=>b.dataset.del.split('|')[1]);const i=ids.indexOf(id);const nb=ids[i+1]||ids[i-1];
+    if(deleteRows([coll+'|'+id])){if(nb&&matchMedia('(pointer:fine)').matches){const f=document.querySelector(`[id^="f-${coll}-${nb}-"]`);ui.focusNext=f?f.id:null}render()}return}
+  if(t.dataset.act==='pgrp'){ui.planGroup=t.dataset.v;lsSet('hz-pg',ui.planGroup);ui.confirm=null;ui.selMode=false;ui.sel=new Set();render();const c=document.querySelector('.chipcard');if(c){const r=c.getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.6)c.scrollIntoView({block:'start'})}return}
+  if(t.dataset.act==='ngOpen'){ui.newGroup=true;render();const n=$('#ngName');if(n)n.focus();return}
+  if(t.dataset.act==='ngCancel'){ui.newGroup=false;render();return}
+  if(t.dataset.act==='ngAdd'){addGroup();return}
+  if(t.dataset.act==='pclear'){planGroupAction('clear',t.dataset.v);return}
+  if(t.dataset.act==='pdelask'){ui.confirm='pdel:'+t.dataset.v;render();return}
+  if(t.dataset.act==='pdel'){planGroupAction('delete',t.dataset.v);return}
+  if(t.dataset.act==='pgrem'){const n=t.dataset.v.slice(4);if(SUBS.includes(n)){P.hiddenSubs=P.hiddenSubs||[];if(!P.hiddenSubs.includes(n))P.hiddenSubs.push(n)}P.extraSubs=(P.extraSubs||[]).filter(x=>x!==n);ui.planGroup='all';lsSet('hz-pg','all');saveP();toast('Group removed');render();return}
+  if(t.dataset.act==='selOn'){ui.selMode=true;ui.sel=new Set();render();return}
+  if(t.dataset.act==='selOff'){ui.selMode=false;ui.sel=new Set();render();return}
+  if(t.dataset.act==='selNone'){ui.sel=new Set();document.querySelectorAll('.selbox,.selall').forEach(b=>b.checked=false);selCount();return}
+  if(t.dataset.act==='selDelete'){if(deleteRows([...ui.sel])){ui.sel=new Set();ui.selMode=false;render()}return}
   if(t.dataset.add){const [coll,a1,a2]=t.dataset.add.split('|');const id=nid();
     const blank={cats:{id,name:'New category',group:a1,sub:a2,budget:0},projects:{id,name:'New project',month:ui.month,budget:0},sinking:{id,name:'New sinking fund',amount:0,target:addM(curMK(),11),saved:0},
       goals:{id,term:a1,name:'New goal',amount:0,target:addM(curMK(),a1==='long'?83:23),saved:0,avenue:''},debts:{id,name:'New loan',owed:0,monthly:0,rate:0,note:''},assets:{id,name:'New asset',amount:0,purpose:''},
@@ -1416,6 +1557,8 @@ function openLog(found){
   draw();
 }
 
+function toastAction(msg,label,fn){let el=$('.toast');if(!el){el=document.createElement('div');el.className='toast';el.setAttribute('role','status');document.body.appendChild(el)}
+  el.innerHTML='';const s=document.createElement('span');s.textContent=msg;const b=document.createElement('button');b.className='toastbtn';b.textContent=label;b.onclick=()=>{el.remove();fn()};el.append(s,b);clearTimeout(toastT);toastT=setTimeout(()=>el.remove(),7000)}
 let toastT;function toast(msg){let el=$('.toast');if(!el){el=document.createElement('div');el.className='toast';el.setAttribute('role','status');document.body.appendChild(el)}el.textContent=msg;clearTimeout(toastT);toastT=setTimeout(()=>el.remove(),2600)}
 
 /* ---------- chrome ---------- */
