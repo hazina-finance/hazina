@@ -1,6 +1,6 @@
 // Hazina service worker – keeps the app shell available offline.
-// Change CACHE when you upload a new batch of changes so phones pick it up.
-const CACHE = 'hazina-v1.0';
+// The version comes from index.html (sw.js?v=1.2), so this file never needs changing for updates.
+const CACHE = 'hazina-v' + (new URL(self.location).searchParams.get('v') || '1');
 const SHELL = [
   './', './index.html', './config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
