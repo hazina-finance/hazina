@@ -200,6 +200,9 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .kv b{font-weight:700}
 .inline-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* update banner */
+.updbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:80;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:calc(100% - 32px)}
+.updbar .btn{background:var(--accent-ink);color:var(--accent)}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -432,6 +435,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
+const APP_BUILD='5 Nov 2026 · lending & fees';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1193,7 +1197,7 @@ function vSetup(){
    <div class="card s6"><div class="card-h"><h2>Your data</h2><span class="small muted">Private to your account</span></div>
     <div class="inline-actions"><button class="btn ghost" data-act="exportJson">Download backup</button><button class="btn ghost" data-act="exportCsv">Download ${esc(mLabel(ui.month,1))} CSV</button><label class="btn ghost" for="importFile" style="display:inline-flex;align-items:center">Restore backup</label><input type="file" id="importFile" accept=".json,application/json" hidden></div>
     <div style="margin-top:16px">${ui.confirm==='afresh'?`<div class="tip"><b>Start afresh?</b> All transactions and opening balances are removed. Your categories, budgets, savings accounts, income sources, loans and goals stay. You’ll then enter new opening balances.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="doAfresh">Clear transactions and start afresh</button><button class="btn ghost" data-act="cancelDel">Cancel</button></div></div>`:ui.confirm==='reset'?`<div class="tip"><b>Erase everything?</b> All transactions and settings are removed. This can’t be undone.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="doReset">Erase all data</button><button class="btn ghost" data-act="cancelDel">Keep my data</button></div></div>`:`<div class="inline-actions"><button class="btn ghost" data-act="askAfresh">Start afresh…</button><button class="btn ghost" data-act="askReset" style="color:var(--bad)">Erase everything…</button></div><p class="note">Use <b>Start afresh</b> after entering test data.</p>`}</div>
-    <p class="note">Hazina version ${APP_VERSION}</p></div>
+    <p class="note">Hazina version ${APP_VERSION} · build ${APP_BUILD}</p></div>
   </section>`;
 }
 
@@ -1720,6 +1724,16 @@ $('#installBtn').onclick=async()=>{if(!deferredPrompt)return;deferredPrompt.prom
 window.addEventListener('appinstalled',()=>{$('#installBtn').hidden=true;toast('Hazina installed')});
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js?v='+APP_VERSION).catch(()=>{});
 boot();
+/* tell the user when GitHub has a newer index.html than the one on screen */
+async function checkUpdate(){
+  try{const r=await fetch('./index.html?check='+Date.now(),{cache:'no-store'});if(!r.ok)return;const txt=await r.text();
+    const m=/const APP_BUILD='([^']*)'/.exec(txt);if(!m||m[1]===APP_BUILD||$('#updbar'))return;
+    const b=document.createElement('div');b.id='updbar';b.className='updbar';b.innerHTML='<span><b>A new version of Hazina is ready.</b></span><button class="btn sm" id="updGo">Update now</button>';document.body.appendChild(b);
+    $('#updGo').onclick=async()=>{try{const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(x=>x.update().catch(()=>{})))}catch(e){}location.replace(location.pathname+'?v='+Date.now()+location.hash)};
+  }catch(e){}
+}
+setTimeout(checkUpdate,4000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
 })();
 </script>
 </body>
