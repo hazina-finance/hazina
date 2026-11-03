@@ -200,6 +200,17 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .kv b{font-weight:700}
 .inline-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* lending */
+.segtype{grid-template-columns:repeat(5,1fr)!important}
+.seg2{grid-template-columns:1fr 1fr}
+.lendrow{padding:12px 0;border-bottom:1px solid var(--line)}.lendrow:last-child{border-bottom:0}
+.tx .ic.lend{background:color-mix(in srgb,var(--c4) 16%,transparent);color:var(--c4)}
+.tx .ic.repay{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+details summary{cursor:pointer;color:var(--accent);font-weight:600}
+/* fees */
+.feebox{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:12px;align-items:end}
+.feetot{background:var(--surface-2);border-radius:9px;padding:10px 12px;min-height:44px;align-items:center}
+@media (max-width:480px){.feebox{grid-template-columns:1fr}}
 /* planner groups */
 .chips{display:flex;gap:8px;flex-wrap:wrap;position:relative}
 .chip{border:1px solid var(--line);border-left:4px solid var(--band,var(--line));background:var(--surface);color:var(--ink);border-radius:12px;padding:8px 12px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -212,6 +223,9 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .chip.newg .btn{min-height:36px;padding:6px 12px}
 @media (max-width:640px){.chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}.chip{flex:none}}
 .grphead{display:flex;flex-direction:column;gap:2px;min-width:0}
+.grpwrap{display:inline-flex;align-items:center;gap:4px;max-width:100%}
+.grpwrap .pen{color:var(--ink-2);font-size:.9rem}
+.chip.newg select{border:1px solid var(--line);border-radius:8px;padding:7px 6px;background:var(--surface)}
 .grpname{font-family:var(--f-display);font-weight:700;font-size:1.05rem;border:1px solid transparent;border-radius:8px;padding:4px 6px;margin-left:-6px;background:transparent;min-width:0;max-width:100%}
 .grpname:hover{border-color:var(--line)}.grpname:focus{border-color:var(--accent);outline:none;background:var(--surface)}
 .btn.sm{min-height:36px;padding:6px 12px;font-size:.85rem}
@@ -616,6 +630,7 @@ function migrate(p){
   if('mshwari' in p.income){if(num(p.income.mshwari))p.income.others=num(p.income.others)+num(p.income.mshwari);delete p.income.mshwari}
   if(p.settings.availOpening==null)p.settings.availOpening=0;
   if(p.shopLink===undefined)p.shopLink=null;
+  if(!Array.isArray(p.borrowers))p.borrowers=[];
   return p;
 }
 const srcName=id=>{const s=(P.sources||[]).find(x=>x.id===id);return s?s.name:id==='mshwari'?'M-Shwari':id==='avail'?'Available (saved later)':'Other income'};
@@ -629,13 +644,18 @@ const allTx=()=>Object.values(TX).flat();
 const txOf=mk=>TX[mk]||[];
 const monthEnd=mk=>mk+'-'+pad(daysIn(mk));
 /* what one entry does to Available to spend and to each savings account */
+const xTot=t=>num(t.amt)+num(t.fee);
+const feeCatId=()=>{const c=P.cats.find(c=>/transaction charge/i.test(c.name))||P.cats.find(c=>/(bank|m-?pesa|withdraw\w*|transfer) (charges?|fees?)/i.test(c.name));return c?c.id:''};
+const feeOf=t=>num(t.fee);
 function fx(t){
-  const v=num(t.amt),o={avail:0,ch:{}};const add=(id,x)=>{if(id)o.ch[id]=(o.ch[id]||0)+x};
+  const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t),o={avail:0,ch:{}};const add=(id,x)=>{if(id)o.ch[id]=(o.ch[id]||0)+x};
   if(t.type==='income'){let s=0;const sv=t.saves||{};for(const k in sv){const x=num(sv[k]);if(x>0){add(k,x);s+=x}}o.avail=v-s}
   else if(t.type==='save'){add(t.ch,v);o.avail=-v}
   else if(t.type==='expense'){const c=t.ch?Math.min(v,num(t.chAmt)):0;if(c>0)add(t.ch,-c);o.avail=-(v-c)}
-  else if(t.type==='withdraw'){add(t.ch,-v);o.avail=v}
-  else if(t.type==='transfer'){add(t.ch,-v);add(t.to,v)}
+  else if(t.type==='withdraw'){add(t.ch,-(v+f));o.avail=v}
+  else if(t.type==='lend'){if(t.ch)add(t.ch,-(v+f));else o.avail=-(v+f)}
+  else if(t.type==='repay'){if(t.ch)add(t.ch,v-f);else o.avail=v-f}
+  else if(t.type==='transfer'){add(t.ch,-(v+f));add(t.to,v)}
   return o;
 }
 let _bal={};
@@ -649,7 +669,7 @@ const chBalance=(c,upto)=>bal(upto).ch[c.id]||0;
 const debtPays=d=>allTx().filter(t=>t.type==='expense'&&t.cat==='debt:'+d.id);
 const debtPaid=d=>sum(debtPays(d),t=>num(t.amt));
 const debtLeft=d=>Math.max(0,num(d.owed)-debtPaid(d));
-const projSpent=p=>sum(allTx().filter(t=>t.type==='expense'&&t.cat==='proj:'+p.id),t=>num(t.amt));
+const projSpent=p=>sum(allTx().filter(t=>t.type==='expense'&&t.cat==='proj:'+p.id),xTot);
 function catInfo(id){
   if(!id)return{name:'Other',group:'wants',sub:'Other'};
   if(id.startsWith('debt:')){const d=P.debts.find(x=>'debt:'+x.id===id);return{name:d?d.name:'Old debt',group:'debt',sub:'Loans & instalments',budget:d?num(d.monthly):0}}
@@ -663,21 +683,35 @@ function plan(mk){
   const total=save+debt+needs+wants+proj;return{inc,save,debt,needs,wants,proj,total,left:inc-total};
 }
 function actual(mk){
-  const L=txOf(mk),a={income:0,bySrc:{},spent:0,spentAvail:0,spentSav:0,saved:0,savedCh:{},savedSrc:{},withdrawn:0,usedCh:{},moved:0,byCat:{},count:{},items:L};
+  const L=txOf(mk),a={income:0,fees:0,lent:0,lentAvail:0,lentCh:{},repaid:0,repaidAvail:0,repaidCh:{},writtenOff:0,bySrc:{},spent:0,spentAvail:0,spentSav:0,saved:0,savedCh:{},savedSrc:{},withdrawn:0,usedCh:{},moved:0,byCat:{},count:{},items:L};
   const addSrc=(s,ch,x)=>{(a.savedSrc[s]=a.savedSrc[s]||{})[ch]=(a.savedSrc[s][ch]||0)+x};
-  L.forEach(t=>{const v=num(t.amt);
+  L.forEach(t=>{const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t);a.fees+=f;
     if(t.type==='income'){a.income+=v;a.bySrc[t.src]=(a.bySrc[t.src]||0)+v;for(const k in (t.saves||{})){const x=num(t.saves[k]);if(x>0){a.saved+=x;a.savedCh[k]=(a.savedCh[k]||0)+x;addSrc(t.src,k,x)}}}
     else if(t.type==='save'){a.saved+=v;a.savedCh[t.ch]=(a.savedCh[t.ch]||0)+v;addSrc('avail',t.ch,v)}
     else if(t.type==='expense'){a.spent+=v;const c=t.ch?Math.min(v,num(t.chAmt)):0;a.spentSav+=c;a.spentAvail+=v-c;if(c>0)a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+c;const k=t.cat||'';a.byCat[k]=(a.byCat[k]||0)+v;a.count[k]=(a.count[k]||0)+1}
-    else if(t.type==='withdraw'){a.withdrawn+=v;a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+v}
-    else if(t.type==='transfer'){a.moved+=v}});
+    else if(t.type==='lend'||t.type==='repay'){
+      if(t.type==='lend'){a.lent+=v;if(t.ch)a.lentCh[t.ch]=(a.lentCh[t.ch]||0)+v;else a.lentAvail+=v}else{a.repaid+=v;if(t.ch)a.repaidCh[t.ch]=(a.repaidCh[t.ch]||0)+v;else a.repaidAvail+=v}
+      if(f>0){a.spent+=f;if(t.ch){a.spentSav+=f;a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+f}else a.spentAvail+=f;const k=t.feeCat||'';a.byCat[k]=(a.byCat[k]||0)+f;a.count[k]=(a.count[k]||0)+1}}
+    else if(t.type==='writeoff'){a.spent+=v;a.writtenOff+=v;a.byCat['']=(a.byCat['']||0)+v;a.count['']=(a.count['']||0)+1}
+    else if(t.type==='withdraw'||t.type==='transfer'){if(t.type==='withdraw'){a.withdrawn+=v;a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+v}else a.moved+=v;
+      if(f>0){a.spent+=f;a.spentSav+=f;a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+f;const k=t.feeCat||'';a.byCat[k]=(a.byCat[k]||0)+f;a.count[k]=(a.count[k]||0)+1}}});
   a.used=a.withdrawn+a.spentSav;
   a.open=bal(monthEnd(addM(mk,-1)));a.close=bal(monthEnd(mk));a.left=a.close.avail;
   return a;
 }
-const ytdSpent=mk=>{const y=mk.slice(0,4);return sum(Object.keys(TX).filter(k=>k.startsWith(y)&&k<=mk),k=>sum(TX[k].filter(t=>t.type==='expense'),t=>num(t.amt)))};
+const spendOf=t=>t.type==='expense'?xTot(t):t.type==='writeoff'?num(t.amt):['withdraw','transfer','lend','repay'].includes(t.type)?feeOf(t):0;
+const ytdSpent=mk=>{const y=mk.slice(0,4);return sum(Object.keys(TX).filter(k=>k.startsWith(y)&&k<=mk),k=>sum(TX[k],spendOf))};
+const bName=id=>{const b=(P.borrowers||[]).find(x=>x.id===id);return b?b.name:'Someone'};
+function lendInfo(id,upto){
+  const L=allTx().filter(t=>t.who===id&&(!upto||t.date<=upto));
+  const lent=sum(L.filter(t=>t.type==='lend'),t=>num(t.amt)),repaid=sum(L.filter(t=>t.type==='repay'),t=>num(t.amt)),written=sum(L.filter(t=>t.type==='writeoff'),t=>num(t.amt));
+  const fees=sum(L.filter(t=>t.type==='lend'||t.type==='repay'),feeOf),dates=L.map(t=>t.date).sort();
+  const dues=L.filter(t=>t.type==='lend'&&t.due).map(t=>t.due).sort();
+  return{lent,repaid,written,fees,out:Math.max(0,lent-repaid-written),last:dates[dates.length-1]||'',first:dates[0]||'',due:dues[dues.length-1]||'',count:L.length};
+}
+const owedToMe=upto=>sum(P.borrowers||[],b=>lendInfo(b.id,upto).out);
 function netWorth(upto){
-  const b=bal(upto);const assets=sum(P.assets,a=>num(a.amount))+b.total+Math.max(0,b.avail),liab=sum(P.debts,debtLeft);return{assets,liab,nw:assets-liab};
+  const b=bal(upto);const assets=sum(P.assets,a=>num(a.amount))+b.total+Math.max(0,b.avail)+owedToMe(upto),liab=sum(P.debts,debtLeft);return{assets,liab,nw:assets-liab};
 }
 /* suggested savings for a new income: same split as the last income from this source, else the plan's percentages */
 function suggestSaves(src,amt){
@@ -699,7 +733,7 @@ function syncShop(){if(!P.shopLink)return;const c=P.cats.find(x=>x.id===P.shopLi
 function niceMax(v){if(v<=0)return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));const n=v/p;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p}
 function dailyChart(mk){
   const dim=daysIn(mk),days=Array(dim).fill(0);
-  txOf(mk).forEach(t=>{if(t.type==='expense')days[+t.date.slice(8)-1]+=num(t.amt)});
+  txOf(mk).forEach(t=>{const x=spendOf(t);if(x)days[+t.date.slice(8)-1]+=x});
   const p=plan(mk),pace=(p.needs+p.wants)/dim;
   const W=640,H=200,L=46,R=8,T=10,B=24,max=niceMax(Math.max(...days,pace)*1.08),bw=(W-L-R)/dim;
   const y=v=>T+(H-T-B)*(1-v/max);const td=mk===curMK()?+todayStr().slice(8):-1;
@@ -738,9 +772,12 @@ function statement(mk,a){
     <div class="kv"><span>− Saved to accounts</span><b>${M(-a.saved)}</b></div>${savRows}
     <div class="kv" style="border-top:1px solid var(--line);margin-top:4px;padding-top:8px"><span>= Available after saving</span><b>${M(a.open.avail+a.income-a.saved)}</b></div>
     <div class="kv"><span>+ Taken from savings to spend</span><b>${M(a.withdrawn)}</b></div>
+    ${a.lentAvail?`<div class="kv"><span>− Lent to people</span><b>${M(-a.lentAvail)}</b></div>`:''}
+    ${a.repaidAvail?`<div class="kv"><span>+ Loan repayments received</span><b>${M(a.repaidAvail)}</b></div>`:''}
     <div class="kv"><span>− Spent from Available</span><b>${M(-a.spentAvail)}</b></div>
     <div class="total-line"><span class="eyebrow">Carried forward</span><b class="${a.close.avail<0?'neg':''}">${M(a.close.avail)}</b></div>
-    ${a.spentSav?`<p class="note">A further ${M(a.spentSav)} of spending was paid straight from savings accounts.</p>`:''}`;
+    ${a.spentSav?`<p class="note">A further ${M(a.spentSav)} of spending was paid straight from savings accounts.</p>`:''}
+    ${sum(Object.values(a.lentCh))?`<p class="note">${M(sum(Object.values(a.lentCh)))} was lent straight from savings accounts.</p>`:''}${sum(Object.values(a.repaidCh))?`<p class="note">${M(sum(Object.values(a.repaidCh)))} of repayments went straight into savings accounts.</p>`:''}`;
 }
 function chamberCard(mk,a,title){
   const tot=a.close.total;
@@ -768,6 +805,19 @@ function openingCard(){return `<div class="card s12 welcome"><div class="card-h"
   <div class="fgrid"><div class="field"><label for="f-settings---availOpening">Available to spend (cash at hand)</label>${inp('settings','-','availOpening',P.settings.availOpening)}</div>
   ${P.chambers.map(c=>`<div class="field"><label for="f-chambers-${c.id}-opening">${esc(c.name)}</label>${inp('chambers',c.id,'opening',c.opening)}</div>`).join('')}</div>
   <div class="inline-actions" style="margin-top:14px"><button class="btn" data-act="startTrack">Save and start tracking</button><a href="#setup" class="small">Add or rename savings accounts first</a></div></div>`}
+function lentRows(list,compact){
+  return list.map(({b,i})=>{const pc=pct(i.repaid+i.written,i.lent),od=i.out>0&&i.due&&i.due<todayStr();
+    return `<div class="lendrow"><div class="card-h" style="margin:0 0 6px"><div><b>${esc(b.name)}</b> ${i.out<=0?(i.written?'<span class="pill warn">Settled (part written off)</span>':'<span class="pill good">Repaid in full</span>'):od?'<span class="pill bad">Overdue</span>':i.due?`<span class="pill">Due ${esc(fmtD(i.due))}</span>`:''}</div>
+      <div class="inline-actions">${i.out>0?`<button class="addrow" style="margin:0" data-act="repayFor" data-id="${b.id}">Record repayment</button>`:''}${compact?'':`<button class="addrow" style="margin:0" data-act="lendMore" data-id="${b.id}">Lend more</button>${i.out>0?`<button class="addrow" style="margin:0;color:var(--bad)" data-act="woAsk" data-id="${b.id}">Write off</button>`:''}`}</div></div>
+      <div class="dbar"><i style="width:${Math.min(100,pc).toFixed(1)}%"></i><span>${Math.round(pc)}% back</span></div>
+      <div class="dstats"><div><small>Lent</small><b>${M(i.lent)}</b></div><div><small>Repaid</small><b>${M(i.repaid)}</b>${i.written?`<small>written off ${fmt(i.written)}</small>`:''}</div><div><small>Still owed</small><b class="${i.out?'':'pos'}">${M(i.out)}</b></div><div><small>Your fees</small><b>${M(i.fees)}</b></div></div>
+      ${ui.confirm==='wo:'+b.id?`<div class="tip" style="margin-top:10px"><b>Write off ${fmt(i.out)} owed by ${esc(b.name)}?</b> It will count as spending (a loss) for today. Delete the write-off in the Daily Tracker if they pay later.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="wo" data-id="${b.id}">Write off ${fmt(i.out)}</button><button class="btn ghost" data-act="cancelDel">Cancel</button></div></div>`:''}</div>`}).join('');
+}
+function lentCard(){
+  const list=(P.borrowers||[]).map(b=>({b,i:lendInfo(b.id)})).filter(x=>x.i.out>0).sort((x,y)=>y.i.out-x.i.out);
+  return `<div class="card s12"><div class="card-h"><h2>Money lent to people</h2><div class="inline-actions"><b>${M(owedToMe())} owed to you</b><button class="btn sm" data-act="lendNew">+ Lend money</button><a class="small" href="#debt">All lending</a></div></div>
+   ${list.length?lentRows(list,true):'<div class="empty">Nobody owes you money right now. Use <b>+ Log → Lend</b> when you lend to a friend or relative.</div>'}</div>`;
+}
 function vDashboard(){
   const mk=ui.month,a=actual(mk),p=plan(mk),cur=mk===curMK(),w=netWorth(monthEnd(mk));
   const groups={};P.cats.forEach(c=>{const g=c.group==='wants'?'Wants':c.sub;(groups[g]=groups[g]||{b:0,s:0}).b+=num(c.budget)});
@@ -777,7 +827,7 @@ function vDashboard(){
   const gHtml=Object.entries(groups).filter(([k,v])=>v.b||v.s).map(([k,v])=>`<div class="row"><div><b>${esc(k)}</b> <span class="small muted">${v.b?Math.round(pct(v.s,v.b))+'%':'no budget'}</span></div><div class="small">${M(v.s)} <span class="muted">/ ${M(v.b)}</span></div>${bar(v.s,v.b)}</div>`).join('');
   const keys=Object.keys(a.byCat).filter(k=>!k.startsWith('debt:'));
   const common=keys.slice().sort((x,y)=>ui.common==='count'?(a.count[y]-a.count[x])||(a.byCat[y]-a.byCat[x]):a.byCat[y]-a.byCat[x]).slice(0,5);
-  const exp=a.items.filter(t=>t.type==='expense'&&!String(t.cat).startsWith('debt:'));const top=exp.slice().sort((x,y)=>y.amt-x.amt)[0];
+  const exp=a.items.filter(t=>t.type==='expense'&&!String(t.cat).startsWith('debt:'));const top=exp.slice().sort((x,y)=>xTot(y)-xTot(x))[0];
   const topCat=keys.slice().sort((x,y)=>a.byCat[y]-a.byCat[x])[0];
   const share={needs:0,save:Math.max(0,a.saved-a.used),wants:0};
   for(const k in a.byCat){const g=catInfo(k).group;if(g==='needs'||g==='proj')share.needs+=a.byCat[k];else if(g==='debt')share.save+=a.byCat[k];else share.wants+=a.byCat[k]}
@@ -787,7 +837,7 @@ function vDashboard(){
    ${firstRun()?openingCard():''}
    <div class="card hero s12">
     <div><div class="eyebrow">Available to spend · ${cur?'now':'end of '+esc(mLabel(mk))}</div><div class="nw ${a.close.avail<0?'neg':''}">${M(a.close.avail)}</div>
-      <div class="nwsplit"><div><span>Total savings</span><br><b>${M(a.close.total)}</b></div><div><span>Net worth</span><br><b>${M(w.nw)}</b></div><div><span>Debts left</span><br><b>${M(w.liab)}</b></div></div></div>
+      <div class="nwsplit"><div><span>Total savings</span><br><b>${M(a.close.total)}</b></div><div><span>Net worth</span><br><b>${M(w.nw)}</b></div><div><span>Debts left</span><br><b>${M(w.liab)}</b></div>${owedToMe()?`<div><span>Owed to you</span><br><b>${M(owedToMe())}</b></div>`:''}</div></div>
     <div><div class="eyebrow">${esc(mLabel(mk))}</div>
      <div class="kpis" style="margin-top:8px">
       <div class="kpi"><small>Income received</small><b>${M(a.income)}</b><small>of ${M(p.inc)} planned</small></div>
@@ -799,6 +849,7 @@ function vDashboard(){
    <div class="card s7">${chamberCard(mk,a)}</div>
    <div class="card s5"><div class="card-h"><h2>Money statement</h2><span class="small muted">${esc(mLabel(mk))}</span></div>${statement(mk,a)}</div>
    <div class="card s7"><div class="card-h"><h2>Where savings came from</h2><div class="seg" style="grid-template-columns:1fr 1fr;width:220px"><button data-act="mat" data-v="0" aria-pressed="${!ui.matCum}">This month</button><button data-act="mat" data-v="1" aria-pressed="${!!ui.matCum}">All time</button></div></div>${sourceMatrix(a,ui.matCum)}</div>
+   ${lentCard()}
    <div class="card s5"><div class="card-h"><h2>Budget health</h2><span class="legend"><span style="--lc:var(--good)">On track</span><span style="--lc:var(--warn)">Near limit</span><span style="--lc:var(--bad)">Over</span></span></div>${gHtml||'<div class="empty">Set budgets in the Monthly Planner.</div>'}</div>
    <div class="card s8"><div class="card-h"><h2>Daily spending</h2><span class="legend"><span style="--lc:var(--accent)">Spent per day</span><span style="--lc:var(--bad)">Daily allowance (needs + wants)</span></span></div>${dailyChart(mk)}</div>
    <div class="card s4"><div class="card-h"><h2>Your split vs the rule</h2></div>
@@ -812,7 +863,7 @@ function vDashboard(){
    <div class="card s6"><div class="card-h"><h2>Common expenses</h2><div class="seg" style="grid-template-columns:1fr 1fr;width:200px"><button data-act="common" data-v="count" aria-pressed="${ui.common==='count'}">By frequency</button><button data-act="common" data-v="vol" aria-pressed="${ui.common==='vol'}">By volume</button></div></div>
     ${common.length?common.map((k,i)=>`<div class="ins"><div class="rank">${i+1}</div><div class="t"><b>${esc(catInfo(k).name)}</b><div class="small muted">${a.count[k]} entr${a.count[k]===1?'y':'ies'} · avg ${M(a.byCat[k]/a.count[k])}</div></div><div>${M(a.byCat[k])}</div></div>`).join(''):'<div class="empty">No expenses logged this month yet.</div>'}</div>
    <div class="card s6"><div class="card-h"><h2>Most priced expense</h2></div>
-    ${top?`<div class="feature"><div class="eyebrow">Biggest single item</div><b class="big">${M(top.amt)}</b><div>${esc(top.desc||catInfo(top.cat).name)} · <span class="muted">${esc(catInfo(top.cat).name)}, ${new Date(top.date+'T00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span></div></div>
+    ${top?`<div class="feature"><div class="eyebrow">Biggest single item</div><b class="big">${M(xTot(top))}</b><div>${esc(top.desc||catInfo(top.cat).name)} · <span class="muted">${esc(catInfo(top.cat).name)}, ${new Date(top.date+'T00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span></div></div>
     <div class="kv"><span>Costliest category</span><b>${esc(catInfo(topCat).name)} · ${M(a.byCat[topCat])}</b></div>
     <div class="kv"><span>Share of month’s spending</span><b>${Math.round(pct(a.byCat[topCat],a.spent))}%</b></div>`:'<div class="empty">Nothing logged yet for this month.</div>'}</div>
    <div class="card s8"><div class="card-h"><h2>Six-month trend</h2><span class="legend"><span style="--lc:var(--accent)">Income</span><span style="--lc:var(--ink-2)">Spent</span><span style="--lc:var(--gold)">Saved</span></span></div>${trendChart(mk)}</div>
@@ -825,11 +876,34 @@ function vDashboard(){
 
 function inp(coll,id,field,val,{type='number',cls='',ph=''}={}){
   const isNum=type==='number';return `<input id="f-${coll}-${id}-${field}" data-bind="${coll}|${id}|${field}" type="${isNum?'text':type}" ${isNum?'inputmode="decimal" autocomplete="off"':''} value="${esc(isNum?fmtIn(val):(val??''))}" class="${isNum?'m numin ':''}${cls}" placeholder="${isNum?(ph||'0'):ph}" aria-label="${esc(field)}">`}
+/* item groups: needs or wants, each with a name (sub) */
+const gKey=(type,sub)=>'g:'+type+':'+sub;
+const gParse=k=>{const m=/^g:(needs|wants):([\s\S]*)$/.exec(k||'');return m?{type:m[1],sub:m[2]}:null};
+const gLabel=(type,sub)=>type==='wants'&&sub==='Wants'?'Wants & giving':sub;
+const isDefGroup=(type,sub)=>type==='needs'?SUBS.includes(sub):sub==='Wants';
+function itemGroups(){
+  const hid=P.hiddenSubs||[];const isHid=(type,sb)=>hid.includes(type+':'+sb)||(type==='needs'&&hid.includes(sb));
+  const out=[];const add=(type,sb)=>{if(sb&&!out.some(x=>x.type===type&&x.sub===sb))out.push({type,sub:sb})};
+  SUBS.forEach(sb=>{if(!isHid('needs',sb))add('needs',sb)});
+  (P.extraSubs||[]).forEach(e=>{const m=/^(needs|wants):([\s\S]*)$/.exec(e);if(m)add(m[1],m[2]);else add('needs',e)});
+  P.cats.filter(c=>c.group==='needs').forEach(c=>add('needs',c.sub));
+  if(!isHid('wants','Wants'))add('wants','Wants');
+  P.cats.filter(c=>c.group==='wants').forEach(c=>add('wants',c.sub));
+  const ord=P.groupOrder||[],ix=x=>{const i=ord.indexOf(gKey(x.type,x.sub));return i<0?1e6:i};
+  const sorted=out.map((x,i)=>[x,i]).sort((a,b)=>(ix(a[0])-ix(b[0]))||(a[1]-b[1])).map(a=>a[0]);
+  return [...sorted.filter(x=>x.type==='needs'),...sorted.filter(x=>x.type==='wants')];
+}
+function keepOrder(oldKey,newKey){if(!P.groupOrder||!P.groupOrder.length)P.groupOrder=itemGroups().map(x=>gKey(x.type,x.sub));const i=P.groupOrder.indexOf(oldKey);if(i>=0)P.groupOrder[i]=newKey;else P.groupOrder.push(newKey)}
+function setGroupVisible(type,sub,show){
+  P.hiddenSubs=(P.hiddenSubs||[]).filter(x=>x!==type+':'+sub&&!(type==='needs'&&x===sub));
+  P.extraSubs=(P.extraSubs||[]).filter(x=>x!==type+':'+sub&&!(type==='needs'&&x===sub));
+  if(show){if(!isDefGroup(type,sub))P.extraSubs.push(type+':'+sub)}
+  else if(isDefGroup(type,sub))P.hiddenSubs.push(type+':'+sub);
+}
 function vPlanner(){
   const mk=ui.month,p=plan(mk),R=P.settings.rule,S=P.settings,inc=p.inc;
-  const hid=P.hiddenSubs||[];const needsSubs=[...new Set([...SUBS.filter(x=>!hid.includes(x)),...(P.extraSubs||[]),...P.cats.filter(c=>c.group==='needs').map(c=>c.sub)])];
-  const G=[{k:'inc',name:'Income',kind:'inc',total:inc,count:P.sources.length,band:'var(--good)'},...needsSubs.map(sb=>{const l=P.cats.filter(c=>c.group==='needs'&&c.sub===sb);return{k:'sub:'+sb,name:sb,kind:'cats',group:'needs',sub:sb,total:sum(l,c=>num(c.budget)),count:l.length,band:'var(--c1)'}}),
-    (()=>{const l=P.cats.filter(c=>c.group==='wants');return{k:'wants',name:'Wants & giving',kind:'cats',group:'wants',sub:'Wants',total:sum(l,c=>num(c.budget)),count:l.length,band:'var(--c5)'}})(),
+  const IG=itemGroups(),needsSubs=IG.filter(x=>x.type==='needs').map(x=>x.sub),wantsSubs=IG.filter(x=>x.type==='wants').map(x=>x.sub);
+  const G=[{k:'inc',name:'Income',kind:'inc',total:inc,count:P.sources.length,band:'var(--good)'},...IG.map(({type,sub})=>{const l=P.cats.filter(c=>c.group===type&&c.sub===sub);return{k:gKey(type,sub),name:gLabel(type,sub),kind:'cats',group:type,sub,total:sum(l,c=>num(c.budget)),count:l.length,band:type==='wants'?'var(--c5)':'var(--c1)'}}),
     {k:'loans',name:'Loans & instalments',kind:'loans',total:p.debt,count:P.debts.length,band:'var(--gold)'},
     {k:'proj',name:'Planned projects',kind:'proj',total:p.proj,count:P.projects.filter(x=>x.month===mk).length,band:'var(--c1)'},
     {k:'sav',name:'Savings & investments',kind:'sav',total:p.save,count:P.chambers.length,band:'var(--gold)'}];
@@ -872,20 +946,24 @@ function vPlanner(){
   const chips=`<div class="chips" role="tablist" aria-label="Plan categories">
     <button class="chip" role="tab" data-act="pgrp" data-v="all" aria-selected="${sel==='all'}"><b>All</b><small>${M(p.total)}</small></button>
     ${G.map(x=>`<button class="chip" role="tab" data-act="pgrp" data-v="${esc(x.k)}" aria-selected="${sel===x.k}" style="--band:${x.band}"><b>${esc(x.name)}</b><small>${M(x.total)} · ${x.count} item${x.count===1?'':'s'}</small></button>`).join('')}
-    ${ui.newGroup?`<span class="chip newg"><input id="ngName" type="text" placeholder="Group name, e.g. Farm" maxlength="40"><button class="btn" data-act="ngAdd">Add</button><button class="x" data-act="ngCancel" aria-label="Cancel">×</button></span>`:`<button class="chip add" data-act="ngOpen"><b>+ New group</b><small>for your own items</small></button>`}
+    ${ui.newGroup?`<span class="chip newg"><input id="ngName" type="text" placeholder="Group name, e.g. Farm" maxlength="40"><select id="ngType" aria-label="Group type"><option value="needs">Need</option><option value="wants">Want</option></select><button class="btn" data-act="ngAdd">Add</button><button class="x" data-act="ngCancel" aria-label="Cancel">×</button></span>`:`<button class="chip add" data-act="ngOpen"><b>+ New group</b><small>for your own items</small></button>`}
   </div>`;
   let panel='';
   if(g){
-    const conf=ui.confirm==='pdel:'+g.k;
-    const head=`<div class="card-h"><div class="grphead">${g.kind==='cats'&&g.group==='needs'?`<input id="grpName" class="grpname" value="${esc(g.name)}" aria-label="Group name" title="Click to rename this group">`:`<h2>${esc(g.name)}</h2>`}<span class="small muted">${M(g.total)} · ${pct(g.total,inc).toFixed(1)}% of income</span></div>
-      <div class="inline-actions">${g.kind==='inc'?'':g.kind!=='sav'?`<button class="btn ghost sm" data-act="pclear" data-v="${esc(g.k)}">Clear all amounts</button><button class="btn ghost sm danger-t" data-act="pdelask" data-v="${esc(g.k)}">Delete all items</button>`:`<button class="btn ghost sm" data-act="pclear" data-v="sav">Clear all targets</button>`}${g.kind==='cats'&&g.group==='needs'&&!g.count?`<button class="btn ghost sm" data-act="pgrem" data-v="${esc(g.k)}">Remove empty group</button>`:''}</div></div>
+    const conf=ui.confirm==='pdel:'+g.k,gconf=ui.confirm==='gdel:'+g.k;
+    const others=G.filter(x=>x.kind==='cats'&&x.k!==g.k);const logged=g.kind==='cats'?allTx().filter(t=>t.type==='expense'&&P.cats.some(c=>c.id===t.cat&&c.group===g.group&&c.sub===g.sub)).length:0;
+    const head=`<div class="card-h"><div class="grphead">${g.kind==='cats'?`<label class="grpwrap" title="Click to rename this group"><input id="grpName" class="grpname" value="${esc(g.name)}" aria-label="Group name"><span class="pen" aria-hidden="true">✎</span></label>`:`<h2>${esc(g.name)}</h2>`}<span class="small muted">${M(g.total)} · ${pct(g.total,inc).toFixed(1)}% of income</span></div>
+      <div class="inline-actions">${g.kind==='inc'?'':g.kind!=='sav'?`<button class="btn ghost sm" data-act="pclear" data-v="${esc(g.k)}">Clear all amounts</button><button class="btn ghost sm danger-t" data-act="pdelask" data-v="${esc(g.k)}">Delete all items</button>`:`<button class="btn ghost sm" data-act="pclear" data-v="sav">Clear all targets</button>`}${g.kind==='cats'?`<button class="btn ghost sm danger-t" data-act="gdelask" data-v="${esc(g.k)}">Delete group</button>`:''}</div></div>
+      ${gconf?`<div class="tip" style="margin-bottom:10px"><b>Delete the group “${esc(g.name)}”?</b> ${g.count?`It has ${g.count} item${g.count===1?'':'s'}.`:'It has no items.'}
+        ${g.count?`<div class="field" style="margin-top:8px;max-width:420px"><label for="gdelTo">What should happen to its items?</label><select id="gdelTo"><option value="">Delete them too</option>${others.map(o=>`<option value="${esc(o.k)}">Move them to ${esc(o.name)}</option>`).join('')}</select></div>${logged?`<p class="note">${logged} logged expense${logged===1?' uses':'s use'} these items. If you delete the items, those expenses show as “Other”. Moving keeps them in the right place.</p>`:''}`:''}
+        <div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="gdel" data-v="${esc(g.k)}">Delete group</button><button class="btn ghost" data-act="cancelDel">Cancel</button></div></div>`:''}
       ${conf?`<div class="tip" style="margin-bottom:10px"><b>Delete all ${g.count} items in ${esc(g.name)}?</b> You can undo straight after.<div class="inline-actions" style="margin-top:8px"><button class="btn danger" data-act="pdel" data-v="${esc(g.k)}">Delete all</button><button class="btn ghost" data-act="cancelDel">Keep them</button></div></div>`:''}`;
     panel=`<div class="card s12">${head}${g.kind==='inc'?incomeBody():g.kind==='cats'?catTable(g.group,[g.sub],false):g.kind==='loans'?loansTable():g.kind==='proj'?projTable():savTable()}</div>`;
   } else {
     panel=`<div class="card s6"><div class="card-h"><h2>Income</h2><span class="small muted">Monthly, planned</span></div>${incomeBody()}</div>
      <div class="card s6"><div class="card-h"><h2>Savings &amp; investments</h2><b>${M(p.save)}</b></div>${savTable()}</div>
      <div class="card s6"><div class="card-h"><h2>Needs: bills &amp; expenses</h2><b>${M(p.needs)}</b></div>${catTable('needs',needsSubs,true)}</div>
-     <div class="card s6"><div class="card-h"><h2>Wants &amp; giving</h2><b>${M(p.wants)}</b></div>${catTable('wants',['Wants'],false)}
+     <div class="card s6"><div class="card-h"><h2>Wants &amp; giving</h2><b>${M(p.wants)}</b></div>${catTable('wants',wantsSubs,wantsSubs.length>1)}
        <div class="card-h" style="margin-top:22px"><h2>Planned projects</h2><b>${M(p.proj)}</b></div>${projTable()}</div>
      <div class="card s6"><div class="card-h"><h2>Loans &amp; instalments</h2><a class="small" href="#debt">See payment progress</a></div>${loansTable()}</div>`;
   }
@@ -902,7 +980,7 @@ function vPlanner(){
 }
 function planGroupAction(act,k){
   const snap=JSON.stringify(P);const mk=ui.month;
-  const items=k==='wants'?P.cats.filter(c=>c.group==='wants'):k.startsWith('sub:')?P.cats.filter(c=>c.group==='needs'&&c.sub===k.slice(4)):k==='loans'?P.debts:k==='proj'?P.projects.filter(x=>x.month===mk):[];
+  const gp=gParse(k);const items=gp?P.cats.filter(c=>c.group===gp.type&&c.sub===gp.sub):k==='loans'?P.debts:k==='proj'?P.projects.filter(x=>x.month===mk):[];
   if(act==='clear'){
     if(k==='sav')P.chambers.forEach(c=>{c.mode='amt';c.amt=0;c.pct=0});
     else items.forEach(x=>{if(k==='loans')x.monthly=0;else if(!(k!=='proj'&&x.id===P.shopLink))x.budget=0});
@@ -910,31 +988,45 @@ function planGroupAction(act,k){
   } else if(act==='delete'){
     const ids=new Set(items.map(x=>x.id));
     if(k==='loans')P.debts=P.debts.filter(x=>!ids.has(x.id));else if(k==='proj')P.projects=P.projects.filter(x=>!ids.has(x.id));
-    else{if(ids.has(P.shopLink))P.shopLink=null;P.cats=P.cats.filter(x=>!ids.has(x.id));if(k.startsWith('sub:')){P.extraSubs=P.extraSubs||[];if(!P.extraSubs.includes(k.slice(4)))P.extraSubs.push(k.slice(4))}}
+    else{if(ids.has(P.shopLink))P.shopLink=null;P.cats=P.cats.filter(x=>!ids.has(x.id));if(gp)setGroupVisible(gp.type,gp.sub,true)}
     saveP();toastAction(ids.size+' item'+(ids.size===1?'':'s')+' deleted','Undo',()=>{P=migrate(JSON.parse(snap));saveP();render()});
   }
   ui.confirm=null;render();
 }
 document.addEventListener('change',e=>{
   if(e.target.id!=='grpName')return;
-  const k=ui.planGroup||'';if(!k.startsWith('sub:'))return;const old=k.slice(4),nw=e.target.value.trim();
-  if(!nw||nw===old){e.target.value=old;return}
-  if(SUBS.includes(nw)||P.cats.some(c=>c.group==='needs'&&c.sub===nw)){toast('A group with that name already exists');e.target.value=old;return}
-  P.cats.forEach(c=>{if(c.group==='needs'&&c.sub===old)c.sub=nw});
-  P.extraSubs=(P.extraSubs||[]).filter(x=>x!==old);if(!SUBS.includes(nw))P.extraSubs.push(nw);if(SUBS.includes(old)){P.hiddenSubs=P.hiddenSubs||[];if(!P.hiddenSubs.includes(old))P.hiddenSubs.push(old)}
-  ui.planGroup='sub:'+nw;lsSet('hz-pg',ui.planGroup);saveP();toast('Group renamed');render();
+  const gp=gParse(ui.planGroup);if(!gp)return;const old=gp.sub,label=gLabel(gp.type,old),nw=e.target.value.trim();
+  if(!nw||nw===label||nw===old){e.target.value=label;return}
+  if(itemGroups().some(x=>x.sub.toLowerCase()===nw.toLowerCase()&&!(x.type===gp.type&&x.sub===old))){toast('A group with that name already exists');e.target.value=label;return}
+  keepOrder(gKey(gp.type,old),gKey(gp.type,nw));
+  P.cats.forEach(c=>{if(c.group===gp.type&&c.sub===old)c.sub=nw});
+  setGroupVisible(gp.type,old,false);setGroupVisible(gp.type,nw,true);
+  ui.planGroup=gKey(gp.type,nw);lsSet('hz-pg',ui.planGroup);saveP();toast('Group renamed to “'+nw+'”');render();
 });
+function deleteGroup(k){
+  const gp=gParse(k);if(!gp)return;const snap=JSON.stringify(P);const to=gParse(($('#gdelTo')||{value:''}).value);
+  const items=P.cats.filter(c=>c.group===gp.type&&c.sub===gp.sub);
+  if(to){items.forEach(c=>{c.group=to.type;c.sub=to.sub})}
+  else{const ids=new Set(items.map(c=>c.id));if(ids.has(P.shopLink))P.shopLink=null;P.cats=P.cats.filter(c=>!ids.has(c.id))}
+  setGroupVisible(gp.type,gp.sub,false);
+  ui.planGroup=to?gKey(to.type,to.sub):'all';lsSet('hz-pg',ui.planGroup);ui.confirm=null;saveP();
+  toastAction('Group “'+gLabel(gp.type,gp.sub)+'” deleted'+(to&&items.length?', items moved to '+gLabel(to.type,to.sub):''),'Undo',()=>{P=migrate(JSON.parse(snap));ui.planGroup=k;lsSet('hz-pg',k);saveP();render()});
+  render();
+}
 
 function txRow(t){
-  const v=num(t.amt);let title,meta,sign='−',ic,cls=t.type;
+  let v=num(t.amt);let title,meta,sign='−',ic,cls=t.type;
   if(t.type==='income'){const sv=Object.entries(t.saves||{}).filter(([k,x])=>num(x)>0);const s=sum(sv,([k,x])=>num(x));
     title=t.desc||srcName(t.src);sign='+';ic='IN';
     meta='Income · '+srcName(t.src)+(sv.length?' · saved '+sv.map(([k,x])=>fmt(num(x))+' to '+chName(k)).join(', ')+' · '+fmt(v-s)+' to Available':' · all to Available');}
-  else if(t.type==='expense'){const ci=catInfo(t.cat);const c=t.ch?Math.min(v,num(t.chAmt)):0;title=t.desc||ci.name;ic='EX';
-    meta=ci.name+' · paid from '+(c<=0?'Available':c>=v?chName(t.ch):'Available '+fmt(v-c)+' + '+chName(t.ch)+' '+fmt(c));if(c>0)cls='expense sav';}
+  else if(t.type==='expense'){const ci=catInfo(t.cat);v=xTot(t);const c=t.ch?Math.min(v,num(t.chAmt)):0;title=t.desc||ci.name;ic='EX';
+    meta=ci.name+(feeOf(t)?' · '+fmt(num(t.amt))+' + fee '+fmt(feeOf(t)):'')+' · paid from '+(c<=0?'Available':c>=v?chName(t.ch):'Available '+fmt(v-c)+' + '+chName(t.ch)+' '+fmt(c));if(c>0)cls='expense sav';}
   else if(t.type==='save'){title=t.desc||'Saved to '+chName(t.ch);meta='Saving · from Available to '+chName(t.ch);ic='SV'}
-  else if(t.type==='withdraw'){title=t.desc||'Taken from '+chName(t.ch);meta='Moved from '+chName(t.ch)+' to Available';sign='+';ic='MV'}
-  else {title=t.desc||'Moved between accounts';meta=chName(t.ch)+' → '+chName(t.to);sign='';ic='MV';cls='transfer'}
+  else if(t.type==='withdraw'){title=t.desc||'Taken from '+chName(t.ch);meta='Moved from '+chName(t.ch)+' to Available'+(feeOf(t)?' · fee '+fmt(feeOf(t))+' (total out of '+chName(t.ch)+' '+fmt(v+feeOf(t))+')':'');sign='+';ic='MV'}
+  else if(t.type==='lend'){title=t.desc||'Lent to '+bName(t.who);meta='Lent to '+bName(t.who)+' from '+(t.ch?chName(t.ch):'Available')+(feeOf(t)?' · fee '+fmt(feeOf(t)):'')+(t.due?' · due '+fmtD(t.due):'');ic='LN';cls='lend'}
+  else if(t.type==='repay'){title=t.desc||'Repayment from '+bName(t.who);meta='Repaid by '+bName(t.who)+' into '+(t.ch?chName(t.ch):'Available')+(feeOf(t)?' · fee '+fmt(feeOf(t))+' (you received '+fmt(v-feeOf(t))+')':'');sign='+';ic='RP';cls='repay'}
+  else if(t.type==='writeoff'){title=t.desc||'Written off: '+bName(t.who);meta='Loan to '+bName(t.who)+' written off · counted as spending';ic='WO';cls='expense sav'}
+  else {title=t.desc||'Moved between accounts';meta=chName(t.ch)+' → '+chName(t.to)+(feeOf(t)?' · fee '+fmt(feeOf(t)):'');sign='';ic='MV';cls='transfer'}
   const conf=ui.confirm===t.id;
   return `<div class="tx"><div class="ic ${cls}">${ic}</div><div class="t"><b>${esc(title)}</b><small>${esc(meta)}</small></div><div class="amt ${t.type==='income'?'pos':''}"><span class="m">${sign} ${fmt(v)}</span></div>
    <div class="acts">${conf?`<button class="btn danger" style="min-height:32px;padding:4px 10px" data-act="delTx" data-id="${t.id}">Delete</button><button class="x" data-act="cancelDel" aria-label="Cancel">↩</button>`:`<button class="x" data-act="editTx" data-id="${t.id}" aria-label="Edit">✎</button><button class="x" data-act="askDel" data-id="${t.id}" aria-label="Delete">×</button>`}</div></div>`;
@@ -942,9 +1034,9 @@ function txRow(t){
 function vTracker(){
   const mk=ui.month,a=actual(mk),p=plan(mk),F=ui.txFilter;
   let L=a.items.slice().sort((x,y)=>y.date.localeCompare(x.date)||0);
-  if(F.type)L=L.filter(t=>F.type==='move'?(t.type==='withdraw'||t.type==='transfer'):t.type===F.type);
+  if(F.type)L=L.filter(t=>F.type==='move'?(t.type==='withdraw'||t.type==='transfer'):F.type==='lend'?['lend','repay','writeoff'].includes(t.type):t.type===F.type);
   if(F.cat)L=L.filter(t=>F.cat==='__other'?!t.cat:t.cat===F.cat);
-  if(F.q){const q=F.q.toLowerCase();L=L.filter(t=>((t.desc||'')+' '+(t.type==='expense'?catInfo(t.cat).name:'')+' '+(t.type==='income'?srcName(t.src):'')).toLowerCase().includes(q))}
+  if(F.q){const q=F.q.toLowerCase();L=L.filter(t=>((t.desc||'')+' '+(t.type==='expense'?catInfo(t.cat).name:'')+' '+(t.type==='income'?srcName(t.src):'')+' '+(t.who?bName(t.who):'')).toLowerCase().includes(q))}
   let lastD='',list='';L.forEach(t=>{if(t.date!==lastD){lastD=t.date;list+=`<div class="txday">${new Date(t.date+'T00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</div>`}list+=txRow(t)});
   const catRows=(group,label)=>{const list=group==='debt'?P.debts.map(d=>({id:'debt:'+d.id,name:d.name,budget:num(d.monthly)})):group==='proj'?P.projects.filter(x=>x.month===mk||a.byCat['proj:'+x.id]).map(x=>({id:'proj:'+x.id,name:x.name,budget:num(x.budget)})):P.cats.filter(c=>c.group===group).map(c=>({id:c.id,name:c.name,budget:num(c.budget),sub:c.sub}));
     if(!list.length)return '';const bs=sum(list,c=>c.budget),ss=sum(list,c=>a.byCat[c.id]||0);
@@ -965,7 +1057,7 @@ function vTracker(){
    <div class="card s4"><div class="card-h"><h2>Money statement</h2></div>${statement(mk,a)}</div>
    <div class="card s12">${chamberCard(mk,a,'Savings accounts this month')}</div>
    <div class="card s7"><div class="card-h"><h2>Transactions</h2><span class="small muted">${a.items.length} this month</span></div>
-    <div class="filters"><select id="fType" aria-label="Type"><option value="">All types</option>${[['expense','Expenses'],['income','Income'],['save','Savings'],['move','Moves']].map(([v,l])=>`<option value="${v}" ${F.type===v?'selected':''}>${l}</option>`).join('')}</select>
+    <div class="filters"><select id="fType" aria-label="Type"><option value="">All types</option>${[['expense','Expenses'],['income','Income'],['save','Savings'],['move','Moves'],['lend','Lending']].map(([v,l])=>`<option value="${v}" ${F.type===v?'selected':''}>${l}</option>`).join('')}</select>
      <div style="flex:1 1 200px;min-width:0">${combo('fCat',catOpts(true),F.cat||'',{ph:'All categories',label:'Category'})}</div><input id="fQ" type="search" placeholder="Search description" value="${esc(F.q)}"></div>
     ${list||'<div class="empty">No transactions match. Tap <b>Log</b> to record today’s money.</div>'}</div>
    <div class="card s5"><div class="card-h"><h2>Spending by category</h2><b>${M(a.spent)}</b></div>
@@ -1025,6 +1117,9 @@ function vDebt(){
      <div><div class="eyebrow">Overall progress</div><div class="dbar inv" style="margin-top:10px"><i style="width:${pct(sum(ds,d=>Math.min(debtPaid(d),num(d.owed))),sum(ds,d=>num(d.owed))||1).toFixed(1)}%"></i><span>${Math.round(pct(sum(ds,d=>Math.min(debtPaid(d),num(d.owed))),sum(ds,d=>num(d.owed))||1))}% of all debts paid</span></div>
        <p class="small" style="opacity:.75;margin:10px 0 0">${freeDate===null?'At least one instalment is too low to cover its interest. Raise it to get a completion date.':'Completion dates assume you keep paying the monthly instalment.'}</p></div>
    </div>
+   <div class="card s12"><div class="card-h"><h2>Money owed to me (lent)</h2><div class="inline-actions"><b>${M(owedToMe())} still owed</b><button class="btn sm" data-act="lendNew">+ Lend money</button></div></div>
+    ${(P.borrowers||[]).length?lentRows(P.borrowers.map(b=>({b,i:lendInfo(b.id)})).sort((x,y)=>y.i.out-x.i.out||y.i.last.localeCompare(x.i.last)),false):'<div class="empty">No lending recorded yet. Use <b>+ Lend money</b> to record money you lend, then <b>Record repayment</b> as it comes back.</div>'}
+    ${(P.borrowers||[]).length?`<details style="margin-top:12px"><summary class="small">Edit names and notes</summary><div class="tw" style="margin-top:8px"><table><thead><tr><th>Person</th><th>Note</th><th></th></tr></thead><tbody>${P.borrowers.map(b=>`<tr><td>${inp('borrowers',b.id,'name',b.name,{type:'text',cls:'wide'})}</td><td>${inp('borrowers',b.id,'note',b.note||'',{type:'text',cls:'wide'})}</td><td><button class="x" data-del="borrowers|${b.id}" aria-label="Remove ${esc(b.name)}">×</button></td></tr>`).join('')}</tbody></table></div></details>`:''}</div>
    <div class="card s12"><div class="card-h"><h2>Payment progress</h2></div>${progress||'<div class="empty">No debts yet. Add one below, for example “Solar system” with the total amount and monthly instalment.</div>'}</div>
    <div class="card s12"><div class="card-h"><h2>Debts &amp; instalment items</h2><b>Remaining ${M(w.liab)}</b></div>
     <div class="tw"><table><thead><tr><th>Item / loan</th><th class="n">Total amount owed</th><th class="n">Monthly instalment</th><th class="n">Interest % a year</th><th>Comments</th><th></th></tr></thead><tbody>
@@ -1166,7 +1261,7 @@ const chOptsList=(B,withAvail,withAll)=>[...(withAll?[{v:'',l:'All accounts'}]:[
 /* ---------- reports ---------- */
 const JSPDF_URL='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
 const AUTOTABLE_URL='https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js';
-const REP_TYPES=[['expense','Expenses'],['income','Income'],['savings','Savings'],['used','Used from savings'],['summary','Money summary']];
+const REP_TYPES=[['expense','Expenses'],['income','Income'],['savings','Savings'],['used','Used from savings'],['lent','Money lent'],['summary','Money summary']];
 const dayBefore=d=>{const x=new Date(d+'T00:00');x.setDate(x.getDate()-1);return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate())};
 const fmtD=d=>new Date(d+'T00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 function repRange(){
@@ -1185,17 +1280,22 @@ function buildReport(){
   const q=normT(r.item);const hit=(...txt)=>!q||q.split(' ').every(tok=>normT(txt.join(' ')).includes(tok));
   const out={title:'',from,to,filters:[],summary:[],groups:[],head:[],rows:[],num:[]};
   if(r.type==='expense'){
-    let E=L.filter(t=>t.type==='expense');
+    let E=L.filter(t=>t.type==='expense').map(t=>({...t,_tot:xTot(t),_kind:'exp'}));
+    L.forEach(t=>{if((t.type==='lend'||t.type==='repay')&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:t.ch,chAmt:t.ch?feeOf(t):0,_tot:feeOf(t),_kind:'fee',desc:'Fee: '+(t.type==='lend'?'lending to ':'repayment from ')+bName(t.who)+(t.desc?' · '+t.desc:'')});
+      if(t.type==='writeoff')E.push({...t,cat:'',fee:0,ch:undefined,chAmt:0,_tot:num(t.amt),_kind:'wo',desc:'Loan written off: '+bName(t.who)})});
+    L.forEach(t=>{if((t.type==='withdraw'||t.type==='transfer')&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:t.ch,chAmt:feeOf(t),_tot:feeOf(t),_kind:'fee',desc:'Fee: '+(t.type==='withdraw'?'move from '+chName(t.ch)+' to Available':chName(t.ch)+' to '+chName(t.to))+(t.desc?' · '+t.desc:'')})});
+    E.sort((a,b)=>a.date.localeCompare(b.date));
     if(r.cat){E=E.filter(t=>r.cat==='__other'?!t.cat:t.cat===r.cat);out.filters.push('Category: '+(r.cat==='__other'?'Other':catInfo(r.cat).name))}
-    if(r.ch){E=E.filter(t=>{const c=t.ch?Math.min(num(t.amt),num(t.chAmt)):0;return r.ch==='avail'?num(t.amt)-c>0:t.ch===r.ch&&c>0});out.filters.push('Paid from: '+(r.ch==='avail'?'Available to spend':chName(r.ch)))}
+    if(r.ch){E=E.filter(t=>{const c=t.ch?Math.min(t._tot,num(t.chAmt)):0;return r.ch==='avail'?t._kind!=='wo'&&t._tot-c>0:t.ch===r.ch&&c>0});out.filters.push('Paid from: '+(r.ch==='avail'?'Available to spend':chName(r.ch)))}
     if(q){E=E.filter(t=>hit(t.desc,catInfo(t.cat).name));out.filters.push('Item: '+r.item)}
-    const tot=sum(E,t=>num(t.amt)),fromSav=sum(E,t=>t.ch?Math.min(num(t.amt),num(t.chAmt)):0);
+    const tot=sum(E,t=>t._tot),fromSav=sum(E,t=>t.ch?Math.min(t._tot,num(t.chAmt)):0),fees=sum(E,t=>feeOf(t));
     out.title='Expense report';
-    out.summary=[['Total spent',tot],['Paid from Available to spend',tot-fromSav],['Paid from savings accounts',fromSav],['Number of entries',String(E.length)]];
-    out.groups=[{title:'By category',head:['Category','Entries','Amount','Share'],rows:groupRows(E,t=>catInfo(t.cat).name,t=>num(t.amt),tot)},
-      {title:'By group',head:['Group','Entries','Amount','Share'],rows:groupRows(E,t=>{const c=catInfo(t.cat);return c.group==='wants'?'Wants':c.sub},t=>num(t.amt),tot)}];
-    out.head=['Date','Category','Item / description','Paid from','Amount'];
-    out.rows=E.map(t=>{const c=t.ch?Math.min(num(t.amt),num(t.chAmt)):0,v=num(t.amt);return[fmtD(t.date),catInfo(t.cat).name,t.desc||'',c<=0?'Available':c>=v?chName(t.ch):'Available '+fmt(v-c)+' + '+chName(t.ch)+' '+fmt(c),v]});
+    const woT=sum(E.filter(t=>t._kind==='wo'),t=>t._tot);
+    out.summary=[['Total spent (including fees)',tot],['Of which transaction fees',fees],['Paid from Available to spend',tot-fromSav-woT],['Paid from savings accounts',fromSav],...(woT?[['Loans written off (no money moved)',woT]]:[]),['Number of entries',String(E.length)]];
+    out.groups=[{title:'By category',head:['Category','Entries','Amount','Share'],rows:groupRows(E,t=>catInfo(t.cat).name,t=>t._tot,tot)},
+      {title:'By group',head:['Group','Entries','Amount','Share'],rows:groupRows(E,t=>{const c=catInfo(t.cat);return c.group==='wants'?'Wants':c.sub},t=>t._tot,tot)}];
+    out.head=['Date','Category','Item / description','Paid from','Amount','Fee','Total'];
+    out.rows=E.map(t=>{const v=t._tot,c=t.ch?Math.min(v,num(t.chAmt)):0;return[fmtD(t.date),catInfo(t.cat).name,t.desc||'',t._kind==='wo'?'Written off':c<=0?'Available':c>=v?chName(t.ch):'Available '+fmt(v-c)+' + '+chName(t.ch)+' '+fmt(c),num(t.amt),feeOf(t),v]});
   } else if(r.type==='income'){
     let I=L.filter(t=>t.type==='income');
     if(r.src){I=I.filter(t=>t.src===r.src);out.filters.push('Source: '+srcName(r.src))}
@@ -1217,8 +1317,18 @@ function buildReport(){
     out.groups=[{title:'By account',head:['Account','Entries','Amount','Share'],rows:groupRows(S,x=>chName(x.ch),x=>x.amt,tot)},{title:'By source',head:['Saved from','Entries','Amount','Share'],rows:groupRows(S,x=>srcName(x.src),x=>x.amt,tot)}];
     out.head=['Date','Account','Saved from','Description','Amount'];
     out.rows=S.map(x=>[fmtD(x.date),chName(x.ch),srcName(x.src),x.desc,x.amt]);
+  } else if(r.type==='lent'){
+    let X=L.filter(t=>['lend','repay','writeoff'].includes(t.type));
+    if(q){X=X.filter(t=>hit(bName(t.who),t.desc));out.filters.push('Person or item: '+r.item)}
+    const lent=sum(X.filter(t=>t.type==='lend'),t=>num(t.amt)),rep_=sum(X.filter(t=>t.type==='repay'),t=>num(t.amt)),wo=sum(X.filter(t=>t.type==='writeoff'),t=>num(t.amt)),fees=sum(X,feeOf);
+    out.title='Money lent report';
+    out.summary=[['Lent in period',lent],['Repaid in period',rep_],['Written off in period',wo],['Your transaction fees',fees],['Still owed to you (on '+fmtD(to)+')',owedToMe(to)]];
+    const people=[...new Set(X.map(t=>t.who))];
+    out.groups=[{title:'By person (in period)',head:['Person','Lent','Repaid','Written off','Still owed today'],rows:people.map(id=>{const Y=X.filter(t=>t.who===id);return[bName(id),sum(Y.filter(t=>t.type==='lend'),t=>num(t.amt)),sum(Y.filter(t=>t.type==='repay'),t=>num(t.amt)),sum(Y.filter(t=>t.type==='writeoff'),t=>num(t.amt)),lendInfo(id).out]})}];
+    out.head=['Date','Person','What','Account','Description','Fee','Amount'];
+    out.rows=X.map(t=>[fmtD(t.date),bName(t.who),t.type==='lend'?'Lent':t.type==='repay'?'Repaid':'Written off',t.type==='writeoff'?'':(t.ch?chName(t.ch):'Available'),t.desc||'',feeOf(t),num(t.amt)]);
   } else if(r.type==='used'){
-    let U=[];L.forEach(t=>{if(t.type==='withdraw')U.push({date:t.date,ch:t.ch,how:'Moved to Available to spend',desc:t.desc||'',amt:num(t.amt)});else if(t.type==='expense'&&t.ch){const c=Math.min(num(t.amt),num(t.chAmt));if(c>0)U.push({date:t.date,ch:t.ch,how:'Paid expense: '+catInfo(t.cat).name,desc:t.desc||'',amt:c})}});
+    let U=[];L.forEach(t=>{if(t.type==='withdraw')U.push({date:t.date,ch:t.ch,how:'Moved to Available to spend'+(feeOf(t)?' (incl. fee '+fmt(feeOf(t))+')':''),desc:t.desc||'',amt:num(t.amt)+feeOf(t)});else if(t.type==='transfer'&&feeOf(t)>0)U.push({date:t.date,ch:t.ch,how:'Fee on move to '+chName(t.to),desc:t.desc||'',amt:feeOf(t)});else if(t.type==='expense'&&t.ch){const c=Math.min(xTot(t),num(t.chAmt));if(c>0)U.push({date:t.date,ch:t.ch,how:'Paid expense: '+catInfo(t.cat).name,desc:t.desc||'',amt:c})}});
     if(r.ch&&r.ch!=='avail'){U=U.filter(x=>x.ch===r.ch);out.filters.push('Account: '+chName(r.ch))}
     if(q){U=U.filter(x=>hit(x.desc,x.how));out.filters.push('Item: '+r.item)}
     const tot=sum(U,x=>x.amt);
@@ -1228,10 +1338,10 @@ function buildReport(){
     out.head=['Date','Account','Used for','Description','Amount'];
     out.rows=U.map(x=>[fmtD(x.date),chName(x.ch),x.how,x.desc,x.amt]);
   } else {
-    const o=bal(dayBefore(from)),c=bal(to);let inc=0,sv=0,sp=0,spS=0,wd=0;
-    L.forEach(t=>{const v=num(t.amt);if(t.type==='income'){inc+=v;sv+=sum(Object.values(t.saves||{}),num)}else if(t.type==='save')sv+=v;else if(t.type==='expense'){const x=t.ch?Math.min(v,num(t.chAmt)):0;sp+=v;spS+=x}else if(t.type==='withdraw')wd+=v});
+    const o=bal(dayBefore(from)),c=bal(to);let inc=0,sv=0,sp=0,spS=0,wd=0,lnA=0,lnS=0,rpA=0,rpS=0;
+    L.forEach(t=>{const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t);if((t.type==='withdraw'||t.type==='transfer')&&f){sp+=f;spS+=f}if((t.type==='lend'||t.type==='repay')&&f){sp+=f;if(t.ch)spS+=f}if(t.type==='lend'){if(t.ch)lnS+=v;else lnA+=v}if(t.type==='repay'){if(t.ch)rpS+=v;else rpA+=v}if(t.type==='writeoff')sp+=v;if(t.type==='income'){inc+=v;sv+=sum(Object.values(t.saves||{}),num)}else if(t.type==='save')sv+=v;else if(t.type==='expense'){const x=t.ch?Math.min(v,num(t.chAmt)):0;sp+=v;spS+=x}else if(t.type==='withdraw')wd+=v});
     out.title='Money summary';
-    out.summary=[['Available to spend brought forward',o.avail],['Income received',inc],['Saved to accounts',-sv],['Taken from savings to spend',wd],['Spent from Available',-(sp-spS)],['Available to spend carried forward',c.avail],['Spent in total',sp],['Paid straight from savings',spS]];
+    out.summary=[['Available to spend brought forward',o.avail],['Income received',inc],['Saved to accounts',-sv],['Taken from savings to spend',wd],['Lent to people (from Available)',-lnA],['Loan repayments received (into Available)',rpA],['Spent from Available',c.avail-o.avail-inc+sv-wd+lnA-rpA],['Available to spend carried forward',c.avail],['Spent in total',sp],['Paid straight from savings',spS]];
     out.groups=[{title:'Savings accounts',head:['Account','Start of period','End of period','Change'],rows:P.chambers.map(ch=>[ch.name,o.ch[ch.id]||0,c.ch[ch.id]||0,(c.ch[ch.id]||0)-(o.ch[ch.id]||0)]).concat([['Total savings',o.total,c.total,c.total-o.total]])}];
     out.head=[];out.rows=[];
   }
@@ -1246,12 +1356,12 @@ function repTable(head,rows,limit){
 function vReports(){
   const r=ui.rep,R=buildReport(),B=bal();
   const descs=[...new Set(allTx().map(t=>(t.desc||'').trim()).filter(Boolean))].sort().map(d=>({v:d,l:d,g:'Description'}));
-  const itemOpts=r.type==='expense'?[...P.cats.map(c=>({v:c.name,l:c.name,g:'Category'})),...descs]:descs;
+  const itemOpts=r.type==='lent'?(P.borrowers||[]).map(b=>({v:b.name,l:b.name,g:'Person'})):r.type==='expense'?[...P.cats.map(c=>({v:c.name,l:c.name,g:'Category'})),...descs]:descs;
   const f=[];
   if(r.type==='expense'){f.push(`<div class="field"><label for="rp-cat-q">Category</label>${combo('rp-cat',catOpts(true),r.cat||'',{ph:'All categories'})}</div>`);f.push(`<div class="field"><label for="rp-ch-q">Paid from</label>${combo('rp-ch',chOptsList(null,true,true),r.ch||'',{ph:'All'})}</div>`)}
   if(r.type==='income'||r.type==='savings')f.push(`<div class="field"><label for="rp-src-q">${r.type==='income'?'Source':'Saved from'}</label>${combo('rp-src',[...srcOpts(true),...(r.type==='savings'?[{v:'avail',l:'Available (saved later)',g:'Saved after income'}]:[])],r.src||'',{ph:'All sources'})}</div>`);
   if(r.type==='savings'||r.type==='used')f.push(`<div class="field"><label for="rp-ch-q">Account</label>${combo('rp-ch',chOptsList(null,false,true),r.ch||'',{ph:'All accounts'})}</div>`);
-  if(r.type!=='summary')f.push(`<div class="field"><label for="rp-item-q">Specific item</label>${combo('rp-item',itemOpts,r.item||'',{ph:'Type what it is, e.g. fuel',free:true})}</div>`);
+  if(r.type!=='summary')f.push(`<div class="field"><label for="rp-item-q">${r.type==='lent'?'Person or item':'Specific item'}</label>${combo('rp-item',itemOpts,r.item||'',{ph:'Type what it is, e.g. fuel',free:true})}</div>`);
   return `${banner()}<div class="pageh"><div><h1>Reports</h1><p>Pick a report, a period and filters, then download it as a PDF or CSV.</p></div>
     <div class="inline-actions"><button class="btn" data-act="repPdf">Download PDF</button><button class="btn ghost" data-act="repCsv">Download CSV</button></div></div>
   <section class="grid">
@@ -1342,12 +1452,11 @@ document.addEventListener('change',e=>{
   else if(t.classList&&t.classList.contains('selall')){t.closest('table').querySelectorAll('.selbox').forEach(b=>{b.checked=t.checked;t.checked?ui.sel.add(b.dataset.sel):ui.sel.delete(b.dataset.sel)});selCount()}
 });
 function addGroup(){
-  const n=($('#ngName')||{value:''}).value.trim();if(!n){toast('Type a name for the group');return}
-  const exists=[...SUBS,...(P.extraSubs||[]),...P.cats.map(c=>c.sub)].some(x=>x.toLowerCase()===n.toLowerCase())&&!(P.hiddenSubs||[]).includes(n);
-  if(exists){toast('That group already exists');return}
-  P.hiddenSubs=(P.hiddenSubs||[]).filter(x=>x!==n);P.extraSubs=P.extraSubs||[];P.extraSubs.push(n);
-  const id=nid();P.cats.push({id,name:'New item',group:'needs',sub:n,budget:0});
-  ui.newGroup=false;ui.planGroup='sub:'+n;lsSet('hz-pg',ui.planGroup);ui.focusNext='f-cats-'+id+'-name';saveP();render();
+  const n=($('#ngName')||{value:''}).value.trim(),type=($('#ngType')||{value:'needs'}).value;if(!n){toast('Type a name for the group');return}
+  if(itemGroups().some(x=>x.sub.toLowerCase()===n.toLowerCase()||gLabel(x.type,x.sub).toLowerCase()===n.toLowerCase())){toast('That group already exists');return}
+  setGroupVisible(type,n,true);
+  const id=nid();P.cats.push({id,name:'New item',group:type,sub:n,budget:0});
+  ui.newGroup=false;ui.planGroup=gKey(type,n);lsSet('hz-pg',ui.planGroup);ui.focusNext='f-cats-'+id+'-name';saveP();render();
 }
 document.addEventListener('keydown',e=>{if(e.target.id==='ngName'&&e.key==='Enter'){e.preventDefault();addGroup()}else if(e.target.id==='ngName'&&e.key==='Escape'){ui.newGroup=false;render()}});
 function selCount(){const bar=$('#selbar');if(!bar)return;bar.querySelector('b').textContent=ui.sel.size;bar.querySelector('[data-act=selDelete]').disabled=!ui.sel.size}
@@ -1356,10 +1465,11 @@ function deleteRows(keys){
   keys.forEach(k=>{const [coll,id]=k.split('|');if(!P[coll])return;
     if(coll==='chambers'&&allTx().some(x=>x.ch===id||x.to===id||(x.saves&&num(x.saves[id])>0))){kept++;return}
     if(coll==='sources'&&allTx().some(x=>x.src===id)){kept++;return}
+    if(coll==='borrowers'&&allTx().some(x=>x.who===id)){kept++;return}
     if(coll==='cats'&&P.shopLink===id)P.shopLink=null;
     if(coll==='sources')delete P.income[id];
     const before=P[coll].length;P[coll]=P[coll].filter(x=>x.id!==id);if(P[coll].length<before)done++});
-  if(!done){if(kept)toast('Accounts or sources with logged money can’t be deleted. Rename them instead.');return 0}
+  if(!done){if(kept)toast('Items with logged money (accounts, sources, people you lent to) can’t be deleted. Rename them instead.');return 0}
   if(P.shopLink)syncShop();saveP();
   toastAction((done===1?'1 item deleted':done+' items deleted')+(kept?' · '+kept+' kept (has logged money)':''),'Undo',()=>{P=migrate(JSON.parse(snap));saveP();render();toast('Restored')});
   return done;
@@ -1404,7 +1514,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-del],[data-add],[data-act]');if(!t)return;
   if(t.dataset.act==='exitView'){exitView();return}
   if(t.dataset.act==='viewAs'){viewAs(t.dataset.id,t.dataset.name);return}
-  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh','selOn','selDelete','ngOpen','ngAdd','pclear','pdelask','pdel','pgrem'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
+  if(store.viewing&&(t.dataset.del||t.dataset.add||['openLog','editTx','askDel','delTx','clearExample','keepExample','efill','payDebt','shopLink','shopUnlink','askReset','doReset','startTrack','editOpen','askAfresh','doAfresh','selOn','selDelete','ngOpen','ngAdd','pclear','pdelask','pdel','gdelask','gdel','lendNew','lendMore','repayFor','woAsk','wo'].includes(t.dataset.act))){toast('Read-only: you are viewing another account');return}
   if(t.dataset.del){const [coll,id]=t.dataset.del.split('|');
     const ids=[...document.querySelectorAll(`#app [data-del^="${coll}|"]`)].map(b=>b.dataset.del.split('|')[1]);const i=ids.indexOf(id);const nb=ids[i+1]||ids[i-1];
     if(deleteRows([coll+'|'+id])){if(nb&&matchMedia('(pointer:fine)').matches){const f=document.querySelector(`[id^="f-${coll}-${nb}-"]`);ui.focusNext=f?f.id:null}render()}return}
@@ -1415,7 +1525,13 @@ document.addEventListener('click',e=>{
   if(t.dataset.act==='pclear'){planGroupAction('clear',t.dataset.v);return}
   if(t.dataset.act==='pdelask'){ui.confirm='pdel:'+t.dataset.v;render();return}
   if(t.dataset.act==='pdel'){planGroupAction('delete',t.dataset.v);return}
-  if(t.dataset.act==='pgrem'){const n=t.dataset.v.slice(4);if(SUBS.includes(n)){P.hiddenSubs=P.hiddenSubs||[];if(!P.hiddenSubs.includes(n))P.hiddenSubs.push(n)}P.extraSubs=(P.extraSubs||[]).filter(x=>x!==n);ui.planGroup='all';lsSet('hz-pg','all');saveP();toast('Group removed');render();return}
+  if(t.dataset.act==='gdelask'){ui.confirm='gdel:'+t.dataset.v;render();return}
+  if(t.dataset.act==='gdel'){deleteGroup(t.dataset.v);return}
+  if(t.dataset.act==='lendNew'){openLog({t:{type:'lend',date:todayStr(),saves:{}}});return}
+  if(t.dataset.act==='lendMore'){openLog({t:{type:'lend',who:t.dataset.id,date:todayStr(),saves:{}}});return}
+  if(t.dataset.act==='repayFor'){const i=lendInfo(t.dataset.id);openLog({t:{type:'repay',who:t.dataset.id,amt:i.out,date:todayStr(),saves:{}}});return}
+  if(t.dataset.act==='woAsk'){ui.confirm='wo:'+t.dataset.id;render();return}
+  if(t.dataset.act==='wo'){const id=t.dataset.id,i=lendInfo(id);if(i.out>0){const d=todayStr(),mk=d.slice(0,7);(TX[mk]=TX[mk]||[]).push({id:nid(),type:'writeoff',who:id,amt:i.out,date:d,desc:''});saveTx(mk);toast('Written off '+fmt(i.out)+'. You can delete it in the Daily Tracker if they pay later.')}ui.confirm=null;render();return}
   if(t.dataset.act==='selOn'){ui.selMode=true;ui.sel=new Set();render();return}
   if(t.dataset.act==='selOff'){ui.selMode=false;ui.sel=new Set();render();return}
   if(t.dataset.act==='selNone'){ui.sel=new Set();document.querySelectorAll('.selbox,.selall').forEach(b=>b.checked=false);selCount();return}
@@ -1447,7 +1563,7 @@ document.addEventListener('click',e=>{
   else if(a==='keepExample'){P.example=false;saveP();Object.keys(TX).forEach(saveTx);render()}
   else if(a==='efill'){const p=plan(ui.month);const g=P.goals.find(x=>/emergency/i.test(x.name));const amt=Math.round((p.needs+p.debt)*6);if(g)g.amount=amt;else P.goals.push({id:nid(),term:'medium',name:'Emergency Fund (6 months)',amount:amt,target:addM(curMK(),23),saved:0,avenue:''});saveP();render()}
   else if(a==='exportJson')download('hazina-backup-'+todayStr()+'.json',JSON.stringify({P,TX},null,1));
-  else if(a==='exportCsv'){const rows=[['Date','Type','Category / Source','Amount','Saved to accounts','Paid from savings','Account','Description']].concat(txOf(ui.month).slice().sort((x,y)=>x.date.localeCompare(y.date)).map(t=>[t.date,t.type,t.type==='expense'?catInfo(t.cat).name:t.type==='income'?srcName(t.src):'',t.amt,t.type==='income'?Object.entries(t.saves||{}).filter(e=>num(e[1])>0).map(([k,v])=>chName(k)+' '+v).join('; '):t.type==='save'?t.amt:'',t.type==='expense'?(num(t.chAmt)||''):t.type==='withdraw'?t.amt:'',t.ch?chName(t.ch)+(t.to?' -> '+chName(t.to):''):'',t.desc||'']));
+  else if(a==='exportCsv'){const rows=[['Date','Type','Category / Source','Amount','Fee','Saved to accounts','Paid from savings','Account','Description']].concat(txOf(ui.month).slice().sort((x,y)=>x.date.localeCompare(y.date)).map(t=>[t.date,t.type,t.type==='expense'?catInfo(t.cat).name:t.type==='income'?srcName(t.src):'',t.amt,feeOf(t)||'',t.type==='income'?Object.entries(t.saves||{}).filter(e=>num(e[1])>0).map(([k,v])=>chName(k)+' '+v).join('; '):t.type==='save'?t.amt:'',t.type==='expense'?(num(t.chAmt)||''):t.type==='withdraw'?t.amt:'',t.ch?chName(t.ch)+(t.to?' -> '+chName(t.to):''):'',t.desc||'']));
     download('hazina-'+ui.month+'.csv',rows.map(r=>r.map(c=>/[",\n]/.test(String(c))?'"'+String(c).replace(/"/g,'""')+'"':c).join(',')).join('\n'))}
   else if(a==='askReset'){ui.confirm='reset';render()}
   else if(a==='doReset'){const old=Object.keys(TX);P=baseProfile(false);TX={};old.forEach(mk=>{TX[mk]=[];saveTx(mk)});saveP();ui.confirm=null;toast('All data erased. Enter your opening balances to begin.');location.hash='#dashboard';render()}
@@ -1465,7 +1581,8 @@ function openLog(found){
   _bal={};
   const t=found?{...found.t,saves:{...((found.t&&found.t.saves)||{})}}:{type:'expense',date:ui.month===curMK()?todayStr():ui.month+'-01',saves:{}};
   const editing=found&&found.mk;const orig=editing?found.t:null;
-  let type=t.type==='withdraw'||t.type==='transfer'?'move':t.type||'expense';
+  let type=t.type==='withdraw'||t.type==='transfer'?'move':t.type==='lend'||t.type==='repay'?'lend':t.type||'expense';
+  let lendMode=t.type==='repay'?'repay':'lend';
   let savesTouched=!!(editing&&t.type==='income');
   // balances with the entry being edited taken back out
   const base=()=>{const b=bal(),o={avail:b.avail,ch:{...b.ch}};if(orig){const e=fx(orig);o.avail-=e.avail;for(const k in e.ch)o.ch[k]=(o.ch[k]||0)-e.ch[k]}return o};
@@ -1480,20 +1597,31 @@ function openLog(found){
         <div class="kv" style="margin-top:6px"><span>Goes to Available to spend</span><b id="lgRest">–</b></div></div>`;
     } else if(type==='expense'){
       body=`<div class="fgrid"><div class="field"><label for="lgCat-q">Category</label>${combo('lgCat',catOpts(),t.cat===''?'__other':t.cat,{ph:'Type a category, e.g. shopping or solar'})}</div><div class="field"><label for="lgDate">Date</label><input id="lgDate" type="date" required value="${t.date}"></div></div>
+      <div class="feebox"><div class="field"><label for="lgFee">Transaction fee (optional)</label><input id="lgFee" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.fee)}" placeholder="0"></div><div class="kv feetot"><span>Total</span><b id="lgTot">–</b></div></div>
       <div class="tip" id="lgLoan" hidden></div>
       <div class="field"><label for="lgFrom-q">Paid from</label>${combo('lgFrom',chOptsList(B,true),t.ch&&num(t.chAmt)>=num(t.amt)?t.ch:'avail',{ph:'Type Available or an account'})}</div>
       <div class="warnbox" id="lgShort" hidden></div>`;
+    } else if(type==='lend'){
+      const people=(P.borrowers||[]).map(b=>({v:b.id,l:b.name,g:lendInfo(b.id).out?'owes '+fmt(lendInfo(b.id).out):'settled'}));
+      body=`<div class="seg seg2" role="group" aria-label="Lending"><button type="button" data-lm="lend" aria-pressed="${lendMode==='lend'}">I lent money</button><button type="button" data-lm="repay" aria-pressed="${lendMode==='repay'}">Repayment received</button></div>
+      <div class="fgrid"><div class="field"><label for="lgWho-q">${lendMode==='lend'?'Lent to':'Repaid by'}</label>${combo('lgWho',people,t.who||'',{ph:lendMode==='lend'?'Type a name, new or existing':'Type the person’s name',free:lendMode==='lend'})}</div><div class="field"><label for="lgDate">Date</label><input id="lgDate" type="date" required value="${t.date}"></div></div>
+      <div class="tip" id="lgOwes" hidden></div>
+      <div class="fgrid"><div class="field"><label for="lgAcc-q">${lendMode==='lend'?'Paid from':'Received into'}</label>${combo('lgAcc',chOptsList(B,true),t.ch||'avail',{ph:'Type Available or an account'})}</div>
+      ${lendMode==='lend'?`<div class="field"><label for="lgDue">Expected back by (optional)</label><input id="lgDue" type="date" value="${esc(t.due||'')}"></div>`:''}</div>
+      <div class="feebox"><div class="field"><label for="lgFee">Transaction fee (optional)</label><input id="lgFee" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.fee)}" placeholder="0"></div><div class="kv feetot"><span>Total</span><b id="lgTot">–</b></div></div>
+      <p class="note" style="margin:0">${lendMode==='lend'?'Lending is not spending: it is money owed back to you. Only the fee counts as spending.':'A repayment is not new income: it is your money coming back. A fee (for example moving it into a savings account) is taken from the amount and counted as spending.'}</p>`;
     } else if(type==='save'){
       body=`<div class="fgrid"><div class="field"><label for="lgCh-q">Save into</label>${chPick('lgCh',t.ch)}</div><div class="field"><label for="lgDate">Date</label><input id="lgDate" type="date" required value="${t.date}"></div></div>
       <p class="note" style="margin:0">Comes out of Available to spend (${fmt(B.avail)} now).</p>`;
     } else {
       body=`<div class="fgrid"><div class="field"><label for="lgCh-q">From account</label>${chPick('lgCh',t.ch)}</div><div class="field"><label for="lgTo-q">To</label>${combo('lgTo',chOptsList(null,true),t.type==='transfer'&&t.to?t.to:'avail',{ph:'Type Available or an account'})}</div></div>
       <div class="field"><label for="lgDate">Date</label><input id="lgDate" type="date" required value="${t.date}"></div>
-      <p class="note" style="margin:0">Use this to take savings out to spend, or to move money between savings accounts.</p>`;
+      <div class="feebox"><div class="field"><label for="lgFee">Transaction fee (optional)</label><input id="lgFee" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.fee)}" placeholder="0"></div><div class="kv feetot"><span>Total</span><b id="lgTot">–</b></div></div>
+      <p class="note" style="margin:0">Use this to take savings out to spend, or to move money between savings accounts. A fee is taken from the “From” account and counted as spending${feeCatId()?' under '+esc(catInfo(feeCatId()).name):''}.</p>`;
     }
     $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="logForm" role="dialog" aria-modal="true" aria-labelledby="lgTitle" novalidate>
       <div class="card-h" style="margin:0"><h2 id="lgTitle">${editing?'Edit transaction':'Log a transaction'}</h2><button type="button" class="x" id="lgClose" aria-label="Close">×</button></div>
-      <div class="seg" role="group" aria-label="Type">${[['income','Income'],['expense','Expense'],['save','Save'],['move','Move']].map(([k,l])=>`<button type="button" data-type="${k}" aria-pressed="${type===k}">${l}</button>`).join('')}</div>
+      <div class="seg segtype" role="group" aria-label="Type">${[['income','Income'],['expense','Expense'],['save','Save'],['move','Move'],['lend','Lend']].map(([k,l])=>`<button type="button" data-type="${k}" aria-pressed="${type===k}">${l}</button>`).join('')}</div>
       <div class="field amt-in"><label for="lgAmt">Amount (Ksh)</label><input id="lgAmt" class="numin" type="text" inputmode="decimal" autocomplete="off" required value="${fmtIn(t.amt)}" placeholder="0"></div>
       ${body}
       <div class="field"><label for="lgDesc">Description</label><input id="lgDesc" type="text" value="${esc(t.desc||'')}" placeholder="${type==='expense'?'e.g. Naivas – vegetables':type==='income'?'e.g. November salary':'Optional note'}" maxlength="120"></div>
@@ -1514,10 +1642,14 @@ function openLog(found){
       document.querySelectorAll('.lgS').forEach(i=>i.addEventListener('input',()=>{savesTouched=true;live()}));
     }
     if(type==='expense'){$('#lgFrom').onchange=live;$('#lgCat').onchange=live}
+    if(type==='lend'){document.querySelectorAll('[data-lm]').forEach(b=>b.onclick=()=>{grab();lendMode=b.dataset.lm;draw()});$('#lgWho').onchange=live;$('#lgAcc').onchange=live}
+    const fe=$('#lgFee');if(fe)fe.addEventListener('input',live);
     live();
   };
   const live=()=>{
-    const amt=num($('#lgAmt').value);
+    const amt0=num($('#lgAmt').value),fee=$('#lgFee')?num($('#lgFee').value):0;const amt=type==='expense'?amt0+fee:amt0;
+    const tt=$('#lgTot');if(tt)tt.textContent=fee?(type==='expense'?fmt(amt0)+' + '+fmt(fee)+' = '+fmt(amt0+fee):type==='lend'&&lendMode==='repay'?'You receive '+fmt(amt0-fee):fmt(amt0+fee)+' out of the account'):fmt(amt0);
+    if(type==='lend'){const ow=$('#lgOwes'),w=$('#lgWho').value,b=(P.borrowers||[]).find(x=>x.id===w);if(b){const i=lendInfo(b.id);const back=orig&&orig.who===b.id?(orig.type==='repay'?num(orig.amt):orig.type==='lend'?-num(orig.amt):0):0;const o2=Math.max(0,i.out+back);ow.innerHTML=lendMode==='repay'?`<b>${esc(b.name)} owes you ${fmt(o2)}.</b> After this: ${fmt(Math.max(0,o2-amt0))}`:`${esc(b.name)} already owes you ${fmt(o2)}. After this: <b>${fmt(o2+amt0)}</b>`;ow.hidden=false}else ow.hidden=true}
     if(type==='income'){const s=sum([...document.querySelectorAll('.lgS')],i=>num(i.value));const r=$('#lgRest');r.textContent=fmt(amt-s);r.className=amt-s<0?'neg':''}
     if(type==='expense'){const box=$('#lgShort'),from=$('#lgFrom').value;
       if(from==='avail'&&amt>Math.max(0,B.avail)){const short=amt-Math.max(0,B.avail);const best=P.chambers.slice().sort((x,y)=>(B.ch[y.id]||0)-(B.ch[x.id]||0))[0];
@@ -1525,10 +1657,10 @@ function openLog(found){
         if(had){box.querySelector('b').textContent='Only '+fmt(Math.max(0,B.avail))+' is available to spend.';box.querySelector('label').textContent='Pay the other '+fmt(short)+' from'}
         else box.innerHTML=`<b>Only ${fmt(Math.max(0,B.avail))} is available to spend.</b><div class="field" style="margin-top:8px"><label for="lgShortCh-q">Pay the other ${fmt(short)} from</label>${chPick('lgShortCh',prev,'Account that pays the rest')}</div>`;box.hidden=false}
       else {box.hidden=true;box.innerHTML=''}
-      const lc=$('#lgCat').value,lb=$('#lgLoan');if(lc&&lc.startsWith('debt:')){const d=P.debts.find(x=>'debt:'+x.id===lc);if(d){const before=Math.max(0,num(d.owed)-debtPaid(d)+(orig&&orig.cat===lc?num(orig.amt):0));lb.innerHTML=`<b>Counts as an instalment for ${esc(d.name)}.</b> Owed before this: ${fmt(before)} · after: ${fmt(Math.max(0,before-amt))}`;lb.hidden=false}}else{lb.hidden=true}}
+      const lc=$('#lgCat').value,lb=$('#lgLoan');if(lc&&lc.startsWith('debt:')){const d=P.debts.find(x=>'debt:'+x.id===lc);if(d){const before=Math.max(0,num(d.owed)-debtPaid(d)+(orig&&orig.cat===lc?num(orig.amt):0));lb.innerHTML=`<b>Counts as an instalment for ${esc(d.name)}.</b> Owed before this: ${fmt(before)} · after: ${fmt(Math.max(0,before-amt0))}${fee?' (the fee doesn’t reduce the loan)':''}`;lb.hidden=false}}else{lb.hidden=true}}
   };
   const grab=()=>{t.amt=$('#lgAmt').value;t.date=$('#lgDate').value;t.desc=$('#lgDesc').value;
-    const c=$('#lgCat');if(c)t.cat=c.value==='__other'?'':c.value;const s=$('#lgSrc');if(s)t.src=s.value;const ch=$('#lgCh');if(ch)t.ch=ch.value;
+    const c=$('#lgCat');if(c)t.cat=c.value==='__other'?'':c.value;const s=$('#lgSrc');if(s)t.src=s.value;const ch=$('#lgCh');if(ch)t.ch=ch.value;const fe=$('#lgFee');if(fe)t.fee=num(fe.value);const wh=$('#lgWho');if(wh)t.who=wh.value;const ac=$('#lgAcc');if(ac)t.ch=ac.value==='avail'?'':ac.value;const du=$('#lgDue');if(du)t.due=du.value;
     document.querySelectorAll('.lgS').forEach(i=>{t.saves[i.dataset.ch]=num(i.value)})};
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',esc_)};
   const esc_=e=>{if(e.key==='Escape')close()};document.addEventListener('keydown',esc_);
@@ -1537,22 +1669,35 @@ function openLog(found){
     if(!(amt>0)){toast('Enter an amount above zero');$('#lgAmt').focus();return}
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){toast('Pick a date');return}
     const rec={id:editing?t.id:nid(),date,amt,desc:$('#lgDesc').value.trim()};
+    const fee=(type==='expense'||type==='move'||type==='lend')&&$('#lgFee')?num($('#lgFee').value):0;if(fee>0)rec.fee=fee;const tot=amt+fee;
     if(type==='income'){rec.type='income';rec.src=$('#lgSrc').value;if(!rec.src){toast('Choose an income source');return}rec.saves={};let s=0;
       document.querySelectorAll('.lgS').forEach(i=>{const v=num(i.value);if(v>0){rec.saves[i.dataset.ch]=v;s+=v}});
       if(s>amt){toast('You can’t save more than the income itself');return}}
     else if(type==='expense'){rec.type='expense';const cv=$('#lgCat').value;if(!cv){toast('Choose a category: start typing, then pick from the list');$('#lgCat-q').focus();return}rec.cat=cv==='__other'?'':cv;const from=$('#lgFrom').value;
-      if(from!=='avail'){rec.ch=from;rec.chAmt=amt;if(amt>(B.ch[from]||0)+0.5){toast(chName(from)+' only has '+fmt(B.ch[from]||0));return}}
-      else if(amt>Math.max(0,B.avail)){const ch=$('#lgShortCh').value,short=amt-Math.max(0,B.avail);if(short>(B.ch[ch]||0)+0.5){toast(chName(ch)+' only has '+fmt(B.ch[ch]||0)+'. Pick another account.');return}rec.ch=ch;rec.chAmt=short}}
+      if(from!=='avail'){rec.ch=from;rec.chAmt=tot;if(tot>(B.ch[from]||0)+0.5){toast(chName(from)+' only has '+fmt(B.ch[from]||0));return}}
+      else if(tot>Math.max(0,B.avail)){const ch=$('#lgShortCh').value,short=tot-Math.max(0,B.avail);if(short>(B.ch[ch]||0)+0.5){toast(chName(ch)+' only has '+fmt(B.ch[ch]||0)+'. Pick another account.');return}rec.ch=ch;rec.chAmt=short}}
+    else if(type==='lend'){
+      let who=$('#lgWho').value.trim();const acc=$('#lgAcc').value||'avail';
+      if(!who){toast(lendMode==='lend'?'Type who you lent to':'Choose who repaid you');$('#lgWho-q').focus();return}
+      let b=(P.borrowers||[]).find(x=>x.id===who)||(P.borrowers||[]).find(x=>x.name.toLowerCase()===who.toLowerCase());
+      if(lendMode==='repay'){if(!b){toast('Pick a person from the list. Nothing is recorded as lent to “'+who+'”.');return}
+        const i=lendInfo(b.id),back=orig&&orig.who===b.id&&orig.type==='repay'?num(orig.amt):orig&&orig.who===b.id&&orig.type==='lend'?-num(orig.amt):0;if(amt>i.out+back+0.5){toast(b.name+' only owes you '+fmt(Math.max(0,i.out+back)));return}
+        if(fee>=amt){toast('The fee can’t be bigger than the repayment');return}
+        rec.type='repay'}
+      else{const bal_=acc==='avail'?B.avail:(B.ch[acc]||0);if(tot>bal_+0.5){toast((acc==='avail'?'Available to spend':chName(acc))+' only has '+fmt(Math.max(0,bal_))+(fee?' (amount + fee is '+fmt(tot)+')':''));return}
+        if(!b){b={id:nid(),name:who,note:''};P.borrowers=P.borrowers||[];P.borrowers.push(b);saveP()}
+        rec.type='lend';const du=$('#lgDue').value;if(du)rec.due=du}
+      rec.who=b.id;if(acc!=='avail')rec.ch=acc;if(fee>0)rec.feeCat=feeCatId()}
     else if(type==='save'){rec.type='save';rec.ch=$('#lgCh').value;if(!rec.ch){toast('Choose an account');return}}
     else {const from=$('#lgCh').value,to=$('#lgTo').value;if(from===to){toast('Pick two different accounts');return}
-      if(amt>(B.ch[from]||0)+0.5){toast(chName(from)+' only has '+fmt(B.ch[from]||0));return}
-      rec.ch=from;if(to==='avail')rec.type='withdraw';else{rec.type='transfer';rec.to=to}}
+      if(tot>(B.ch[from]||0)+0.5){toast(chName(from)+' only has '+fmt(B.ch[from]||0)+(fee?' (amount + fee is '+fmt(tot)+')':''));return}
+      rec.ch=from;if(fee>0)rec.feeCat=feeCatId();if(to==='avail')rec.type='withdraw';else{rec.type='transfer';rec.to=to}}
     if(!P.settings.started){P.settings.started=date;saveP()}
     if(editing){TX[editing]=TX[editing].filter(x=>x.id!==t.id);saveTx(editing)}
     const mk=date.slice(0,7);(TX[mk]=TX[mk]||[]).push(rec);saveTx(mk);_bal={};
-    const label={income:'income',expense:'expense',save:'saving',withdraw:'move to Available',transfer:'move between accounts'}[rec.type];
-    toast((editing?'Updated: ':'Saved: ')+label+' of '+fmt(amt)+(rec.type==='expense'&&rec.ch?' ('+fmt(rec.chAmt)+' from '+chName(rec.ch)+')':''));
-    if(again){close();render();openLog({t:{type:rec.type==='withdraw'||rec.type==='transfer'?'move':rec.type,date,cat:rec.cat,src:rec.src,ch:rec.ch}})}else{close();render()}
+    const label={income:'income',expense:'expense',save:'saving',withdraw:'move to Available',transfer:'move between accounts',lend:'lent to '+bName(rec.who),repay:'repayment from '+bName(rec.who)}[rec.type];
+    toast((editing?'Updated: ':'Saved: ')+label+' of '+fmt(amt)+(fee?' + fee '+fmt(fee):'')+(rec.type==='expense'&&rec.ch?' ('+fmt(rec.chAmt)+' from '+chName(rec.ch)+')':''));
+    if(again){close();render();openLog({t:{type:rec.type==='withdraw'||rec.type==='transfer'?'move':rec.type,date,cat:rec.cat,src:rec.src,ch:rec.ch,saves:{}}})}else{close();render()}
   };
   draw();
 }
