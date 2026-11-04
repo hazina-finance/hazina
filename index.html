@@ -277,6 +277,14 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .optchip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .setbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface-2);border-radius:10px;padding:10px 12px;margin-bottom:12px}
 .sigset{display:flex;gap:12px;align-items:center;margin:8px 0}.sigbox{width:170px;height:64px;border:1px dashed var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;padding:4px}.sigbox img{max-width:100%;max-height:100%}
+/* period figures + erase */
+.pfig{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.pfig>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.pfig small{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2)}.pfig b{font-size:1.05rem}.pfig .btn{margin-top:4px}
+@media(max-width:640px){.pfig{grid-template-columns:1fr}}
+.chkrow{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:.9rem;align-items:center}.chkrow label{display:flex;gap:6px;align-items:center}
+.danger-zone .dz-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}.danger-zone .dz-row p{margin:2px 0 0}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -513,7 +521,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='8 Nov 2026 · PCR sets & receipts';
+const APP_BUILD='9 Nov 2026 · PCR edit & start afresh';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1556,7 +1564,7 @@ const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.j
 const PCR_DARK=[54,86,40],PCR_BAND=[226,239,218];
 function pcrCfg(){
   if(!PCR.cfg)PCR.cfg={title:'Petty Cash',org:'',custodian:'',opening:0,openingDate:todayStr(),cats:PCR_CATS.map(n=>({id:nid(),name:n})),points:PCR_POINTS.slice()};
-  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!c.rep)c.rep={share:true,people:true};return c;
+  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!Array.isArray(c.anchors))c.anchors=[];if(!c.rep)c.rep={share:true,people:true};return c;
 }
 const pcrOn=()=>isAdmin()&&!store.viewing&&lsGet('hz-pcr-'+store.uid)==='1';
 const pcrAll=()=>Object.values(PCR.years).flat();
@@ -1569,7 +1577,9 @@ const pcrIsPaid=e=>e.kind==='in'||e.status==='paid';
 const pcrOut=e=>num(e.amt)+num(e.fee);
 const pcrLogo=()=>pcrCfg().logo||PCR_LOGO_DEFAULT;
 const ymd=d=>String(d||'').replace(/-/g,'');
-function pcrBal(upto){const c=pcrCfg();let b=num(c.opening);pcrAll().forEach(e=>{if(!pcrIsPaid(e)||(upto&&pcrEff(e)>upto))return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
+function pcrAnchors(){const c=pcrCfg();return[{date:c.openingDate||'2000-01-01',bal:num(c.opening),first:true},...c.anchors.filter(a=>a.date>(c.openingDate||''))].sort((a,b)=>a.date.localeCompare(b.date))}
+function pcrBal(upto){const A=pcrAnchors();let a=A[0];if(upto){for(const x of A)if(x.date<=addDay(upto))a=x}else a=A[A.length-1];let b=a.bal;
+  pcrAll().forEach(e=>{if(!pcrIsPaid(e))return;const d=pcrEff(e);if((upto&&d>upto)||(!a.first&&d<a.date))return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
 function pcrSave(e){const y=pcrEff(e).slice(0,4);for(const k in PCR.years)PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.years[y]=PCR.years[y]||[]).push(e);Object.keys(PCR.years).forEach(k=>queue('pcr-'+k))}
 function pcrDel(id){for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(x=>x.id!==id);if(PCR.years[k].length!==n)queue('pcr-'+k)}}
 const pcrSaveCfg=()=>queue('pcr-cfg');
@@ -1886,7 +1896,16 @@ function vPCR(){
   const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn ghost sm" data-act="pcCloseSet">Close this set &amp; start the next</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
   let body='';
   if(tab==='summary'){
-    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${pcrOptsUI}${pcrHTML(pcrModel('pcr',o))}</div>`;
+    const anc=c.anchors.some(a=>a.date===from),first=pcrIsFirst(from);
+    const ents=[...R.rec,...R.paid,...R.planned.filter(e=>e.date>=from&&e.date<=to)].sort((a,b)=>pcrEff(b).localeCompare(pcrEff(a))||num(b.ts)-num(a.ts));
+    const entT=`<div class="tw" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Category / person</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th></th></tr></thead><tbody>
+      ${ents.map(e=>`<tr><td>${esc(fmtD(pcrEff(e)))}</td><td>${e.kind==='in'?'<span class="pill good">Dispensed</span>':e.status==='paid'?'<span class="pill">Expense</span>':'<span class="pill warn">Planned</span>'}</td><td>${esc(e.desc||'')}</td><td>${e.kind==='in'?esc(e.payee||''):esc(pcrCat(e.cat))+(e.person?`<div class="small muted">${esc(pcrPerson(e.person))}</div>`:'')}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td>
+        <td><div class="inline-actions">${e.kind==='ap'&&e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="muted">No entries in this period yet.</td></tr>'}</tbody></table></div>`;
+    const strip=`<div class="pfig">
+      <div><small>Previous balance</small><b>${M(R.open)}</b><span class="small muted">${anc?'Keyed in':first?'Starting balance':'Carried forward'}</span><button class="btn ghost sm" data-act="pcPrev">✎ Edit</button></div>
+      <div><small>Amount dispensed</small><b>${M(R.received)}</b><span class="small muted">${R.rec.length} entr${R.rec.length===1?'y':'ies'}</span><button class="btn ghost sm" data-act="pcNew" data-k="in">+ Add</button></div>
+      <div><small>Expenditure</small><b>${M(R.totalOut)}</b><span class="small muted">${R.paid.length} paid · ${ents.length} entries in period</span><button class="btn ghost sm" data-act="pcEditToggle">${ui.pcrEdit?'Hide entries':'✎ Edit entries'}</button></div></div>${ui.pcrEdit?entT:''}`;
+    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${strip}${pcrOptsUI}${pcrHTML(pcrModel('pcr',o))}</div>`;
   } else if(tab==='payables'){
     body=`<div class="card s12"><div class="card-h"><h2>Planned payables</h2><div class="inline-actions"><b>${M(R.plannedTot)} to pay</b><button class="btn sm" data-act="pcNew" data-k="ap" data-s="planned">+ Plan a payable</button></div></div>
       <div class="tw"><table><thead><tr><th>Due</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th class="n">Total</th><th>Status</th><th></th></tr></thead><tbody>${R.planned.map(apRow).join('')||'<tr><td colspan="9" class="muted">Nothing planned. Use “Plan a payable” to list what needs paying.</td></tr>'}</tbody></table></div>
@@ -1919,8 +1938,8 @@ function vPCR(){
       <div class="fgrid" style="margin-top:12px"><div class="field"><label for="pc-org">Organisation / farm</label><input id="pc-org" data-pcfg="org" value="${esc(c.org||'')}" placeholder="e.g. Selu Galana Farm"></div>
       <div class="field"><label for="pc-cust">Prepared by</label><input id="pc-cust" data-pcfg="custodian" value="${esc(c.custodian||'')}"></div>
       <div class="field"><label for="pc-appr">Approved by</label><input id="pc-appr" data-pcfg="approver" value="${esc(c.approver||'')}"></div></div>
-      <div class="fgrid" style="margin-top:12px"><div class="field"><label for="pc-open">Opening balance (Ksh)</label><input id="pc-open" class="numin" inputmode="decimal" data-pcfg="opening" value="${fmtIn(c.opening)}" placeholder="0"></div>
-      <div class="field"><label for="pc-odate">Opening balance date</label><input id="pc-odate" type="date" data-pcfg="openingDate" value="${esc(c.openingDate||'')}"></div>
+      <div class="fgrid" style="margin-top:12px"><div class="field"><label for="pc-open">Starting (previous) balance (Ksh)</label><input id="pc-open" class="numin" inputmode="decimal" data-pcfg="opening" value="${fmtIn(c.opening)}" placeholder="0"></div>
+      <div class="field"><label for="pc-odate">Balance as at (start date)</label><input id="pc-odate" type="date" data-pcfg="openingDate" value="${esc(c.openingDate||'')}"></div>
       <div class="field"><label for="pc-alert">Warn me when the balance falls below (Ksh)</label><input id="pc-alert" class="numin" inputmode="decimal" data-pcfg="alert" value="${fmtIn(c.alert)}" placeholder="0"></div></div>
       <div class="field" style="margin-top:12px"><label for="pc-mode">Reimbursements in the PCR report</label><select id="pc-mode" data-pcfg="mode"><option value="detailed" ${c.mode==='detailed'?'selected':''}>Show every item under each person</option><option value="consolidated" ${c.mode==='consolidated'?'selected':''}>Show one total per person</option></select></div>
       <div class="card-h" style="margin-top:18px"><h2>Signatures</h2></div>
@@ -1941,7 +1960,10 @@ function vPCR(){
       <button class="addrow" data-act="pcCatAdd">+ Add category</button>
       <div class="card-h" style="margin-top:18px"><h2>Payment points</h2></div>
       ${c.points.map((pt,i)=>`<div class="kv"><input class="pcin" data-ppt="${i}" value="${esc(pt)}" aria-label="Payment point"><button class="x" data-act="pcPtDel" data-i="${i}" aria-label="Remove">×</button></div>`).join('')}
-      <button class="addrow" data-act="pcPtAdd">+ Add payment point</button></div>`;
+      <button class="addrow" data-act="pcPtAdd">+ Add payment point</button></div>
+     <div class="card s12 danger-zone"><div class="card-h"><h2>Erase data</h2></div>
+      <div class="dz-row"><div><b>Erase entries in a period</b><p class="small muted">Remove expenses, planned payables or cash dispensed between two dates, for example to re-key a month.</p></div><button class="btn ghost" data-act="pcErase">Erase a period…</button></div>
+      <div class="dz-row"><div><b>Start afresh</b><p class="small muted">Erase all petty cash entries and closed sets, then begin again from a new previous balance. Settings are kept.</p></div><button class="btn danger" data-act="pcFresh">Start afresh…</button></div></div>`;
   }
   return `<div class="pageh"><div><h1>${esc(c.title||'Petty Cash')}${c.org?' · '+esc(c.org):''}</h1><p>Petty cash reconciliation and accounts payable. Separate from your personal Hazina figures and visible only to you.</p></div>
     <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button><button class="btn ghost" data-act="pcNew" data-k="in">+ Cash dispensed</button></div></div>
@@ -1954,6 +1976,56 @@ function vPCR(){
    <div class="card s12">${per}<div class="seg pcrtabs" role="tablist">${tabs.map(([k,l])=>`<button type="button" data-act="pcTab" data-v="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div></div>
    ${body}
   </section>`;
+}
+/* ---------- edit period figures, erase a period, start afresh ---------- */
+function pcrCarried(from){const c=pcrCfg(),keep=c.anchors;c.anchors=keep.filter(a=>a.date!==from);const v=pcrBal(dayBefore(from));c.anchors=keep;return v}
+const pcrIsFirst=from=>{const c=pcrCfg();return !c.openingDate||from<=c.openingDate||!pcrAll().some(e=>pcrIsPaid(e)&&pcrEff(e)<from)};
+function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="mdForm" role="dialog" aria-modal="true" aria-labelledby="mdT" novalidate>${html}</form></div>`;
+  const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',k)};const k=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',k);
+  $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});const x=$('#mdX');if(x)x.onclick=close;onReady(close)}
+const mdHead=t=>`<div class="card-h" style="margin:0"><h2 id="mdT">${t}</h2><button type="button" class="x" id="mdX" aria-label="Close">×</button></div>`;
+function openPrevBal(){
+  const c=pcrCfg(),[from]=pcrRange(),first=pcrIsFirst(from),anc=c.anchors.find(a=>a.date===from),cur=pcrBal(dayBefore(from)),carried=first?null:pcrCarried(from);
+  pcrModal(`${mdHead('Previous balance')}
+    <p class="small muted" style="margin:0">${first?`This is your first period in the app, so key in the petty cash balance you had before ${esc(fmtD(from))}. It becomes the starting balance and every later period carries forward from it.`:`Normally this is carried forward from the previous period (${fmt(carried)}). Key in a different figure only if the actual cash count was different on ${esc(fmtD(from))}.`}</p>
+    <div class="field amt-in"><label for="pbAmt">Previous balance on ${esc(fmtD(from))} (Ksh)</label><input id="pbAmt" class="numin" inputmode="decimal" autocomplete="off" value="${fmtIn(cur)}" placeholder="0"></div>
+    <div class="inline-actions"><button class="btn" type="submit" style="flex:1">Save previous balance</button>${anc?`<button class="btn ghost" type="button" id="pbReset">Use carried forward (${fmt(carried)})</button>`:''}</div>`,close=>{
+    const inp=$('#pbAmt');inp.focus();inp.select();
+    const r=$('#pbReset');if(r)r.onclick=()=>{c.anchors=c.anchors.filter(a=>a.date!==from);pcrSaveCfg();close();render();toast('Using the carried-forward balance')};
+    $('#mdForm').onsubmit=ev=>{ev.preventDefault();const v=num(inp.value);
+      if(first){c.opening=v;c.openingDate=from;c.anchors=c.anchors.filter(a=>a.date>from)}else{c.anchors=c.anchors.filter(a=>a.date!==from);if(Math.round(v*100)!==Math.round(carried*100))c.anchors.push({date:from,bal:v})}
+      pcrSaveCfg();close();render();toast('Previous balance set to '+fmt(v)+'. Petty cash balance now '+fmt(pcrBal()))}});
+}
+const pcrSnap=()=>({years:JSON.stringify(PCR.years),cfg:JSON.stringify({sets:pcrCfg().sets,anchors:pcrCfg().anchors,opening:pcrCfg().opening,openingDate:pcrCfg().openingDate})});
+function pcrRestore(sn){PCR.years=JSON.parse(sn.years);Object.assign(pcrCfg(),JSON.parse(sn.cfg));Object.keys(PCR.years).forEach(k=>queue('pcr-'+k));pcrSaveCfg();render()}
+function openErase(){
+  let [from,to]=pcrRange();const kinds={paid:true,planned:true,in:true};
+  const match=e=>{const d=e.kind==='ap'&&e.status!=='paid'?e.date:pcrEff(e);if(d<from||d>to)return false;return e.kind==='in'?kinds.in:e.status==='paid'?kinds.paid:kinds.planned};
+  const draw=()=>{const L=pcrAll().filter(match);
+    pcrModal(`${mdHead('Erase entries in a period')}
+      <p class="small muted" style="margin:0">Removes the selected entries between these dates. Settings, people, categories and signatures are kept. You can undo straight after.</p>
+      <div class="fgrid"><div class="field"><label for="erFrom">From</label><input type="date" id="erFrom" value="${from}"></div><div class="field"><label for="erTo">To</label><input type="date" id="erTo" value="${to}"></div></div>
+      <div class="chkrow"><label><input type="checkbox" id="erPaid" ${kinds.paid?'checked':''}> Paid expenses</label><label><input type="checkbox" id="erPlanned" ${kinds.planned?'checked':''}> Planned payables</label><label><input type="checkbox" id="erIn" ${kinds.in?'checked':''}> Cash dispensed</label></div>
+      <div class="pcbal ${L.length?'bad':''}">${L.length?`<b>${L.length}</b> entr${L.length===1?'y':'ies'} will be erased (${fmt(sum(L,e=>e.kind==='in'?num(e.amt):pcrOut(e)))}).`:'No entries match.'}</div>
+      <div class="inline-actions"><button class="btn danger" type="submit" style="flex:1" ${L.length?'':'disabled'}>Erase ${L.length} entr${L.length===1?'y':'ies'}</button></div>`,close=>{
+      const re=()=>{from=$('#erFrom').value||from;to=$('#erTo').value||to;kinds.paid=$('#erPaid').checked;kinds.planned=$('#erPlanned').checked;kinds.in=$('#erIn').checked;close();draw()};
+      ['#erFrom','#erTo','#erPaid','#erPlanned','#erIn'].forEach(s=>$(s).onchange=re);
+      $('#mdForm').onsubmit=ev=>{ev.preventDefault();const sn=pcrSnap();let n=0;
+        for(const k in PCR.years){const b=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(e=>!match(e));if(PCR.years[k].length!==b){n+=b-PCR.years[k].length;queue('pcr-'+k)}}
+        close();render();toastAction(n+' entr'+(n===1?'y':'ies')+' erased','Undo',()=>pcrRestore(sn))}});
+  };draw();
+}
+function openFresh(){
+  pcrModal(`${mdHead('Start afresh')}
+    <p class="small muted" style="margin:0">Erases <b>all</b> petty cash entries, closed sets and keyed-in balances, then starts again from the balance below. Settings, people, categories, logo and signatures are kept. You can undo straight after.</p>
+    <div class="fgrid"><div class="field"><label for="frDate">Start date of the new period</label><input type="date" id="frDate" value="${todayStr().slice(0,8)}01"></div>
+    <div class="field amt-in"><label for="frAmt">Previous balance on that date (Ksh)</label><input id="frAmt" class="numin" inputmode="decimal" autocomplete="off" placeholder="0"></div></div>
+    <label class="chkrow"><input type="checkbox" id="frOk"> I understand all petty cash entries will be erased</label>
+    <div class="inline-actions"><button class="btn danger" type="submit" style="flex:1">Erase everything &amp; start afresh</button></div>`,close=>{
+    $('#frAmt').focus();
+    $('#mdForm').onsubmit=ev=>{ev.preventDefault();if(!$('#frOk').checked){toast('Tick the box to confirm');return}const d=$('#frDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick a start date');return}
+      const sn=pcrSnap(),c=pcrCfg();for(const k in PCR.years){PCR.years[k]=[];queue('pcr-'+k)}c.sets=[];c.anchors=[];c.opening=num($('#frAmt').value);c.openingDate=d;pcrSaveCfg();
+      ui.pcr.preset='set';ui.pcrTab='summary';close();render();toastAction('Started afresh from '+fmtD(d)+' with '+fmt(c.opening),'Undo',()=>pcrRestore(sn))}});
 }
 function openCloseSet(){
   const from=pcrSetStart(),no=pcrCurNo();let to=todayStr();if(to<from)to=from;
@@ -2054,6 +2126,10 @@ function pcrAction(a,t){
   else if(a==='pcUi'){ui.pcrRep[t.dataset.k]=t.dataset.v;render()}
   else if(a==='pcUiT'){ui.pcrRep[t.dataset.k]=!ui.pcrRep[t.dataset.k];render()}
   else if(a==='pcCloseSet')openCloseSet();
+  else if(a==='pcPrev')openPrevBal();
+  else if(a==='pcEditToggle'){ui.pcrEdit=!ui.pcrEdit;render()}
+  else if(a==='pcErase')openErase();
+  else if(a==='pcFresh')openFresh();
   else if(a==='pcGoSet'){ui.pcr.preset='set';render()}
   else if(a==='pcReopen'){const s=c.sets.pop();if(!s)return;pcrSaveCfg();ui.pcr.preset='set';render();toastAction(pcrSetRef(s.no,s.from)+' reopened','Undo',()=>{c.sets.push(s);pcrSaveCfg();render()})}
   else if(a==='pcSigDel'){delete c[t.dataset.k];pcrSaveCfg();render()}
