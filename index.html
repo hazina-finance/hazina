@@ -521,7 +521,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='9 Nov 2026 · PCR edit & start afresh';
+const APP_BUILD='9 Nov 2026 · PCR balance fix';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1579,7 +1579,7 @@ const pcrLogo=()=>pcrCfg().logo||PCR_LOGO_DEFAULT;
 const ymd=d=>String(d||'').replace(/-/g,'');
 function pcrAnchors(){const c=pcrCfg();return[{date:c.openingDate||'2000-01-01',bal:num(c.opening),first:true},...c.anchors.filter(a=>a.date>(c.openingDate||''))].sort((a,b)=>a.date.localeCompare(b.date))}
 function pcrBal(upto){const A=pcrAnchors();let a=A[0];if(upto){for(const x of A)if(x.date<=addDay(upto))a=x}else a=A[A.length-1];let b=a.bal;
-  pcrAll().forEach(e=>{if(!pcrIsPaid(e))return;const d=pcrEff(e);if((upto&&d>upto)||(!a.first&&d<a.date))return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
+  pcrAll().forEach(e=>{if(!pcrIsPaid(e))return;const d=pcrEff(e);if((upto&&d>upto)||d<a.date)return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
 function pcrSave(e){const y=pcrEff(e).slice(0,4);for(const k in PCR.years)PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.years[y]=PCR.years[y]||[]).push(e);Object.keys(PCR.years).forEach(k=>queue('pcr-'+k))}
 function pcrDel(id){for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(x=>x.id!==id);if(PCR.years[k].length!==n)queue('pcr-'+k)}}
 const pcrSaveCfg=()=>queue('pcr-cfg');
@@ -1905,7 +1905,8 @@ function vPCR(){
       <div><small>Previous balance</small><b>${M(R.open)}</b><span class="small muted">${anc?'Keyed in':first?'Starting balance':'Carried forward'}</span><button class="btn ghost sm" data-act="pcPrev">✎ Edit</button></div>
       <div><small>Amount dispensed</small><b>${M(R.received)}</b><span class="small muted">${R.rec.length} entr${R.rec.length===1?'y':'ies'}</span><button class="btn ghost sm" data-act="pcNew" data-k="in">+ Add</button></div>
       <div><small>Expenditure</small><b>${M(R.totalOut)}</b><span class="small muted">${R.paid.length} paid · ${ents.length} entries in period</span><button class="btn ghost sm" data-act="pcEditToggle">${ui.pcrEdit?'Hide entries':'✎ Edit entries'}</button></div></div>${ui.pcrEdit?entT:''}`;
-    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${strip}${pcrOptsUI}${pcrHTML(pcrModel('pcr',o))}</div>`;
+    const pre=pcrPre();const preNote=pre.length?`<div class="pcbal warn" style="margin-bottom:12px">${pre.length} older entr${pre.length===1?'y is':'ies are'} dated before your start date (${esc(fmtD(c.openingDate))}) and ${pre.length===1?'is':'are'} not counted in any balance (${fmt(sum(pre,e=>e.kind==='in'?num(e.amt):pcrOut(e)))}). <button class="btn ghost sm" data-act="pcErasePre">Erase ${pre.length===1?'it':'them'}</button></div>`:'';
+    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${preNote}${strip}${pcrOptsUI}${pcrHTML(pcrModel('pcr',o))}</div>`;
   } else if(tab==='payables'){
     body=`<div class="card s12"><div class="card-h"><h2>Planned payables</h2><div class="inline-actions"><b>${M(R.plannedTot)} to pay</b><button class="btn sm" data-act="pcNew" data-k="ap" data-s="planned">+ Plan a payable</button></div></div>
       <div class="tw"><table><thead><tr><th>Due</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th class="n">Total</th><th>Status</th><th></th></tr></thead><tbody>${R.planned.map(apRow).join('')||'<tr><td colspan="9" class="muted">Nothing planned. Use “Plan a payable” to list what needs paying.</td></tr>'}</tbody></table></div>
@@ -1984,6 +1985,7 @@ function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',k)};const k=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',k);
   $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});const x=$('#mdX');if(x)x.onclick=close;onReady(close)}
 const mdHead=t=>`<div class="card-h" style="margin:0"><h2 id="mdT">${t}</h2><button type="button" class="x" id="mdX" aria-label="Close">×</button></div>`;
+const pcrPre=()=>{const od=pcrCfg().openingDate;return od?pcrAll().filter(e=>(e.kind==='ap'&&e.status!=='paid'?e.date:pcrEff(e))<od):[]};
 function openPrevBal(){
   const c=pcrCfg(),[from]=pcrRange(),first=pcrIsFirst(from),anc=c.anchors.find(a=>a.date===from),cur=pcrBal(dayBefore(from)),carried=first?null:pcrCarried(from);
   pcrModal(`${mdHead('Previous balance')}
@@ -2127,6 +2129,7 @@ function pcrAction(a,t){
   else if(a==='pcUiT'){ui.pcrRep[t.dataset.k]=!ui.pcrRep[t.dataset.k];render()}
   else if(a==='pcCloseSet')openCloseSet();
   else if(a==='pcPrev')openPrevBal();
+  else if(a==='pcErasePre'){const ids=new Set(pcrPre().map(e=>e.id));if(!ids.size)return;const sn=pcrSnap();for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(e=>!ids.has(e.id));if(PCR.years[k].length!==n)queue('pcr-'+k)}render();toastAction(ids.size+' older entr'+(ids.size===1?'y':'ies')+' erased','Undo',()=>pcrRestore(sn))}
   else if(a==='pcEditToggle'){ui.pcrEdit=!ui.pcrEdit;render()}
   else if(a==='pcErase')openErase();
   else if(a==='pcFresh')openFresh();
