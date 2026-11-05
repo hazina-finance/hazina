@@ -308,6 +308,14 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .paylist{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
 .payi{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px;border-radius:8px}.payi:hover{background:var(--surface-2)}
 .paytot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.paytot>div{background:var(--surface-2);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}.paytot span{font-size:.75rem;color:var(--ink-2)}
+/* payment vouchers */
+.pcrdoc.pv{margin-bottom:18px}.pv-bar{display:flex;justify-content:space-between;align-items:center;margin:-14px -10px 12px;font-family:inherit}
+.exec .pv-info{width:100%;border-collapse:collapse;margin-top:16px;border-top:1.5px solid #111827;border-bottom:1.5px solid #111827}
+.exec .pv-info th{background:#f3f4f6;color:#6b7280;font-weight:400;font-size:.72rem;width:17%;border-bottom:1px solid #e5e7eb}.exec .pv-info td{font-weight:600;width:33%}
+.exec .pv-words{background:#f3f4f6;padding:8px 10px;margin-top:10px;display:flex;flex-direction:column;gap:2px}.exec .pv-words span{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#6b7280}.exec .pv-words b{font-style:italic}
+.exec .pv-sec{font-weight:700;margin:12px 0 6px;font-size:.88rem}
+.exec .pv-box{border:1.5px dotted #8a919c;min-height:120px;padding:10px 12px;margin-bottom:10px;display:flex;flex-direction:column;gap:3px}.exec .pv-box b{font-size:.8rem}.exec .pv-box span{font-size:.72rem;color:#6b7280;font-style:italic}
+@media(max-width:640px){.exec .pv-info th,.exec .pv-info td{display:block;width:auto}}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -544,7 +552,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='11 Nov 2026 · payables by category & reimburse totals';
+const APP_BUILD='12 Nov 2026 · payment vouchers';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1673,7 +1681,7 @@ function pcrModel(type,o){
     D.sections.forEach(s=>{dr.push(drow(s.letter,'',s.title.toUpperCase(),s.amt,s.fee,'sec'));
       s.groups.forEach(g=>{
         if(s.reimb&&o.mode==='consolidated'){const it=g.items,d0=it[0].date,d1=it[it.length-1].date;
-          dr.push(drow(it.length>1?it[0].no+'–'+it[it.length-1].no:it[0].no,d0===d1?d0:d0+'–'+d1,g.title+' · '+it.length+' receipt'+(it.length>1?'s':'')+' ('+it.slice(0,3).map(x=>x.e.desc).filter(Boolean).join('; ')+(it.length>3?'…':'')+')',g.amt,g.fee,''));return}
+          dr.push(drow(it.length>1?it[0].no+'–'+it[it.length-1].no:it[0].no,d0===d1?d0:d0+'–'+d1,'Reimbursement to '+g.title+' · '+it.length+' receipt'+(it.length>1?'s':''),g.amt,g.fee,''));return}
         if(s.reimb)dr.push(drow('','',g.title+' — reimbursement',g.amt,g.fee,'sub'));
         g.items.forEach(x=>dr.push(drow(x.no,x.date,x.desc,x.amt,x.fee,'')))})});
     dr.push(drow('','','Total expenditure',D.totalAmt,D.totalFee,'tot'));
@@ -1706,10 +1714,10 @@ function pcrModel(type,o){
   }
   else{ // rc: supporting documents schedule for the clerk
     const D=pcrDoc(from,to,'detailed'),st=o.rc||'paid',G=[];
-    if(st!=='planned')D.sections.forEach(s=>G.push({id:s.id,letter:s.letter,title:s.title,items:s.groups.flatMap(g=>g.items.map(x=>({no:x.no,date:x.date,desc:x.e.desc||'',who:x.e.person?pcrPerson(x.e.person):(x.e.payee||''),ref:x.e.ref||'',amt:x.amt,fee:x.fee,st:'Paid'})))}));
+    if(st!=='planned')D.sections.forEach(s=>G.push({id:s.id,letter:s.letter,title:s.title,reimb:s.reimb,items:s.groups.flatMap(g=>g.items.map(x=>({pp:s.reimb?g.title:'',no:x.no,date:x.date,desc:x.e.desc||'',who:x.e.person?pcrPerson(x.e.person):(x.e.payee||''),ref:x.e.ref||'',amt:x.amt,fee:x.fee,st:'Paid'})))}));
     if(st!=='paid'){let n=0;pcrAll().filter(e=>e.kind==='ap'&&e.status!=='paid'&&e.date>=from&&e.date<=to).sort((a,b)=>a.date.localeCompare(b.date)).forEach(e=>{
-      let g=G.find(x=>x.id===(c.cats.some(k=>k.id===e.cat)?e.cat:'__other'));if(!g){g={id:c.cats.some(k=>k.id===e.cat)?e.cat:'__other',letter:'',title:pcrCat(e.cat),items:[]};G.push(g)}
-      g.items.push({no:'P'+(++n),date:ymd(e.date),desc:e.desc||'',who:e.person?pcrPerson(e.person):(e.payee||''),ref:e.ref||'',amt:num(e.amt),fee:num(e.fee),st:'Planned'})})}
+      let g=G.find(x=>x.id===(c.cats.some(k=>k.id===e.cat)?e.cat:'__other'));if(!g){const gid=c.cats.some(k=>k.id===e.cat)?e.cat:'__other';g={id:gid,letter:'',title:pcrCat(e.cat),reimb:gid!=='__other'&&pcrIsReimb(gid),items:[]};G.push(g)}
+      g.items.push({pp:g.reimb?(pcrPerson(e.person)||'Unnamed'):'',no:'P'+(++n),date:ymd(e.date),desc:e.desc||'',who:e.person?pcrPerson(e.person):(e.payee||''),ref:e.ref||'',amt:num(e.amt),fee:num(e.fee),st:'Planned'})})}
     G.forEach((g,i)=>{if(!g.letter){let j=i;while(G.some(x=>x!==g&&x.letter===pcrLetter(j)))j++;g.letter=pcrLetter(j)}g.amt=sum(g.items,x=>x.amt);g.fee=sum(g.items,x=>x.fee)});
     const N=sum(G,g=>g.items.length),TA=sum(G,g=>g.amt),TF=sum(G,g=>g.fee);
     M.figs=[['Documents',String(N)],['Categories',String(G.length)],['Amount',TA],['Fees',TF],['Total',TA+TF]];
@@ -1717,7 +1725,13 @@ function pcrModel(type,o){
     B.push({t:'h',x:'Summary by category'},{t:'table',cols:[{h:'Ref',w:34},{h:'Category',xs:4},{h:'Documents',n:1,w:62},{h:'Amount (KES)',n:1,w:86},{h:'Fees',n:1,w:56},{h:'Total (KES)',n:1,w:86}],
       rows:[...G.map(g=>({c:[g.letter,g.title,String(g.items.length),g.amt,g.fee||'–',g.amt+g.fee],k:''})),...(G.length?[]:[{c:['','Nothing to file for this period.','','','',''],k:'muted'}]),{c:['','Total',String(N),TA,TF||'–',TA+TF],k:'tot'}]});
     G.forEach(g=>{const cols=[{h:'Item No.',w:46},{h:'Date',w:56},{h:'Description',xs:3},{h:'Paid to / person',xs:2,w:96},{h:'Receipt no.',w:62},{h:'Amount (KES)',n:1,w:74}];if(st==='all')cols.push({h:'Status',w:46});cols.push({h:'Filed',w:34,box:1});
-      B.push({t:'h',x:g.letter+' · '+g.title},{t:'table',cols,rows:[...g.items.map(x=>({c:[x.no,x.date,x.desc,x.who,x.ref,x.amt,...(st==='all'?[x.st]:[]),''],k:''})),{c:['','','Total','','',g.amt,...(st==='all'?['']:[]),''],k:'tot'}]})});
+      const ir=x=>({c:[x.no,x.date,x.desc,x.who,x.ref,x.amt,...(st==='all'?[x.st]:[]),''],k:''}),rows=[];
+      if(g.reimb){[...new Set(g.items.map(x=>x.pp))].forEach(pn=>{const I=g.items.filter(x=>x.pp===pn),a=sum(I,x=>x.amt),f=sum(I,x=>x.fee);
+        rows.push({c:['','',pn+' — reimbursement','',I.length+' doc'+(I.length===1?'':'s'),a,...(st==='all'?['']:[]),''],k:'sec'});I.forEach(x=>rows.push(ir(x)));
+        rows.push({c:['','','Subtotal '+pn+(f?' (fees '+pcrA(f)+')':''),'','',a,...(st==='all'?['']:[]),''],k:'sub'})})}
+      else g.items.forEach(x=>rows.push(ir(x)));
+      rows.push({c:['','','Total '+g.title.toLowerCase()+(g.fee?' (fees '+pcrA(g.fee)+')':''),'','',g.amt,...(st==='all'?['']:[]),''],k:'tot'});
+      B.push({t:'h',x:g.letter+' · '+g.title},{t:'table',cols,rows})});
     if(o.covers&&G.length)B.push({t:'covers',list:G.map(g=>({letter:g.letter,title:g.title,n:g.items.length,total:g.amt+g.fee,range:g.items.length>1?g.items[0].no+' – '+g.items[g.items.length-1].no:g.items[0].no}))});
   }
   return M;
@@ -1765,11 +1779,11 @@ async function pcrFontUpload(files){let n=0;const pick={};
 function pcrHTML(M){
   const ce=ui.pcrWords?' contenteditable="true" spellcheck="true"':'';
   const ew=s=>typeof s==='string'&&s?`<span class="ew" data-w="${esc(s)}"${ce}>${esc(pcrT(s))}</span>`:esc(s==null?'':s);
-  const cell=(v,col)=>`<td class="${col.n?'n':''}${col.box?' c':''}">${col.box?'<span class="ex-box"></span>':typeof v==='number'?pcrA(v):ew(v)}</td>`;
+  const cell=(v,col,k)=>`<td class="${col.n?'n':''}${col.box?' c':''}">${col.box?(k?'':'<span class="ex-box"></span>'):typeof v==='number'?pcrA(v):ew(v)}</td>`;
   const blk=b=>{
     if(b.t==='h')return`<div class="ex-h">${ew(b.x)}</div>`;
     if(b.t==='note')return`<p class="ex-note">${ew(b.x)}</p>`;
-    if(b.t==='table')return`<div class="tw"><table class="ex-table"><thead><tr>${b.cols.map(col=>`<th class="${col.n?'n':''}${col.box?' c':''}"${col.w?` style="width:${Math.round(col.w*1.25)}px"`:''}>${ew(col.h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr class="ex-${r.k||'r'}">${r.c.map((v,i)=>cell(v,b.cols[i])).join('')}</tr>`).join('')}</tbody></table></div>`;
+    if(b.t==='table')return`<div class="tw"><table class="ex-table"><thead><tr>${b.cols.map(col=>`<th class="${col.n?'n':''}${col.box?' c':''}"${col.w?` style="width:${Math.round(col.w*1.25)}px"`:''}>${ew(col.h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr class="ex-${r.k||'r'}">${r.c.map((v,i)=>cell(v,b.cols[i],r.k)).join('')}</tr>`).join('')}</tbody></table></div>`;
     if(b.t==='recon')return`<table class="ex-table ex-recon"><tbody>${b.rows.map(([l,v,k])=>`<tr class="${k==='key'?'ex-tot':k==='b'?'ex-sub':''}"><td>${ew(l)}</td><td class="n">${pcrA(v)}</td></tr>`).join('')}</tbody></table>`;
     if(b.t==='covers')return`<div class="ex-h">Cover pages for filing (added to the PDF)</div><div class="ex-covers">${b.list.map(l=>`<div class="ex-cover"><b>${esc(l.letter)}</b><span>${ew(l.title)}</span><small>${l.n} document${l.n===1?'':'s'} · ${pcrA(l.total)} · items ${esc(l.range)}</small></div>`).join('')}</div>`;
     return'';};
@@ -1815,7 +1829,7 @@ async function pcrPDF(M,file){
         didDrawCell:d=>{const x=d.cell.x,yy=d.cell.y,w=d.cell.width,h=d.cell.height;
           if(d.section==='head'){doc.setDrawColor(...INK);doc.setLineWidth(.9);doc.line(x,yy+h,x+w,yy+h);return}
           const k=b.rows[d.row.index].k;if(k==='tot')totLines(x,yy,w,h);else lineB(x,yy+h,w);
-          if(b.cols[d.column.index].box&&k!=='tot'&&k!=='muted'){doc.setDrawColor(...SLATE);doc.setLineWidth(.6);doc.rect(x+w/2-4.5,yy+h/2-4.5,9,9)}}});
+          if(b.cols[d.column.index].box&&!k){doc.setDrawColor(...SLATE);doc.setLineWidth(.6);doc.rect(x+w/2-4.5,yy+h/2-4.5,9,9)}}});
       y=doc.lastAutoTable.finalY+24}
     else if(b.t==='recon'){const rx=L0+(R0-L0)*(M.orient==='l'?0.55:0.42);
       tbl({startY:y,margin:{left:rx,right:W-R0,top:60,bottom:54},body:b.rows.map(([l,v])=>[tx(l),pcrA(v)]),columnStyles:{1:{halign:'right',cellWidth:110}},
@@ -1884,7 +1898,7 @@ async function pcrXLSX(M,file){
         row.c.forEach((v,i)=>{const col=b.cols[i],[c1,c2]=lay[i];
           const o={bold:k==='sec'||k==='sub'||k==='tot',fill:k==='sec'?FILL:undefined,color:k==='ind'||k==='muted'?SLATE:undefined,size:k==='ind'?9:10,indent:k==='ind'&&i===1?2:0,wrap:(c2-c1)>0,center:!!col.box,right:!!col.n,
             border:k==='tot'?{top:med,bottom:dbl}:{bottom:thin}};
-          put(r,c1,c2,col.box&&k!=='tot'&&k!=='muted'?'☐':v,o);if(typeof v==='string'&&(c2-c1)>0)lines=Math.max(lines,Math.ceil(v.length/((c2-c1+1)*12*1.1)))});
+          put(r,c1,c2,col.box&&!k?'☐':v,o);if(typeof v==='string'&&(c2-c1)>0)lines=Math.max(lines,Math.ceil(v.length/((c2-c1+1)*12*1.1)))});
         if(lines>1)ws.getRow(r).height=lines*13.5;r++});r++}
     else if(b.t==='recon'){b.rows.forEach(([l,v,k])=>{const o={bold:k!=='',fill:k==='key'?FILL:undefined,border:k==='key'?{top:med,bottom:dbl}:{bottom:thin}};put(r,NC-4,NC-1,l,o);put(r,NC,NC,v,o);r++});r++}
     else if(b.t==='covers'){put(r,1,NC,'Category cover pages for filing the receipts are included in the PDF version of this schedule.',{size:9,italic:true,color:SLATE});r+=2}
@@ -1957,11 +1971,16 @@ function vPCR(){
      <div class="tw"><table><thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>From</th><th>Payment point</th><th class="n">Amount</th><th></th></tr></thead><tbody>
      ${R.rec.slice().reverse().map(e=>`<tr><td>${esc(fmtD(e.date))}</td><td>${esc(e.ref||'')}</td><td>${esc(e.desc||'')}</td><td>${esc(e.payee||'')}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td><div class="inline-actions"><button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')||'<tr><td colspan="7" class="muted">No cash dispensed in this period.</td></tr>'}</tbody></table></div></div>`;
   } else if(tab==='reports'){
-    const ty=ui.pcrRep.type,types=[['pcr','PCR report'],['ap','Accounts payable'],['ledger','Ledger'],['rc','Receipts schedule']];
+    const ty=ui.pcrRep.type,types=[['pcr','PCR report'],['ap','Accounts payable'],['ledger','Ledger'],['rc','Receipts schedule'],['pv','Payment vouchers']];
     const seg=(k,opts,cur)=>`<div class="seg" style="grid-template-columns:repeat(${opts.length},1fr);width:min(${opts.length*150}px,100%)">${opts.map(([v,l])=>`<button type="button" data-act="pcUi" data-k="${k}" data-v="${v}" aria-pressed="${cur===v}">${esc(l)}</button>`).join('')}</div>`;
     const opts=ty==='pcr'?pcrOptsUI:ty==='ap'?`<div class="ex-opts"><span class="small muted">Show</span>${seg('ap',[['all','Planned & paid'],['planned','Planned only'],['paid','Paid only']],o.ap)}</div>`
       :ty==='rc'?`<div class="ex-opts"><span class="small muted">Items</span>${seg('rc',[['paid','Paid'],['planned','Planned'],['all','Both']],o.rc)}${chip('covers','Cover page per category (PDF)',o.covers,'pcUiT')}</div><p class="small muted" style="margin:6px 0 0">For the clerk: print this schedule, put each category’s receipts behind its cover page in item-number order, tick “Filed”, and send the bundle with the PCR report.</p>`:'';
-    body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
+    if(ty==='pv'){const P=pcrVouchers(),nC=P.V.filter(v=>v.kind==='cat').length,nP=P.V.length-nC;
+      body=`<div class="card s12"><div class="card-h"><h2>Reports</h2><div class="expgrp"><span class="small muted">Word</span><button class="btn sm" data-act="pcPv" ${P.V.length?'':'disabled'}>Download all ${P.V.length} voucher${P.V.length===1?'':'s'} (.docx)</button></div></div>
+      <div class="ex-opts">${seg('type',types,ty)}</div>
+      <p class="small muted" style="margin:4px 0 12px">One voucher per expense category and one per person reimbursed, built from the paid items in ${esc(fmtD(from))} – ${esc(fmtD(to))}${P.ref?' · '+esc(P.ref):''}: <b>${nC}</b> category voucher${nC===1?'':'s'}, <b>${nP}</b> reimbursement voucher${nP===1?'':'s'}. Download the Word file, paste each receipt into its dotted box (the box grows to fit), sign, and file it with the PCR report.</p>
+      ${pvHTML(P)}</div>`}
+    else body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
       <div class="ex-opts">${seg('type',types,ty)}</div>${opts}
       ${wordBar}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
@@ -2020,6 +2039,97 @@ function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id
 const mdHead=t=>`<div class="card-h" style="margin:0"><h2 id="mdT">${t}</h2><button type="button" class="x" id="mdX" aria-label="Close">×</button></div>`;
 const pcrPre=()=>{const od=pcrCfg().openingDate;return od?pcrAll().filter(e=>pcrIsPaid(e)&&pcrEff(e)<od):[]};
 /* ---------- accounts payable: grouping and payment ---------- */
+/* ---------- payment vouchers (one per category; one per person reimbursed) ---------- */
+const DOCX_URL='https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js';
+function kesWords(n){n=Math.round(Math.abs(n)*100)/100;const on=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'],tn=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  const w3=x=>{let s='';if(x>=100){s+=on[Math.floor(x/100)]+' Hundred';x%=100;if(x)s+=' and '}if(x>=20){s+=tn[Math.floor(x/10)];if(x%10)s+='-'+on[x%10]}else if(x)s+=on[x];return s};
+  let sh=Math.floor(n);const ct=Math.round((n-sh)*100),parts=[];for(const [v,l] of [[1e9,'Billion'],[1e6,'Million'],[1e3,'Thousand']])if(sh>=v){parts.push(w3(Math.floor(sh/v))+' '+l);sh%=v}
+  if(sh)parts.push((parts.length&&sh<100?'and ':'')+w3(sh));return 'Kenya Shillings '+(parts.join(' ')||'Zero')+(ct?' and '+w3(ct)+' Cents':'')+' Only'}
+function pcrVouchers(){
+  const c=pcrCfg(),[from,to]=pcrRange(),D=pcrDoc(from,to,'detailed'),ref=D.ref||'',base=ref?ref.replace(/^PCR/,'PV'):'PV/'+ymd(from)+'-'+ymd(to),V=[];
+  const row=x=>({no:x.no,date:fmtD(pcrEff(x.e)),desc:x.e.desc||'',to:x.e.person?pcrPerson(x.e.person):(x.e.payee||''),rcpt:x.e.ref||'',code:x.e.payRef||'',point:x.e.point||'',amt:x.amt,fee:x.fee,total:x.amt+x.fee,e:x.e});
+  const uniq=a=>[...new Set(a.filter(Boolean))];
+  D.sections.forEach(s=>{
+    if(s.reimb)s.groups.forEach((g,i)=>{const items=g.items.map(row),tr=[];
+      items.forEach(x=>{const k=x.e.payId||x.e.id;let t=tr.find(y=>y.k===k);if(!t){t={k,date:x.date,point:x.point,ref:x.code,nos:[],amt:0,fee:0};tr.push(t)}t.nos.push(x.no);t.amt+=x.amt;t.fee+=x.fee});
+      V.push({kind:'person',no:base+'-'+s.letter+(i+1),letter:s.letter,cat:s.title,payee:g.title,items,amt:g.amt,fee:g.fee,total:g.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),transfers:tr,date:items[items.length-1].date})});
+    else{const items=s.groups.flatMap(g=>g.items).map(row),py=uniq(items.map(x=>x.to));
+      V.push({kind:'cat',no:base+'-'+s.letter,letter:s.letter,cat:s.title,payee:py.length===1?py[0]:py.length?'Various (see particulars)':'—',items,amt:s.amt,fee:s.fee,total:s.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),date:items[items.length-1].date})}});
+  return{V,from,to,ref,org:c.org||'',prep:{name:c.custodian||'',sig:c.sigPrep||''},appr:{name:c.approver||'',sig:c.sigAppr||''}};
+}
+const pvRng=nos=>nos.length>1?nos[0]+'–'+nos[nos.length-1]:nos[0];
+const pvTrLabel=(v,t)=>'Transfer to '+v.payee+' · '+t.date+(t.point?' · '+t.point:'')+(t.ref?' · Ref '+t.ref:'')+' · Ksh '+pcrA(t.amt+t.fee)+' (items '+pvRng(t.nos)+')';
+const pvRcLabel=x=>'Receipt '+x.no+' · '+(x.desc||'Item')+' · Ksh '+pcrA(x.total)+(x.rcpt?' · Receipt no. '+x.rcpt:'');
+function pvInfo(P,v){return[['Voucher No.',v.no],['Date',v.date],[v.kind==='person'?'Paid to (reimbursed)':'Paid to',v.payee],['Expense category',v.letter+' · '+v.cat],['Period',fmtD(P.from)+' – '+fmtD(P.to)],['PCR reference',P.ref||'—'],['Payment point',v.points.join(', ')||'—'],['Transaction code(s)',v.refs.join(', ')||'—']]}
+function pvHTML(P){
+  if(!P.V.length)return'<p class="muted">No paid expenses in this period, so there are no vouchers yet. Vouchers appear once payables are marked as paid.</p>';
+  return P.V.map((v,i)=>{const fee=v.fee>0;return`<div class="pcrdoc exec pv"><div class="pv-bar"><span class="small muted">${i+1} of ${P.V.length}</span><button class="btn ghost sm" data-act="pcPv" data-i="${i}">Download this voucher (.docx)</button></div>
+    <div class="ex-head"><div><div class="ex-kicker">${esc(P.org||'Petty cash')}</div><div class="ex-title">Payment Voucher</div><div class="ex-sub">${esc(v.no)} · ${v.kind==='person'?'Reimbursement to '+esc(v.payee):esc(v.cat)}</div></div><img class="pd-logo" src="${pcrLogo()}" alt="Logo"></div>
+    <table class="pv-info">${(()=>{const I=pvInfo(P,v),r=[];for(let k=0;k<I.length;k+=2)r.push(`<tr><th>${esc(I[k][0])}</th><td>${esc(I[k][1])}</td><th>${esc(I[k+1][0])}</th><td>${esc(I[k+1][1])}</td></tr>`);return r.join('')})()}</table>
+    <div class="ex-h">Particulars</div>
+    <div class="tw"><table class="ex-table"><thead><tr><th>Item No.</th><th>Date</th><th>Description</th>${v.kind==='cat'?'<th>Paid to</th>':''}<th>Receipt no.</th><th class="n">Amount (KES)</th>${fee?'<th class="n">Fee</th><th class="n">Total (KES)</th>':''}</tr></thead><tbody>
+    ${v.items.map(x=>`<tr><td>${esc(x.no)}</td><td>${esc(x.date)}</td><td>${esc(x.desc)}</td>${v.kind==='cat'?`<td>${esc(x.to)}</td>`:''}<td>${esc(x.rcpt)}</td><td class="n">${pcrA(x.amt)}</td>${fee?`<td class="n">${x.fee?pcrA(x.fee):'–'}</td><td class="n">${pcrA(x.total)}</td>`:''}</tr>`).join('')}
+    <tr class="ex-tot"><td></td><td></td><td>${v.kind==='person'?'Total reimbursed':'Total '+esc(v.cat.toLowerCase())}</td>${v.kind==='cat'?'<td></td>':''}<td></td><td class="n">${pcrA(v.amt)}</td>${fee?`<td class="n">${pcrA(v.fee)}</td><td class="n">${pcrA(v.total)}</td>`:''}</tr></tbody></table></div>
+    <div class="pv-words"><span>Amount in words</span><b>${esc(kesWords(v.total))}</b></div>
+    <div class="ex-h">Approval</div>
+    <table class="ex-approve"><tr><th></th><th>Name</th><th>Signature</th><th>Date</th></tr>${[['Prepared by',P.prep,fmtD(todayStr())],['Approved by',P.appr,'']].map(([r,a,d])=>`<tr><td>${r}</td><td>${esc(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" src="${a.sig}" alt="Signature">`:''}</td><td>${esc(d)}</td></tr>`).join('')}</table>
+    <div class="ex-h">Supporting documents</div>
+    ${v.kind==='person'?`<div class="pv-sec">1. Proof of transfer — money sent to ${esc(v.payee)}</div>${v.transfers.map(t=>`<div class="pv-box"><b>${esc(pvTrLabel(v,t))}</b><span>Attach the M-Pesa / bank confirmation here</span></div>`).join('')}
+      <div class="pv-sec">2. Proof of expense — receipts for how the money was used</div>`:''}
+    ${v.items.map(x=>`<div class="pv-box"><b>${esc(pvRcLabel(x))}</b><span>Attach receipt here</span></div>`).join('')}
+    <div class="ex-foot"><span>${esc([P.org,'Payment Voucher',v.no].filter(Boolean).join(' · '))}</span></div></div>`}).join('');
+}
+const dataUrlBytes=u=>{const b=atob(String(u).split(',')[1]||'');const a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a};
+async function pvDocx(P,list,file){
+  toast('Preparing Word document…');try{await loadScript(DOCX_URL)}catch(e){toast('Couldn’t load the Word tool. Check your connection.');return}
+  const {Document,Packer,Paragraph,TextRun,TableRow,TableCell,WidthType,BorderStyle,AlignmentType,ImageRun,ShadingType,HeightRule,VerticalAlign,Footer,PageNumber,TableLayoutType}=docx;
+  const Table=function(o){return new docx.Table(Object.assign({layout:TableLayoutType.FIXED},o))};
+  const INK='111827',SLATE='646C78',LINE='D6DAE0',FILL='F3F4F6',FW=9746,BODY='Aptos',HEAD='Aptos Serif';
+  const T=(t,o={})=>new TextRun({text:String(t==null?'':t),font:o.head?HEAD:BODY,size:Math.round((o.size||9.5)*2),bold:!!o.bold,italics:!!o.it,color:o.color||INK,allCaps:!!o.caps,characterSpacing:o.sp||0});
+  const Pg=(runs,o={})=>new Paragraph({children:Array.isArray(runs)?runs:[runs],alignment:o.right?AlignmentType.RIGHT:o.center?AlignmentType.CENTER:AlignmentType.LEFT,spacing:{before:o.before||0,after:o.after==null?40:o.after},border:o.border,keepNext:!!o.keepNext});
+  const none={style:BorderStyle.NONE,size:0,color:'FFFFFF'},noB={top:none,bottom:none,left:none,right:none,insideHorizontal:none,insideVertical:none};
+  const thin={style:BorderStyle.SINGLE,size:4,color:LINE},ink={style:BorderStyle.SINGLE,size:8,color:INK},dbl={style:BorderStyle.DOUBLE,size:6,color:INK};
+  const cell=(content,o={})=>new TableCell({children:Array.isArray(content)?content:[content],width:o.w?{size:o.w,type:WidthType.DXA}:undefined,shading:o.fill?{type:ShadingType.CLEAR,color:'auto',fill:o.fill}:undefined,
+    borders:{top:o.top||none,bottom:o.bottom||thin,left:none,right:none},margins:{top:70,bottom:70,left:90,right:90},verticalAlign:o.va||VerticalAlign.CENTER,columnSpan:o.span});
+  const img=async(src,maxW,maxH)=>{try{const dm=await imgDims(src);let w=maxW,h=w*dm.h/dm.w;if(h>maxH){h=maxH;w=h*dm.w/dm.h}return new ImageRun({data:dataUrlBytes(src),transformation:{width:Math.round(w),height:Math.round(h)}})}catch(e){return null}};
+  const label=t=>Pg(T(t.toUpperCase(),{size:8,bold:true,color:SLATE,sp:20}),{before:220,after:80,keepNext:true});
+  const logo=await img(pcrLogo(),110,58),sP=P.prep.sig?await img(P.prep.sig,150,44):null,sA=P.appr.sig?await img(P.appr.sig,150,44):null;
+  const sections=[];
+  for(const v of list){const fee=v.fee>0,C=[];
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[FW-2000,2000],borders:noB,rows:[new TableRow({children:[
+      new TableCell({borders:noB,width:{size:FW-2000,type:WidthType.DXA},children:[Pg(T((P.org||'Petty cash').toUpperCase(),{size:8,color:SLATE,sp:30})),Pg(T('Payment Voucher',{head:true,size:22,bold:true}),{after:20}),Pg(T(v.no+'  ·  '+(v.kind==='person'?'Reimbursement to '+v.payee:v.cat),{size:9,color:SLATE}))]}),
+      new TableCell({borders:noB,width:{size:2000,type:WidthType.DXA},verticalAlign:VerticalAlign.TOP,children:[Pg(logo?[logo]:[T('')],{right:true})]})]})]}));
+    C.push(Pg(T(''),{after:120,border:{bottom:{style:BorderStyle.DOUBLE,size:6,color:INK,space:1}}}));
+    const I=pvInfo(P,v),ir=[];for(let k=0;k<I.length;k+=2)ir.push(new TableRow({children:[cell(Pg(T(I[k][0],{size:8,color:SLATE})),{w:1700,fill:FILL}),cell(Pg(T(I[k][1],{bold:true})),{w:3173}),cell(Pg(T(I[k+1][0],{size:8,color:SLATE})),{w:1700,fill:FILL}),cell(Pg(T(I[k+1][1],{bold:true})),{w:3173})]}));
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[1700,3173,1700,3173],rows:ir,borders:{top:ink,bottom:ink,left:none,right:none,insideHorizontal:thin,insideVertical:none}}));
+    C.push(label('Particulars'));
+    const cols=[['Item No.',850],['Date',1300],['Description',0],...(v.kind==='cat'?[['Paid to',1400]]:[]),['Receipt no.',1050],['Amount (KES)',1250,1],...(fee?[['Fee',750,1],['Total (KES)',1250,1]]:[])];
+    const fixed=sum(cols,x=>x[1]);cols.forEach(x=>{if(!x[1])x[1]=FW-fixed});
+    const hd=new TableRow({tableHeader:true,children:cols.map(([h,w,n])=>cell(Pg(T(h,{size:8.5,bold:true}),{right:!!n}),{w,fill:FILL,bottom:ink}))});
+    const rowOf=(vals,o={})=>new TableRow({cantSplit:true,children:vals.map((x,i)=>cell(Pg(T(typeof x==='number'?pcrA(x):x,{bold:o.bold}),{right:!!cols[i][2]}),{w:cols[i][1],top:o.top,bottom:o.bottom}))});
+    const rows=v.items.map(x=>rowOf([x.no,x.date,x.desc,...(v.kind==='cat'?[x.to]:[]),x.rcpt,x.amt,...(fee?[x.fee?x.fee:'–',x.total]:[])]));
+    rows.push(rowOf(['','',v.kind==='person'?'Total reimbursed':'Total '+v.cat.toLowerCase(),...(v.kind==='cat'?['']:[]),'',v.amt,...(fee?[v.fee||'–',v.total]:[])],{bold:true,top:ink,bottom:dbl}));
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:cols.map(x=>x[1]),rows:[hd,...rows],borders:noB}));
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[FW],borders:noB,rows:[new TableRow({children:[cell([Pg(T('AMOUNT IN WORDS',{size:7.5,color:SLATE,sp:20})),Pg(T(kesWords(v.total),{bold:true,it:true}))],{w:FW,fill:FILL,bottom:none})]})]}));
+    C.push(label('Approval'));
+    const aw=[1700,2700,3046,2300],ah=new TableRow({children:['','Name','Signature','Date'].map((h,i)=>cell(Pg(T(h,{size:8.5,bold:true})),{w:aw[i],fill:FILL,bottom:ink}))});
+    const ar=(role,a,sg,d)=>new TableRow({height:{value:820,rule:HeightRule.ATLEAST},cantSplit:true,children:[cell(Pg(T(role,{bold:true})),{w:aw[0],va:VerticalAlign.BOTTOM}),cell(Pg(T(a.name)),{w:aw[1],va:VerticalAlign.BOTTOM}),cell(Pg(sg?[sg]:[T('')]),{w:aw[2],va:VerticalAlign.BOTTOM}),cell(Pg(T(d)),{w:aw[3],va:VerticalAlign.BOTTOM})]});
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:aw,borders:noB,rows:[ah,ar('Prepared by',P.prep,sP,fmtD(todayStr())),ar('Approved by',P.appr,sA,'')]}));
+    C.push(label('Supporting documents'));
+    const dot={style:BorderStyle.DOTTED,size:8,color:'8A919C'};
+    const box=(t,hint)=>[new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[FW],borders:{top:dot,bottom:dot,left:dot,right:dot,insideHorizontal:none,insideVertical:none},rows:[new TableRow({height:{value:2600,rule:HeightRule.ATLEAST},children:[new TableCell({width:{size:FW,type:WidthType.DXA},borders:{top:dot,bottom:dot,left:dot,right:dot},margins:{top:100,bottom:100,left:140,right:140},verticalAlign:VerticalAlign.TOP,children:[Pg(T(t,{bold:true,size:9})),Pg(T(hint,{it:true,size:8,color:SLATE})),Pg(T(''))]})]})]}),Pg(T(''),{after:120})];
+    const sub=t=>Pg(T(t,{bold:true,size:10}),{before:120,after:100,keepNext:true});
+    if(v.kind==='person'){C.push(sub('1. Proof of transfer — money sent to '+v.payee));v.transfers.forEach(t=>C.push(...box(pvTrLabel(v,t),'Attach the M-Pesa / bank confirmation here')));C.push(sub('2. Proof of expense — receipts for how the money was used'))}
+    v.items.forEach(x=>C.push(...box(pvRcLabel(x),'Attach receipt here')));
+    sections.push({properties:{page:{size:{width:11906,height:16838},margin:{top:1000,bottom:1000,left:1080,right:1080}}},
+      footers:{default:new Footer({children:[Pg([T([P.org,'Payment Voucher',v.no].filter(Boolean).join('  ·  ')+'      Page ',{size:7.5,color:SLATE}),new TextRun({children:[PageNumber.CURRENT],font:BODY,size:15,color:SLATE})],{border:{top:{style:BorderStyle.SINGLE,size:4,color:LINE,space:4}}})]})},children:C});
+  }
+  const doc=new Document({creator:'Hazina',title:'Payment vouchers',styles:{default:{document:{run:{font:BODY,size:19}}}},sections});
+  const blob=await Packer.toBlob(doc);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=file+'.docx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
+}
+function pcrPvExport(i){const P=pcrVouchers();if(!P.V.length){toast('No paid items in this period yet');return}
+  const list=i==null?P.V:[P.V[+i]];const tag=i==null?'all':list[0].no.split('-').pop();
+  pvDocx(P,list,'payment-vouchers-'+(P.ref?P.ref.replace(/\//g,'-').toLowerCase()+'-':'')+tag);}
 function pcrGroup(L){const c=pcrCfg(),known=id=>c.cats.some(k=>k.id===id),out=[];
   [...c.cats,{id:'__other',name:'Other expenses'}].forEach(k=>{const I=L.filter(e=>(known(e.cat)?e.cat:'__other')===k.id);if(!I.length)return;
     const reimb=k.id!=='__other'&&pcrIsReimb(k.id),g={id:k.id,name:k.name,reimb,items:I,amt:sum(I,e=>num(e.amt)),fee:sum(I,e=>num(e.fee))};g.total=g.amt+g.fee;
@@ -2038,7 +2148,7 @@ function openPayModal(ids){
     <div class="fgrid"><div class="field"><label for="pyDate">Date paid</label><input type="date" id="pyDate" value="${todayStr()}"></div>
       <div class="field"><label for="pyFee">Transaction fee (Ksh)</label><input id="pyFee" class="numin" inputmode="decimal" autocomplete="off" value="${fmtIn(feeDef)}" placeholder="0"></div></div>
     <div class="fgrid"><div class="field"><label for="pyPt-q">Payment point</label>${combo('pyPt',ptOpts,items[0].point||'',{ph:'e.g. M-Pesa',free:true})}</div>
-      <div class="field"><label for="pyRef">Ref / M-Pesa code (optional)</label><input id="pyRef" value="" maxlength="40"></div></div>
+      <div class="field"><label for="pyRef">M-Pesa / bank transaction code (optional)</label><input id="pyRef" value="" maxlength="40"></div></div>
     <div class="pcbal" id="pyBal"></div>
     <div class="inline-actions"><button class="btn" type="submit" style="flex:1" id="pyGo">Pay</button></div>`,close=>{
     const base=pcrBal();
@@ -2051,14 +2161,14 @@ function openPayModal(ids){
     $('#mdForm').onsubmit=ev=>{ev.preventDefault();const S=items.filter(e=>sel.has(e.id));if(!S.length)return;const d=$('#pyDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick the date paid');return}
       const fee=num($('#pyFee').value),pt=String($('#pyPt').value||'').trim(),ref=$('#pyRef').value.trim(),payId=S.length>1?nid():'',prev=S.map(e=>JSON.parse(JSON.stringify(e)));
       if(pt&&!c.points.some(x=>x.toLowerCase()===pt.toLowerCase())){c.points.push(pt);pcrSaveCfg()}
-      S.forEach((e,i)=>{e.status='paid';e.paidDate=d;if(pt)e.point=pt;if(ref)e.ref=ref;e.fee=i===S.length-1?fee:0;if(payId)e.payId=payId;else delete e.payId;pcrSave(e)});
+      S.forEach((e,i)=>{e.status='paid';e.paidDate=d;if(pt)e.point=pt;if(ref)e.payRef=ref;else delete e.payRef;e.fee=i===S.length-1?fee:0;if(payId)e.payId=payId;else delete e.payId;pcrSave(e)});
       const tot=sum(S,e=>num(e.amt))+fee;close();render();
       toastAction('Paid '+fmt(tot)+' · added to the PCR report. Petty cash balance '+fmt(pcrBal()),'Undo',()=>{prev.forEach(p=>pcrSave(p));render()})}});
 }
-function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.payId;pcrSave(e);render();
+function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.payId;delete e.payRef;pcrSave(e);render();
   toastAction('Moved back to planned payables','Undo',()=>{pcrSave(prev);render()})}
 function pcrApView(R,live){
-  const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?'Paid '+esc(fmtD(pcrEff(e))):'Due '+esc(fmtD(e.date))}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Ref '+esc(e.ref):''}</small></div>
+  const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?'Paid '+esc(fmtD(pcrEff(e))):'Due '+esc(fmtD(e.date))}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Receipt '+esc(e.ref):''}${e.payRef?' · Code '+esc(e.payRef):''}</small></div>
     <div class="api-amt">${M(num(e.amt))}${num(e.fee)?`<small class="muted">+ fee ${fmt(num(e.fee))}</small>`:''}</div>
     <div class="api-act">${paid?`<button class="btn ghost sm" data-act="pcUnpay" data-id="${e.id}">Undo payment</button>`:`<button class="btn ${g.reimb?'ghost ':''}sm" data-act="pcPay" data-id="${e.id}">Pay</button>`}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></div>`;
   const tots=x=>`<div class="api-amt"><b>${M(x.total)}</b>${x.fee?`<small class="muted">${fmt(x.amt)} + fees ${fmt(x.fee)}</small>`:''}</div>`;
@@ -2212,6 +2322,7 @@ function pcrAction(a,t){
   else if(a==='pcEdit'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(e)openPcr(e)}
   else if(a==='pcDel'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const snap=JSON.stringify(e);pcrDel(e.id);render();toastAction('Entry deleted','Undo',()=>{pcrSave(JSON.parse(snap));render()})}
   else if(a==='pcPay')openPayModal([t.dataset.id]);
+  else if(a==='pcPv')pcrPvExport(t.dataset.i==null?null:t.dataset.i);
   else if(a==='pcPayPerson')openPayModal(t.dataset.ids.split(','));
   else if(a==='pcUnpay')pcrUnpay(t.dataset.id);
   else if(a==='pcPayOld'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const prev={...e};e.status='paid';e.paidDate=todayStr();pcrSave(e);render();toastAction('Paid · now in the ledger and PCR report. Balance '+fmt(pcrBal()),'Undo',()=>{pcrSave(prev);render()})}
