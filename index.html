@@ -316,6 +316,7 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .exec .pv-sec{font-weight:700;margin:12px 0 6px;font-size:.88rem}
 .exec .pv-box{border:1.5px dotted #8a919c;min-height:120px;padding:10px 12px;margin-bottom:10px;display:flex;flex-direction:column;gap:3px}.exec .pv-box b{font-size:.8rem}.exec .pv-box span{font-size:.72rem;color:#6b7280;font-style:italic}
 @media(max-width:640px){.exec .pv-info th,.exec .pv-info td{display:block;width:auto}}
+.clerkent{margin:0 0 12px}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -552,7 +553,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='12 Nov 2026 · payment vouchers';
+const APP_BUILD='13 Nov 2026 · clerk access, recycle bin, item dates';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -570,13 +571,14 @@ async function loadData(){
     const {data,error}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.uid);
     if(error)throw error;
     let prof=null;const tx={};
-    PCR={cfg:null,years:{}};
-    data.forEach(r=>{if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id==='pcr-cfg')PCR.cfg=r.body;else if(r.doc_id.startsWith('pcr-'))PCR.years[r.doc_id.slice(4)]=(r.body&&r.body.items)||[]});
+    PCR={cfg:null,years:{},dead:{}};
+    data.forEach(r=>{if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
+    if(pcrClerk()){const {data:pd,error:pe}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(pe)throw pe;(pd||[]).forEach(pcrAbsorb)}
     P=migrate(prof);TX=tx;ok=true;
-  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR)PCR=cached.PCR}}
+  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}}}
   // put back changes made on this device that had not reached the server yet
-  if(cached&&pend.length){pend.forEach(id=>{store.pending.add(id);if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR)PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[]}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]})}
-  if(!P){P=baseProfile(true);TX=exampleTx(P);store.fresh=true}
+  if(cached&&pend.length){pend.forEach(id=>{store.pending.add(id);if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR){PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[];PCR.dead[id.slice(4)]=(cached.PCR.dead||{})[id.slice(4)]||{}}}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]})}
+  if(!P){if(store.me&&store.me.pcr_owner){P=baseProfile(false);TX={}}else{P=baseProfile(true);TX=exampleTx(P);store.fresh=true}}
   setSync(ok?'':'local',ok?'Saved to your account':'Offline – changes will sync');
   render();if(store.pending.size)flush();
 }
@@ -604,14 +606,22 @@ async function exitView(){
 }
 async function flush(){
   if(store.flushing||!store.uid||!sb)return;store.flushing=true;clearTimeout(store.retry);
-  let failed=false;
+  let failed=false,changed=false;
   while(store.pending.size){
     const id=[...store.pending][0];store.pending.delete(id);
-    const body=id==='profile'?P:id==='pcr-cfg'?pcrCfg():id.startsWith('pcr-')?{items:PCR.years[id.slice(4)]||[]}:{items:TX[id.slice(3)]||[]};
-    const {error}=await sb.from('hz_docs').upsert({user_id:store.uid,doc_id:id,body,updated_at:new Date().toISOString()});
+    if(id==='pcr-cfg'&&pcrClerk())continue;
+    let body,target=store.uid;
+    if(/^pcr-\d{4}$/.test(id)){const y=id.slice(4);target=pcrOwnerId();
+      const {data:row,error:e0}=await sb.from('hz_docs').select('body').eq('user_id',target).eq('doc_id',id).maybeSingle();
+      if(e0){store.pending.add(id);failed=true;break}
+      const before=(PCR.years[y]||[]).map(e=>e.id+':'+num(e.mt)).sort().join();
+      body=pcrMerge(row&&row.body,{items:PCR.years[y]||[],dead:PCR.dead[y]||{}});PCR.years[y]=body.items;PCR.dead[y]=body.dead;
+      if(body.items.map(e=>e.id+':'+num(e.mt)).sort().join()!==before)changed=true}
+    else body=id==='profile'?P:id==='pcr-cfg'?pcrCfg():{items:TX[id.slice(3)]||[]};
+    const {error}=await sb.from('hz_docs').upsert({user_id:target,doc_id:id,body,updated_at:new Date().toISOString()});
     if(error){store.pending.add(id);failed=true;break}
   }
-  store.flushing=false;cacheSave();
+  store.flushing=false;cacheSave();if(changed&&ui.view==='pcr'&&!document.querySelector('.modal')&&!(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)))render();
   if(failed){setSync('local',navigator.onLine?'Not saved yet – retrying':'Offline – changes will sync');store.retry=setTimeout(flush,15000)}
   else setSync('','Saved to your account');
 }
@@ -638,7 +648,7 @@ async function afterLogin(u){
   await loadData();
 }
 function showLogin(msg){
-  P=null;TX={};PCR={cfg:null,years:{}};store.uid=null;store.me=null;store.fresh=false;store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
+  P=null;TX={};PCR={cfg:null,years:{},dead:{}};store.uid=null;store.me=null;store.fresh=false;store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
   $('#acct').hidden=true;$('#fab').hidden=true;$('#refreshBtn').hidden=true;$('#app').innerHTML='';$('#modalRoot').innerHTML='';$('#tabs').innerHTML='';
   $('#auth').hidden=false;const m=$('#authMsg');m.textContent=msg||'';m.hidden=!msg;setSync('local','Signed out');
 }
@@ -706,12 +716,13 @@ function vUsers(){
    <div class="card s7"><div class="card-h"><h2>People</h2><span class="small muted">${ui.users.length} account${ui.users.length===1?'':'s'}</span></div>
     <div class="tw"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
     ${ui.users.map(u=>{const me=u.id===store.uid;return `<tr><td><b>${esc(u.full_name||'—')}</b>${me?' <span class="pill">you</span>':''}<div class="small muted">${esc(u.email||'')}</div></td>
-      <td>${u.role==='admin'?'<span class="pill good">Admin</span>':'<span class="pill">User</span>'}</td>
+      <td>${u.role==='admin'?'<span class="pill good">Admin</span>':'<span class="pill">User</span>'}${u.pcr_owner?'<div><span class="pill warn" style="margin-top:4px">Petty cash clerk</span></div>':''}</td>
       <td>${u.active?'<span class="pill good">Active</span>':'<span class="pill warn">Inactive</span>'}</td>
       <td><div class="inline-actions">${me?'<span class="small muted">—</span>':`
         <button class="addrow" style="margin:0" data-act="uActive" data-id="${u.id}" data-v="${u.active?0:1}">${u.active?'Deactivate':'Activate'}</button>
         <button class="addrow" style="margin:0" data-act="uRole" data-id="${u.id}" data-v="${u.role==='admin'?'user':'admin'}">${u.role==='admin'?'Remove admin':'Make admin'}</button>
         <button class="addrow" style="margin:0" data-act="uPw" data-id="${u.id}">Reset password</button>
+        <button class="addrow" style="margin:0" data-act="uPcr" data-id="${u.id}" data-v="${u.pcr_owner?0:1}">${u.pcr_owner?'Remove petty cash access':'Make petty cash clerk'}</button>
         <button class="addrow" style="margin:0" data-act="viewAs" data-id="${u.id}" data-name="${esc(u.full_name||u.email)}">View finances</button>`}</div>
         ${pw===u.id?`<div class="inline-actions" style="margin-top:8px"><input id="rpw" type="text" placeholder="New temporary password" style="border:1px solid var(--line);border-radius:8px;padding:8px;min-width:0;flex:1"><button class="btn" style="min-height:36px;padding:6px 12px" data-act="uPwSave" data-id="${u.id}">Set</button><button class="x" data-act="uPwCancel" aria-label="Cancel">×</button></div>`:''}</td></tr>`}).join('')}
     </tbody></table></div></div>
@@ -741,6 +752,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-act]');if(!t)return;const a=t.dataset.act,id=t.dataset.id;
   if(a==='uActive')adminCall('hz_admin_set_active',{p_id:id,p_active:t.dataset.v==='1'},t.dataset.v==='1'?'User activated':'User deactivated');
   else if(a==='uRole')adminCall('hz_admin_set_role',{p_id:id,p_role:t.dataset.v},t.dataset.v==='admin'?'Now an administrator':'Administrator role removed');
+  else if(a==='uPcr')adminCall('hz_admin_set_pcr_clerk',{p_id:id,p_on:t.dataset.v==='1'},t.dataset.v==='1'?'Now a petty cash clerk: they see Reports & receipts and can log expenses into your petty cash':'Petty cash access removed');
   else if(a==='uPw'){ui.pwFor=id;render();const i=$('#rpw');if(i)i.focus()}
   else if(a==='uPwCancel'){ui.pwFor=null;render()}
   else if(a==='uPwSave'){const v=$('#rpw').value;if(v.length<8){toast('Use at least 8 characters');return}ui.pwFor=null;adminCall('hz_admin_set_password',{p_id:id,p_password:v},'Password reset. Share the new password with them.')}
@@ -1587,7 +1599,7 @@ function repCsv(){
 }
 
 /* ---------- PCR: petty cash reconciliation & accounts payable (administrator only, hidden by default) ---------- */
-let PCR={cfg:null,years:{}};
+let PCR={cfg:null,years:{},dead:{}};
 const PCR_LOGO_DEFAULT='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEwAAABCCAIAAABy/6cMAAAGP0lEQVR42u2baWwUZRjH/+/7zs7OHqVAoVDLUakc2gICConRGilHQsUQaxBIMKSQIHdB5CpQjpUzxAKKEowhIfrBaAwR1EYLhEgQguFQwEAIpFw9wALZc2bnff2wMDPtbmkFZGmZ+TQ7u3P83uf6P8/uksFj+6BVb1E9SvEUbDakDWlD2pA2pA1pQ9qQNqQNaUPakDakDWlD2pA2pA1pQ9qQTxVkiocIcXe/XSr5P24hJZewZLY7oxNlDO8v8n+21ss56m6LpesDhLQWS3KBZzpTAJwjxUM4B4A2XtJqY9Lw2Bbvrt0y6ah8GUD5AfViJbcSls51N/hwegc6eoTskHDwsHbmvN5iILOzWG5vCUBub2l1WbD2pjAM6Hbf9VLGwBiEQOk8d+zdQBAPCflY3VVT61l14zLTerqFomyVV3GaKTcUEi3JXQ8e1Ubly21TyeWr/NIV7pQJgPMX9bIdIUIgBApHOYe+6qAEkoSz56M5vaRQWHz3Y6QlQVKCJesCsf1BfaXYkU3bQxIDAELw7d7IsDwH5+jRjX26M9zis+vl6xyAALhueqMkIRaaV6t4aygh1bU8GIYQ2LYuxcix60s8OgfnqL3ZKiAJwUKfH4DEsNXn7ZZJt631uhTCOYpL/Y9W8ZCk/zBiq89rIGmaKC59xJruifhhhG9z0NgPR0Tr7EIIgd1P2pA25H9WPA0ip5mdkfWsB2umrLcVD/qZJiB7PssWTHdHVBH/9A6JrNkSvHhZj88cikI2lHhonJdIEvlglT8QaC4uY2TLak9sdSjBtMUJ6icX+HydN9ZwE4KpC/0xkdgsSM6xxeeVGOIJY2ZRNTF/mosxrNgUrK41BcqkscpL/RNfNhoV65d4LlzSP94RSn5MCoGNyz3GkhCAcwRDIhAUqiaY5aQTf+pVNSbhxMJ6hIQgFEY4Us9vs7PYh9PdyY/J7l2ox2V2sXNLAw3KdFo7WjLbte83bU+FagB0aE+GDJQMvO27wqfORo1TBuRKUyYoMd/rnklfzJFOnI4m05LD8mRj/+vvI/FC5GYdn7cysKdCtRp/9mTTPp98WY8QwPG/ott3mV46ZbySZHc1zAhA1ZqZJNAxjdyTi+L0uQRWOnlGN65LKOIzxGOFPHfBnEa8945zYF8ploruUwbap1JjhHGxklOauKKcvjetEQIDcqVkxuQPv0TeGinHkIRA0TilaBwYA6WEUty6za9V80NHo0dPmFbu/ZyJ1SWDlsxJnFpSU0wf6ZBGkwkpy2TFpsDK+R5u6V11HbouALgUkt2dZXdnk9517i5Xfz6gEiA9zXQ+l0JcStO6u1NHmmTFU3tTTF/sL8iXh78uK05wHVwkqKWjh8uqhv2H1IBlpsYoJKlpSAd7MmTd3gp1b4Ua81tC4FKIx0169mATC52GkQsL5P2H1MqrZhgfOR7d+U0YaFECnZC71TwUFjf+4YePaVMX+q2XoBSVV7hRMPu/wB792J8kTnucNy5qH7ILIQSC19PEwbCgxAxpr4c8wNcepL421S0RwjmyurKEuoWLB5V148covoWextr2ju0ooRZgAQCn/tatc7f4KiIEevVg2zd4UyxfXUUiwnjhdhHrEwuOiGWwvHiWq8ECcS4WTGtaIbLMnA7xDrBoprtvH6Y4SUG+nDfEoWmIRMAYvB6S0YnNKnKNHmFKopob/MBhLaZpRg01jxcMk7O6sqoaTilJbUMG9ZOKp7hfednBOYbnyVU1/HoNBxAK481hsri3XnlDHALISKcZ6fRaNY9G8XxPZqxRQb6cmUHrbom2qXT8GGfROJfVDIRgz69qg8XlgieY1g3qJxWNU5rbMQKzlvmNJNQ5nS4rdjfn3GMnzeQ0eYIyIKdhCvQHxKI1AQFsXOpxu0gzgyi+1Uo8rfvjVHTOcn/CDqvBVndbzFjit9bSqho+b4Wf0iYEoG9z0Jp+v/gqfK2RkTkBFvgCdbcbfZjd5WqT8vB+c1fO8dpgx8g3ZK+bUAaHBMGh6QiGxE/71IO/a/eB0XUxY5I7O4s5JMgOqFGoGu7c4WU7Qv6gaOx2E9525vSSYpcNBsVHW4LWeF40092pI5Ud4ByRCA4eUXeXq5RifYknqt9trBf4AizOksT+1509rbMhn6jtXzShiCFWPSVAAAAAAElFTkSuQmCC';
 const PCR_CATS=['Reimbursements to individuals','Staff medical & welfare support','Kitchen, farm & operational expenses','Engineering & workshop expenses','Transfers & M-Pesa / Paybill charges'];
 const PCR_POINTS=['M-Pesa','Equity Bank','Cash'];
@@ -1595,13 +1607,13 @@ const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.j
 const PCR_DARK=[54,86,40],PCR_BAND=[226,239,218];
 function pcrCfg(){
   if(!PCR.cfg)PCR.cfg={title:'Petty Cash',org:'',custodian:'',opening:0,openingDate:todayStr(),cats:PCR_CATS.map(n=>({id:nid(),name:n})),points:PCR_POINTS.slice()};
-  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!Array.isArray(c.anchors))c.anchors=[];if(!c.words||typeof c.words!=='object')c.words={};if(!c.rep)c.rep={share:true,people:true};return c;
+  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!Array.isArray(c.anchors))c.anchors=[];if(!c.words||typeof c.words!=='object')c.words={};if(!Array.isArray(c.binSets))c.binSets=[];if(!c.rep)c.rep={share:true,people:true};return c;
 }
-const pcrOn=()=>isAdmin()&&!store.viewing&&lsGet('hz-pcr-'+store.uid)==='1';
+const pcrOn=()=>(isAdmin()&&!store.viewing&&lsGet('hz-pcr-'+store.uid)==='1')||(typeof pcrClerk==='function'&&pcrClerk());
 const pcrAll=()=>Object.values(PCR.years).flat();
 const pcrCat=id=>{const c=pcrCfg().cats.find(x=>x.id===id);return c?c.name:'Uncategorised'};
 const pcrIsReimb=id=>/reimburs/i.test(pcrCat(id));
-const pcrPerson=id=>{const p=pcrCfg().people.find(x=>x.id===id);return p?p.name:''};
+const pcrPerson=id=>{if(String(id||'').startsWith('n:'))return id.slice(2);const p=pcrCfg().people.find(x=>x.id===id);return p?p.name:''};
 const pcrChargesCat=()=>{const c=pcrCfg().cats.find(x=>/charge|transfer/i.test(x.name));return c?c.id:''};
 const pcrEff=e=>e.kind==='in'?e.date:(e.paidDate||e.date);
 const pcrIsPaid=e=>e.kind==='in'||e.status==='paid';
@@ -1611,9 +1623,36 @@ const ymd=d=>String(d||'').replace(/-/g,'');
 function pcrAnchors(){const c=pcrCfg();return[{date:c.openingDate||'2000-01-01',bal:num(c.opening),first:true},...c.anchors.filter(a=>a.date>(c.openingDate||''))].sort((a,b)=>a.date.localeCompare(b.date))}
 function pcrBal(upto){const A=pcrAnchors();let a=A[0];if(upto){for(const x of A)if(x.date<=addDay(upto))a=x}else a=A[A.length-1];let b=a.bal;
   pcrAll().forEach(e=>{if(!pcrIsPaid(e))return;const d=pcrEff(e);if((upto&&d>upto)||d<a.date)return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
-function pcrSave(e){const y=pcrEff(e).slice(0,4);for(const k in PCR.years)PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.years[y]=PCR.years[y]||[]).push(e);Object.keys(PCR.years).forEach(k=>queue('pcr-'+k))}
-function pcrDel(id){for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(x=>x.id!==id);if(PCR.years[k].length!==n)queue('pcr-'+k)}}
-const pcrSaveCfg=()=>queue('pcr-cfg');
+function pcrSave(e){e.mt=Date.now();if(!e.by)e.by=pcrMyName();const y=pcrEff(e).slice(0,4);
+  for(const k in PCR.years){if(k!==y&&PCR.years[k].some(x=>x.id===e.id)){PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.dead[k]=PCR.dead[k]||{})[e.id]={mt:e.mt-1,move:1};queue('pcr-'+k)}}
+  PCR.years[y]=(PCR.years[y]||[]).filter(x=>x.id!==e.id);PCR.years[y].push(e);if(PCR.dead[y])delete PCR.dead[y][e.id];queue('pcr-'+y)}
+function pcrDel(id){const e=pcrAll().find(x=>x.id===id);return e?pcrKill([e],'Entry: '+(e.desc||pcrCat(e.cat)||'item')):null}
+const pcrSaveCfg=()=>{if(pcrClerk())return;queue('pcr-cfg')};
+/* ---------- shared petty cash (owner + clerk), merge-safe sync, recycle bin ---------- */
+const pcrClerk=()=>!!(store.me&&store.me.pcr_owner&&store.me.pcr_owner!==store.uid&&!store.viewing);
+const pcrOwnerId=()=>pcrClerk()?store.me.pcr_owner:store.uid;
+const pcrMyName=()=>(store.me&&(store.me.full_name||store.me.email))||'';
+function pcrAbsorb(r){if(r.doc_id==='pcr-cfg')PCR.cfg=r.body;else if(/^pcr-\d{4}$/.test(r.doc_id)){const y=r.doc_id.slice(4);PCR.years[y]=(r.body&&r.body.items)||[];PCR.dead[y]=(r.body&&r.body.dead)||{}}}
+function pcrMerge(Sv,L){Sv=Sv||{};const items={},dead={};
+  const addD=d=>{for(const id in(d||{})){const r=d[id];if(!dead[id]||num(r.mt)>num(dead[id].mt))dead[id]=r}};addD(Sv.dead);addD(L.dead);
+  [...(Sv.items||[]),...(L.items||[])].forEach(e=>{const o=items[e.id];if(!o||num(e.mt)>num(o.mt))items[e.id]=e});
+  const out=[];for(const id in items){const e=items[id];if(dead[id]&&num(dead[id].mt)>=num(e.mt))continue;if(dead[id])delete dead[id];out.push(e)}
+  const cut=Date.now()-150*864e5;for(const id in dead)if(num(dead[id].mt)<cut)delete dead[id];
+  return{items:out,dead}}
+function pcrKill(list,label,batch){batch=batch||nid();const t=Date.now(),by=pcrMyName();
+  list.forEach(e=>{for(const k in PCR.years){if(PCR.years[k].some(x=>x.id===e.id)){PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.dead[k]=PCR.dead[k]||{})[e.id]={mt:t,e:JSON.parse(JSON.stringify(e)),by,batch,label,at:t};queue('pcr-'+k)}}});return batch}
+const pcrBinEntries=()=>Object.values(PCR.dead||{}).flatMap(d=>Object.values(d)).filter(r=>r&&r.e);
+function pcrRevive(batch){const L=pcrBinEntries().filter(r=>r.batch===batch);L.forEach(r=>pcrSave(JSON.parse(JSON.stringify(r.e))));
+  if(!pcrClerk()){const c=pcrCfg(),bs=c.binSets.filter(x=>x.batch===batch);if(bs.length){bs.forEach(x=>{if(x.set&&!c.sets.some(s=>s.id===x.set.id))c.sets.push(x.set);if(x.cfg)Object.assign(c,JSON.parse(JSON.stringify(x.cfg)))});c.sets.sort((a,b)=>a.no-b.no);c.binSets=c.binSets.filter(x=>x.batch!==batch);pcrSaveCfg()}}
+  render();return L.length}
+function pcrBinForget(batch){for(const k in PCR.dead){let ch=false;for(const id in PCR.dead[k]){const r=PCR.dead[k][id];if(r.e&&(batch==null||r.batch===batch)){delete r.e;delete r.label;ch=true}}if(ch)queue('pcr-'+k)}
+  if(!pcrClerk()){const c=pcrCfg();c.binSets=batch==null?[]:c.binSets.filter(x=>x.batch!==batch);pcrSaveCfg()}render()}
+function pcrBinGroups(){const g={};pcrBinEntries().forEach(r=>{const b=g[r.batch]||(g[r.batch]={batch:r.batch,label:r.label||'Deleted entries',at:r.at||r.mt,by:r.by||'',items:[]});b.items.push(r.e)});
+  (pcrCfg().binSets||[]).forEach(x=>{const b=g[x.batch]||(g[x.batch]={batch:x.batch,label:x.label,at:x.at,by:x.by||'',items:[]});b.set=x.set||b.set;b.label=x.label});
+  return Object.values(g).sort((a,b)=>b.at-a.at)}
+function pcrAdopt(){if(pcrClerk()||store.viewing)return;const c=pcrCfg();let ch=false;
+  pcrAll().forEach(e=>{if(String(e.person||'').startsWith('n:')){const nm=e.person.slice(2).trim();let p=c.people.find(x=>x.name.toLowerCase()===nm.toLowerCase());if(!p){p={id:nid(),name:nm};c.people.push(p);ch=true}e.person=p.id;pcrSave(e)}});if(ch)pcrSaveCfg()}
+const pcrEntsIn=(R,from,to)=>[...(pcrClerk()?[]:R.rec),...R.paid,...R.planned.filter(e=>e.date>=from&&e.date<=to)].sort((a,b)=>String(b.date).localeCompare(String(a.date))||num(b.ts)-num(a.ts));
 function pcrRange(){const r=ui.pcr;if(r.preset==='set'){const f=pcrSetStart();const last=pcrAll().filter(pcrIsPaid).reduce((m,e)=>pcrEff(e)>m?pcrEff(e):m,todayStr());return[f,last<f?f:last]}if(String(r.preset).startsWith('set:')){const st=pcrSets().find(x=>x.id===r.preset.slice(4));if(st)return[st.from,st.to];r.preset='set';return pcrRange()}if(r.preset==='month')return[ui.month+'-01',monthEnd(ui.month)];if(r.preset==='last'){const m=addM(ui.month,-1);return[m+'-01',monthEnd(m)]}if(r.preset==='year'){const y=ui.month.slice(0,4);return[y+'-01-01',y+'-12-31']}if(r.preset==='all')return[pcrCfg().openingDate||'2000-01-01',todayStr()];return[r.from||ui.month+'-01',r.to||monthEnd(ui.month)]}
 function pcrReport(from,to){
   const c=pcrCfg(),open=pcrBal(dayBefore(from)),inR=e=>pcrEff(e)>=from&&pcrEff(e)<=to;
@@ -1623,8 +1662,8 @@ function pcrReport(from,to){
   const received=sum(rec,e=>num(e.amt)),fees=sum(paid,e=>num(e.fee)),payments=sum(paid,e=>num(e.amt));
   const chg=pcrChargesCat();const byCat=c.cats.map(k=>({id:k.id,name:k.name,amt:sum(paid.filter(e=>e.cat===k.id),e=>num(e.amt))+(k.id===chg?fees:0),n:paid.filter(e=>e.cat===k.id).length}));
   if(!chg&&fees)byCat.push({id:'fees',name:'Transaction charges',amt:fees,n:paid.filter(e=>num(e.fee)>0).length});
-  const ledger=[...rec,...paid].sort((a,b)=>pcrEff(a).localeCompare(pcrEff(b))||num(a.ts)-num(b.ts));let run=open;
-  const rows=ledger.map(e=>{const inA=e.kind==='in'?num(e.amt):0,outA=e.kind==='ap'?num(e.amt):0,fee=e.kind==='ap'?num(e.fee):0;run+=inA-outA-fee;return{e,date:pcrEff(e),inA,outA,fee,bal:run}});
+  const ledger=[...rec,...paid].sort((a,b)=>String(a.date).localeCompare(String(b.date))||num(a.ts)-num(b.ts));let run=open;
+  const rows=ledger.map(e=>{const inA=e.kind==='in'?num(e.amt):0,outA=e.kind==='ap'?num(e.amt):0,fee=e.kind==='ap'?num(e.fee):0;run+=inA-outA-fee;return{e,date:e.date,inA,outA,fee,bal:run}});
   const plannedTot=sum(planned,pcrOut);const close=open+received-payments-fees;
   return{from,to,open,received,payments,fees,totalOut:payments+fees,close,available:open+received,planned,plannedTot,afterPlanned:close-plannedTot,byCat,rows,rec,paid};
 }
@@ -1650,8 +1689,9 @@ function pcrDoc(from,to,mode){
       pids.forEach(pid=>{const G=L.filter(e=>(e.person||'')===pid);if(G.length)groups.push({pid,title:pcrPerson(pid)||'Unnamed',items:G})})}
     else groups=[{pid:null,title:null,items:L}];
     S.push({id:k.id,title:k.name,reimb,groups})});
+  const byNew=(a,b)=>String(b.date).localeCompare(String(a.date))||num(b.ts)-num(a.ts);
   S.forEach((s,i)=>{s.letter=pcrLetter(i);let n=0;
-    s.groups.forEach(g=>{g.items=g.items.map(e=>({no:s.letter+(++n),date:ymd(pcrEff(e)),desc:(e.desc||'')+(!s.reimb&&e.payee?' – '+e.payee:''),amt:num(e.amt),fee:num(e.fee),e}));g.amt=sum(g.items,x=>x.amt);g.fee=sum(g.items,x=>x.fee);g.total=g.amt+g.fee});
+    s.groups.forEach(g=>{g.items=g.items.slice().sort(byNew).map(e=>({no:s.letter+(++n),date:ymd(e.date),desc:(e.desc||'')+(!s.reimb&&e.payee?' – '+e.payee:''),amt:num(e.amt),fee:num(e.fee),e}));g.amt=sum(g.items,x=>x.amt);g.fee=sum(g.items,x=>x.fee);g.total=g.amt+g.fee});
     s.n=n;s.amt=sum(s.groups,g=>g.amt);s.fee=sum(s.groups,g=>g.fee);s.total=s.amt+s.fee});
   const totalAmt=sum(S,s=>s.amt),totalFee=sum(S,s=>s.fee),totalExp=totalAmt+totalFee;
   return{R,mode,sections:S,dispensed:R.received,previous:R.open,totalPetty:R.open+R.received,totalAmt,totalFee,totalExp,items:sum(S,s=>s.n),balance:R.open+R.received-totalExp,from,to,ref:pcrRef(from,to)};
@@ -1692,10 +1732,10 @@ function pcrModel(type,o){
   else if(type==='ap'){
     const R=pcrReport(from,to),st=o.ap||'all';M.orient='l';
     M.figs=[['Planned payables',R.plannedTot],['Paid in period',R.totalOut],['Petty cash balance',R.close],['After planned payables',R.close-R.plannedTot]];
-    const cols=d=>[{h:d,w:70},{h:'Description',xs:4},{h:'Paid to / person',xs:2,w:120},{h:'Payment point',w:80},{h:'Amount (KES)',n:1,w:86},{h:'Fee',n:1,w:56},{h:'Total (KES)',n:1,w:86}];
+    const cols=d=>[{h:d==='Paid on'?'Date':d,w:70},{h:'Description',xs:4},{h:'Paid to / person',xs:2,w:120},{h:'Payment point',w:80},{h:'Amount (KES)',n:1,w:86},{h:'Fee',n:1,w:56},{h:'Total (KES)',n:1,w:86}];
     const f0=v=>v||'–';
     const grows=(L,paid)=>{const rows=[];pcrGroup(L).forEach(g=>{rows.push({c:['',g.name.toUpperCase(),'','',g.amt,f0(g.fee),g.total],k:'sec'});
-        const it=e=>({c:[fmtD(paid?pcrEff(e):e.date),e.desc||'',e.person?pcrPerson(e.person):(e.payee||''),e.point||'',num(e.amt),f0(num(e.fee)),pcrOut(e)],k:''});
+        const it=e=>({c:[fmtD(e.date),e.desc||'',e.person?pcrPerson(e.person):(e.payee||''),e.point||'',num(e.amt),f0(num(e.fee)),pcrOut(e)],k:''});
         if(g.reimb)g.people.forEach(p=>{rows.push({c:['',p.name+' — reimbursement','','',p.amt,f0(p.fee),p.total],k:'sub'});p.items.forEach(e=>rows.push(it(e)))});else g.items.forEach(e=>rows.push(it(e)))});
       rows.push({c:['','Total','','',sum(L,e=>num(e.amt)),f0(sum(L,e=>num(e.fee))),sum(L,pcrOut)],k:'tot'});return rows};
     const empty=t=>({c:['',t,'','','','',''],k:'muted'});
@@ -1708,8 +1748,9 @@ function pcrModel(type,o){
     const R=pcrReport(from,to);M.orient='l';
     M.figs=[['Previous balance',R.open],['Cash dispensed',R.received],['Payments',R.payments],['Charges',R.fees],['Closing balance',R.close]];
     const cols=[{h:'Date',w:66},{h:'Ref',w:58},{h:'Description',xs:3},{h:'Category',xs:2,w:130},{h:'Payment point',w:70},{h:'Dispensed',n:1,w:72},{h:'Paid',n:1,w:72},{h:'Charges',n:1,w:56},{h:'Balance',n:1,w:80}];
-    B.push({t:'h',x:'Ledger'},{t:'table',cols,rows:[{c:[fmtD(from),'','Previous balance','','','','','',R.open],k:'sub'},
-      ...R.rows.map(x=>({c:[fmtD(x.date),x.e.ref||'',(x.e.desc||'')+(x.e.person?' – '+pcrPerson(x.e.person):x.e.payee?' – '+x.e.payee:''),x.e.kind==='in'?'Cash dispensed':pcrCat(x.e.cat),x.e.point||'',x.inA||'',x.outA||'',x.fee||'',x.bal],k:''})),
+    B.push({t:'h',x:'Ledger'},{t:'table',cols,rows:[
+      ...R.rows.slice().reverse().map(x=>({c:[fmtD(x.date),x.e.ref||'',(x.e.desc||'')+(x.e.person?' – '+pcrPerson(x.e.person):x.e.payee?' – '+x.e.payee:''),x.e.kind==='in'?'Cash dispensed':pcrCat(x.e.cat),x.e.point||'',x.inA||'',x.outA||'',x.fee||'',x.bal],k:''})),
+      {c:[fmtD(from),'','Previous balance','','','','','',R.open],k:'sub'},
       {c:['','','Totals / closing balance','','',R.received,R.payments,R.fees,R.close],k:'tot'}]});
   }
   else{ // rc: supporting documents schedule for the clerk
@@ -1929,10 +1970,11 @@ async function pcrExport(type,f){
 
 /* ---------- screens ---------- */
 function vPCR(){
+  pcrAdopt();const clerk=pcrClerk();if(clerk)ui.pcrTab='reports';
   const c=pcrCfg(),[from,to]=pcrRange(),R=pcrReport(from,to),tab=ui.pcrTab||'summary',o=pcrOpts();
   setTimeout(pcrFontsPreview,0);
   const live=pcrBal(),low=live<0?'bad':live<num(c.alert)?'warn':'';
-  const tabs=[['summary','PCR report'],['payables','Accounts payable'],['ledger','Ledger'],['receipts','Cash dispensed'],['reports','Reports & receipts'],['setup','Setup']];
+  const tabs=clerk?[['reports','Reports & receipts']]:[['summary','PCR report'],['payables','Accounts payable'],['ledger','Ledger'],['receipts','Cash dispensed'],['reports','Reports & receipts'],['setup','Setup']];
   const curRef=pcrSetRef(pcrCurNo(),pcrSetStart());
   const presets=[['set','Current set · '+curRef+' (since '+fmtD(pcrSetStart())+')'],...pcrSets().slice().reverse().map(s=>['set:'+s.id,pcrSetRef(s.no,s.from)+' · '+fmtD(s.from)+' – '+fmtD(s.to)+' (closed)']),['month','This month ('+mLabel(ui.month,1)+')'],['last','Last month'],['year','This year'],['all','Since opening balance'],['custom','Choose dates']];
   const per=`<div class="fgrid" style="margin-bottom:12px"><div class="field"><label for="pc-preset">Period</label><select id="pc-preset">${presets.map(([k,l])=>`<option value="${k}" ${ui.pcr.preset===k?'selected':''}>${esc(l)}</option>`).join('')}</select></div>${ui.pcr.preset==='custom'?`<div class="field"><label for="pc-from">From</label><input type="date" id="pc-from" value="${from}"></div><div class="field"><label for="pc-to">To</label><input type="date" id="pc-to" value="${to}"></div>`:''}</div>`;
@@ -1943,14 +1985,14 @@ function vPCR(){
   const apRow=e=>`<tr><td>${esc(fmtD(e.date))}</td><td>${esc(e.desc||'')}${e.person?`<div class="small muted">Reimburse: ${esc(pcrPerson(e.person))}</div>`:e.payee?`<div class="small muted">To: ${esc(e.payee)}</div>`:''}</td><td>${esc(pcrCat(e.cat))}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td><td class="n"><b>${M(pcrOut(e))}</b></td><td>${e.status==='paid'?`<span class="pill good">Paid ${esc(fmtD(pcrEff(e)))}</span>`:`<span class="pill warn">Planned</span>`}</td>
     <td><div class="inline-actions">${e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`;
   const nW=Object.keys(c.words||{}).length;
-  const wordBar=`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="pcWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing wording':'✎ Edit wording'}</button><span class="small muted">${ui.pcrWords?'Click any text in the report below and type. Press Enter to finish a line. Changes are used in the PDF, Excel and CSV.':nW?nW+' wording change'+(nW===1?'':'s')+' applied to downloads.':'Change any heading, label or line of text before downloading.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="pcWordsReset">Reset wording</button>':''}</div>`;
+  const wordBar=clerk?'':`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="pcWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing wording':'✎ Edit wording'}</button><span class="small muted">${ui.pcrWords?'Click any text in the report below and type. Press Enter to finish a line. Changes are used in the PDF, Excel and CSV.':nW?nW+' wording change'+(nW===1?'':'s')+' applied to downloads.':'Change any heading, label or line of text before downloading.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="pcWordsReset">Reset wording</button>':''}</div>`;
   const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn ghost sm" data-act="pcCloseSet">Close this set &amp; start the next</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
   let body='';
   if(tab==='summary'){
     const anc=c.anchors.some(a=>a.date===from),first=pcrIsFirst(from);
-    const ents=[...R.rec,...R.paid,...R.planned.filter(e=>e.date>=from&&e.date<=to)].sort((a,b)=>pcrEff(b).localeCompare(pcrEff(a))||num(b.ts)-num(a.ts));
+    const ents=pcrEntsIn(R,from,to);
     const entT=`<div class="tw" style="margin-bottom:14px"><table><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Category / person</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th></th></tr></thead><tbody>
-      ${ents.map(e=>`<tr><td>${esc(fmtD(pcrEff(e)))}</td><td>${e.kind==='in'?'<span class="pill good">Dispensed</span>':e.status==='paid'?'<span class="pill">Expense</span>':'<span class="pill warn">Planned</span>'}</td><td>${esc(e.desc||'')}</td><td>${e.kind==='in'?esc(e.payee||''):esc(pcrCat(e.cat))+(e.person?`<div class="small muted">${esc(pcrPerson(e.person))}</div>`:'')}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td>
+      ${ents.map(e=>`<tr><td>${esc(fmtD(e.date))}${e.kind==='ap'&&e.status==='paid'&&e.paidDate&&e.paidDate!==e.date?`<div class="small muted">paid ${esc(fmtD(e.paidDate))}</div>`:''}</td><td>${e.kind==='in'?'<span class="pill good">Dispensed</span>':e.status==='paid'?'<span class="pill">Expense</span>':'<span class="pill warn">Planned</span>'}</td><td>${esc(e.desc||'')}${e.by?`<div class="small muted">logged by ${esc(e.by)}</div>`:''}</td><td>${e.kind==='in'?esc(e.payee||''):esc(pcrCat(e.cat))+(e.person?`<div class="small muted">${esc(pcrPerson(e.person))}</div>`:'')}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td>
         <td><div class="inline-actions">${e.kind==='ap'&&e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="muted">No entries in this period yet.</td></tr>'}</tbody></table></div>`;
     const strip=`<div class="pfig">
       <div><small>Previous balance</small><b>${M(R.open)}</b><span class="small muted">${anc?'Keyed in':first?'Starting balance':'Carried forward'}</span><button class="btn ghost sm" data-act="pcPrev">✎ Edit</button></div>
@@ -1963,8 +2005,8 @@ function vPCR(){
   } else if(tab==='ledger'){
     body=`<div class="card s12"><div class="card-h"><h2>Petty cash ledger</h2><span class="small muted">${fmtD(from)} – ${fmtD(to)}</span></div>
      <div class="tw"><table><thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Dispensed</th><th class="n">Paid</th><th class="n">Charges</th><th class="n">Balance</th><th></th></tr></thead><tbody>
+     ${R.rows.slice().reverse().map(r=>`<tr><td>${esc(fmtD(r.date))}</td><td>${esc(r.e.ref||'')}</td><td>${esc(r.e.desc||'')}${r.e.person?`<div class="small muted">Reimburse: ${esc(pcrPerson(r.e.person))}</div>`:r.e.payee?`<div class="small muted">${r.e.kind==='in'?'From':'To'}: ${esc(r.e.payee)}</div>`:''}</td><td>${r.e.kind==='in'?'Cash dispensed':esc(pcrCat(r.e.cat))}</td><td>${esc(r.e.point||'')}</td><td class="n">${r.inA?M(r.inA):''}</td><td class="n">${r.outA?M(r.outA):''}</td><td class="n">${r.fee?M(r.fee):''}</td><td class="n"><b class="${r.bal<0?'neg':''}">${M(r.bal)}</b></td><td><div class="inline-actions"><button class="x" data-act="pcEdit" data-id="${r.e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${r.e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')}
      <tr class="sub"><td>${fmtD(from)}</td><td></td><td colspan="6">Previous balance</td><td class="n">${M(R.open)}</td><td></td></tr>
-     ${R.rows.map(r=>`<tr><td>${esc(fmtD(r.date))}</td><td>${esc(r.e.ref||'')}</td><td>${esc(r.e.desc||'')}${r.e.person?`<div class="small muted">Reimburse: ${esc(pcrPerson(r.e.person))}</div>`:r.e.payee?`<div class="small muted">${r.e.kind==='in'?'From':'To'}: ${esc(r.e.payee)}</div>`:''}</td><td>${r.e.kind==='in'?'Cash dispensed':esc(pcrCat(r.e.cat))}</td><td>${esc(r.e.point||'')}</td><td class="n">${r.inA?M(r.inA):''}</td><td class="n">${r.outA?M(r.outA):''}</td><td class="n">${r.fee?M(r.fee):''}</td><td class="n"><b class="${r.bal<0?'neg':''}">${M(r.bal)}</b></td><td><div class="inline-actions"><button class="x" data-act="pcEdit" data-id="${r.e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${r.e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')}
      <tr class="tot"><td colspan="5">Totals / closing balance</td><td class="n">${M(R.received)}</td><td class="n">${M(R.payments)}</td><td class="n">${M(R.fees)}</td><td class="n">${M(R.close)}</td><td></td></tr></tbody></table></div></div>`;
   } else if(tab==='receipts'){
     body=`<div class="card s12"><div class="card-h"><h2>Petty cash dispensed</h2><div class="inline-actions"><b>${M(R.received)}</b><button class="btn sm" data-act="pcNew" data-k="in">+ Record cash dispensed</button></div></div>
@@ -1975,14 +2017,18 @@ function vPCR(){
     const seg=(k,opts,cur)=>`<div class="seg" style="grid-template-columns:repeat(${opts.length},1fr);width:min(${opts.length*150}px,100%)">${opts.map(([v,l])=>`<button type="button" data-act="pcUi" data-k="${k}" data-v="${v}" aria-pressed="${cur===v}">${esc(l)}</button>`).join('')}</div>`;
     const opts=ty==='pcr'?pcrOptsUI:ty==='ap'?`<div class="ex-opts"><span class="small muted">Show</span>${seg('ap',[['all','Planned & paid'],['planned','Planned only'],['paid','Paid only']],o.ap)}</div>`
       :ty==='rc'?`<div class="ex-opts"><span class="small muted">Items</span>${seg('rc',[['paid','Paid'],['planned','Planned'],['all','Both']],o.rc)}${chip('covers','Cover page per category (PDF)',o.covers,'pcUiT')}</div><p class="small muted" style="margin:6px 0 0">For the clerk: print this schedule, put each category’s receipts behind its cover page in item-number order, tick “Filed”, and send the bundle with the PCR report.</p>`:'';
-    if(ty==='pv'){const P=pcrVouchers(),nC=P.V.filter(v=>v.kind==='cat').length,nP=P.V.length-nC;
-      body=`<div class="card s12"><div class="card-h"><h2>Reports</h2><div class="expgrp"><span class="small muted">Word</span><button class="btn sm" data-act="pcPv" ${P.V.length?'':'disabled'}>Download all ${P.V.length} voucher${P.V.length===1?'':'s'} (.docx)</button></div></div>
-      <div class="ex-opts">${seg('type',types,ty)}</div>
+    if(ty==='pv'){const P0=pcrVouchers(),P=Object.assign({},P0,{V:pcrPvFilter(P0)}),nC=P.V.filter(v=>v.kind==='cat').length,nP=P.V.length-nC;
+      const rc=[...new Set(P0.V.filter(v=>v.kind==='person').map(v=>v.catId))];
+      const pvSel=`<div class="field" style="max-width:420px;margin:0 0 10px"><label for="pc-pvf">Show vouchers for</label><select id="pc-pvf"><option value="all">All categories and people (${P0.V.length})</option>
+        ${P0.V.filter(v=>v.kind==='cat').map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.letter+' · '+v.cat)}</option>`).join('')}
+        ${rc.map(id=>{const L=P0.V.filter(v=>v.kind==='person'&&v.catId===id);return`<optgroup label="${esc(L[0].letter+' · '+L[0].cat)}"><option value="reimb:${esc(id)}" ${ui.pcrRep.pv==='reimb:'+id?'selected':''}>Everyone reimbursed (${L.length})</option>${L.map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.payee)}</option>`).join('')}</optgroup>`}).join('')}</select></div>`;
+      body=`<div class="card s12"><div class="card-h"><h2>Reports</h2><div class="expgrp"><span class="small muted">Word</span><button class="btn sm" data-act="pcPv" ${P.V.length?'':'disabled'}>Download ${P.V.length===P0.V.length&&P.V.length>1?'all ':''}${P.V.length} voucher${P.V.length===1?'':'s'} (.docx)</button></div></div>
+      <div class="ex-opts">${seg('type',types,ty)}</div>${clerk?pcrClerkEntries(R,from,to):''}${P0.V.length?pvSel:''}
       <p class="small muted" style="margin:4px 0 12px">One voucher per expense category and one per person reimbursed, built from the paid items in ${esc(fmtD(from))} – ${esc(fmtD(to))}${P.ref?' · '+esc(P.ref):''}: <b>${nC}</b> category voucher${nC===1?'':'s'}, <b>${nP}</b> reimbursement voucher${nP===1?'':'s'}. Download the Word file, paste each receipt into its dotted box (the box grows to fit), sign, and file it with the PCR report.</p>
       ${pvHTML(P)}</div>`}
     else body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
       <div class="ex-opts">${seg('type',types,ty)}</div>${opts}
-      ${wordBar}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
+      ${wordBar}${clerk?pcrClerkEntries(R,from,to):''}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
   } else {
     const sig=(k,l)=>`<div class="sigset"><div class="sigbox">${c[k]?`<img src="${c[k]}" alt="${l} signature">`:'<span class="small muted">No signature</span>'}</div><div><b class="small">${l}</b><div class="inline-actions" style="margin-top:6px"><label class="btn ghost sm" for="${k}File" style="display:inline-flex;align-items:center">Upload signature</label><input type="file" id="${k}File" data-sig="${k}" accept="image/png,image/webp,image/jpeg" hidden>${c[k]?`<button class="btn ghost sm" data-act="pcSigDel" data-k="${k}">Remove</button>`:''}</div></div></div>`;
@@ -2003,7 +2049,7 @@ function vPCR(){
       <div class="inline-actions"><label class="btn ghost sm" for="pcFontFile" style="display:inline-flex;align-items:center">Upload Aptos fonts</label><input type="file" id="pcFontFile" accept=".ttf,font/ttf" multiple hidden><button class="btn ghost sm" data-act="pcFontReset">Use built-in fonts</button></div></div>
      <div class="card s6"><div class="card-h"><h2>Reimbursement sets</h2></div>
       <p class="small muted" style="margin-top:0">Current set <b>${esc(curRef)}</b> since ${esc(fmtD(pcrSetStart()))} · previous balance ${fmt(pcrBal(dayBefore(pcrSetStart())))}</p>
-      ${pcrSets().slice().reverse().map((s,i)=>`<div class="kv"><span><b>${esc(pcrSetRef(s.no,s.from))}</b> <span class="small muted">${esc(fmtD(s.from))} – ${esc(fmtD(s.to))} · closed ${esc(fmtD(s.closedOn))}</span></span><span class="inline-actions"><b>${fmt(s.balance)}</b>${i===0?'<button class="btn ghost sm" data-act="pcReopen">Reopen</button>':''}</span></div>`).join('')||'<p class="muted small">No closed sets yet.</p>'}
+      ${pcrSets().slice().reverse().map((s,i)=>`<div class="kv"><span><b>${esc(pcrSetRef(s.no,s.from))}</b> <span class="small muted">${esc(fmtD(s.from))} – ${esc(fmtD(s.to))} · closed ${esc(fmtD(s.closedOn))}</span></span><span class="inline-actions"><b>${fmt(s.balance)}</b>${i===0?'<button class="btn ghost sm" data-act="pcReopen">Reopen</button><button class="btn ghost sm" data-act="pcDelSet">Delete</button>':''}</span></div>`).join('')||'<p class="muted small">No closed sets yet.</p>'}
       <button class="addrow" data-act="pcCloseSet">Close the current set…</button>
       <div class="card-h" style="margin-top:18px"><h2>People reimbursed</h2></div>
       ${c.people.map(pp=>`<div class="kv"><input class="pcin" data-ppl="${pp.id}" value="${esc(pp.name)}" aria-label="Name"><button class="x" data-act="pcPplDel" data-id="${pp.id}" aria-label="Remove">×</button></div>`).join('')||'<p class="muted small">No names yet. Add the people you reimburse, for example Nicholas, Irene or Anthony.</p>'}
@@ -2014,11 +2060,17 @@ function vPCR(){
       <div class="card-h" style="margin-top:18px"><h2>Payment points</h2></div>
       ${c.points.map((pt,i)=>`<div class="kv"><input class="pcin" data-ppt="${i}" value="${esc(pt)}" aria-label="Payment point"><button class="x" data-act="pcPtDel" data-i="${i}" aria-label="Remove">×</button></div>`).join('')}
       <button class="addrow" data-act="pcPtAdd">+ Add payment point</button></div>
+     <div class="card s12"><div class="card-h"><h2>Recycle bin</h2>${pcrBinGroups().length?'<button class="btn ghost sm" data-act="pcBinEmpty">Empty bin</button>':''}</div>
+      <p class="small muted" style="margin-top:0">Deleted entries, erased periods, deleted sets and “start afresh” land here for 150 days. Restore puts everything back, including the set.</p>
+      ${pcrBinGroups().map(g=>`<div class="dz-row"><div><b>${esc(g.label)}</b><p class="small muted">${esc(fmtD(new Date(g.at).toISOString().slice(0,10)))}${g.by?' · by '+esc(g.by):''} · ${g.items.length} entr${g.items.length===1?'y':'ies'}${g.items.length?' · '+fmt(sum(g.items,e=>e.kind==='in'?num(e.amt):pcrOut(e))):''}</p></div><div class="inline-actions"><button class="btn sm" data-act="pcBinRestore" data-b="${esc(g.batch)}">Restore</button><button class="btn ghost sm" data-act="pcBinForget" data-b="${esc(g.batch)}">Delete forever</button></div></div>`).join('')||'<p class="muted small">The recycle bin is empty.</p>'}</div>
      <div class="card s12 danger-zone"><div class="card-h"><h2>Erase data</h2></div>
       <div class="dz-row"><div><b>Erase entries in a period</b><p class="small muted">Remove expenses, planned payables or cash dispensed between two dates, for example to re-key a month.</p></div><button class="btn ghost" data-act="pcErase">Erase a period…</button></div>
       <div class="dz-row"><div><b>Start afresh</b><p class="small muted">Erase all petty cash entries and closed sets, then begin again from a new previous balance. Settings are kept.</p></div><button class="btn danger" data-act="pcFresh">Start afresh…</button></div></div>`;
   }
-  return `<div class="pageh"><div><h1>${esc(c.title||'Petty Cash')}${c.org?' · '+esc(c.org):''}</h1><p>Petty cash reconciliation and accounts payable. Separate from your personal Hazina figures and visible only to you.</p></div>
+  if(clerk)return `<div class="pageh"><div><h1>Petty Cash${c.org?' · '+esc(c.org):''}</h1><p>You are helping to compile the petty cash reconciliation. Log expenses (paid or planned), edit entries and download reports and payment vouchers. Your entries go straight into the shared report.</p></div>
+    <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button></div></div>
+  <section class="grid"><div class="card s12">${per}</div>${body}</section>`;
+  return `<div class="pageh"><div><h1>${esc(c.title||'Petty Cash')}${c.org?' · '+esc(c.org):''}</h1><p>Petty cash reconciliation and accounts payable. Separate from your personal Hazina figures. Your petty cash clerk can log entries into the same report.</p></div>
     <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button><button class="btn ghost" data-act="pcNew" data-k="in">+ Cash dispensed</button></div></div>
   <section class="grid">
    <div class="card hero s12 pcrhero"><div><div class="eyebrow">Petty cash balance now</div><div class="nw ${live<0?'neg':''}">${M(live)}</div>
@@ -2047,14 +2099,14 @@ function kesWords(n){n=Math.round(Math.abs(n)*100)/100;const on=['','One','Two',
   if(sh)parts.push((parts.length&&sh<100?'and ':'')+w3(sh));return 'Kenya Shillings '+(parts.join(' ')||'Zero')+(ct?' and '+w3(ct)+' Cents':'')+' Only'}
 function pcrVouchers(){
   const c=pcrCfg(),[from,to]=pcrRange(),D=pcrDoc(from,to,'detailed'),ref=D.ref||'',base=ref?ref.replace(/^PCR/,'PV'):'PV/'+ymd(from)+'-'+ymd(to),V=[];
-  const row=x=>({no:x.no,date:fmtD(pcrEff(x.e)),desc:x.e.desc||'',to:x.e.person?pcrPerson(x.e.person):(x.e.payee||''),rcpt:x.e.ref||'',code:x.e.payRef||'',point:x.e.point||'',amt:x.amt,fee:x.fee,total:x.amt+x.fee,e:x.e});
+  const row=x=>({no:x.no,date:fmtD(x.e.date),paid:pcrEff(x.e),desc:x.e.desc||'',to:x.e.person?pcrPerson(x.e.person):(x.e.payee||''),rcpt:x.e.ref||'',code:x.e.payRef||'',point:x.e.point||'',amt:x.amt,fee:x.fee,total:x.amt+x.fee,e:x.e});
   const uniq=a=>[...new Set(a.filter(Boolean))];
   D.sections.forEach(s=>{
     if(s.reimb)s.groups.forEach((g,i)=>{const items=g.items.map(row),tr=[];
-      items.forEach(x=>{const k=x.e.payId||x.e.id;let t=tr.find(y=>y.k===k);if(!t){t={k,date:x.date,point:x.point,ref:x.code,nos:[],amt:0,fee:0};tr.push(t)}t.nos.push(x.no);t.amt+=x.amt;t.fee+=x.fee});
-      V.push({kind:'person',no:base+'-'+s.letter+(i+1),letter:s.letter,cat:s.title,payee:g.title,items,amt:g.amt,fee:g.fee,total:g.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),transfers:tr,date:items[items.length-1].date})});
+      items.forEach(x=>{const k=x.e.payId||x.e.id;let t=tr.find(y=>y.k===k);if(!t){t={k,date:fmtD(x.paid),point:x.point,ref:x.code,nos:[],amt:0,fee:0};tr.push(t)}t.nos.push(x.no);t.amt+=x.amt;t.fee+=x.fee});
+      V.push({kind:'person',catId:s.id,pid:g.pid||'',no:base+'-'+s.letter+(i+1),letter:s.letter,cat:s.title,payee:g.title,items,amt:g.amt,fee:g.fee,total:g.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),transfers:tr,date:fmtD(items.map(x=>x.paid).sort().pop())})});
     else{const items=s.groups.flatMap(g=>g.items).map(row),py=uniq(items.map(x=>x.to));
-      V.push({kind:'cat',no:base+'-'+s.letter,letter:s.letter,cat:s.title,payee:py.length===1?py[0]:py.length?'Various (see particulars)':'—',items,amt:s.amt,fee:s.fee,total:s.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),date:items[items.length-1].date})}});
+      V.push({kind:'cat',catId:s.id,no:base+'-'+s.letter,letter:s.letter,cat:s.title,payee:py.length===1?py[0]:py.length?'Various (see particulars)':'—',items,amt:s.amt,fee:s.fee,total:s.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),date:fmtD(items.map(x=>x.paid).sort().pop())})}});
   return{V,from,to,ref,org:c.org||'',prep:{name:c.custodian||'',sig:c.sigPrep||''},appr:{name:c.approver||'',sig:c.sigAppr||''}};
 }
 const pvRng=nos=>nos.length>1?nos[0]+'–'+nos[nos.length-1]:nos[0];
@@ -2127,10 +2179,12 @@ async function pvDocx(P,list,file){
   const doc=new Document({creator:'Hazina',title:'Payment vouchers',styles:{default:{document:{run:{font:BODY,size:19}}}},sections});
   const blob=await Packer.toBlob(doc);const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=file+'.docx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
 }
-function pcrPvExport(i){const P=pcrVouchers();if(!P.V.length){toast('No paid items in this period yet');return}
-  const list=i==null?P.V:[P.V[+i]];const tag=i==null?'all':list[0].no.split('-').pop();
+const pvKey=v=>v.kind==='person'?'per:'+v.catId+':'+v.pid:'cat:'+v.catId;
+function pcrPvFilter(P){const f=ui.pcrRep.pv||'all';if(f==='all')return P.V;if(f.startsWith('reimb:'))return P.V.filter(v=>v.kind==='person'&&v.catId===f.slice(6));const L=P.V.filter(v=>pvKey(v)===f);return L.length?L:(ui.pcrRep.pv='all',P.V)}
+function pcrPvExport(i){const P0=pcrVouchers(),P=Object.assign({},P0,{V:pcrPvFilter(P0)});if(!P.V.length){toast('No paid items in this period yet');return}
+  const list=i==null?P.V:[P.V[+i]];const tag=list.length===1?list[0].no.split('-').pop():(ui.pcrRep.pv&&ui.pcrRep.pv!=='all'?'selection':'all');
   pvDocx(P,list,'payment-vouchers-'+(P.ref?P.ref.replace(/\//g,'-').toLowerCase()+'-':'')+tag);}
-function pcrGroup(L){const c=pcrCfg(),known=id=>c.cats.some(k=>k.id===id),out=[];
+function pcrGroup(L){const c=pcrCfg(),known=id=>c.cats.some(k=>k.id===id),out=[];L=L.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||num(b.ts)-num(a.ts));
   [...c.cats,{id:'__other',name:'Other expenses'}].forEach(k=>{const I=L.filter(e=>(known(e.cat)?e.cat:'__other')===k.id);if(!I.length)return;
     const reimb=k.id!=='__other'&&pcrIsReimb(k.id),g={id:k.id,name:k.name,reimb,items:I,amt:sum(I,e=>num(e.amt)),fee:sum(I,e=>num(e.fee))};g.total=g.amt+g.fee;
     if(reimb){const ord=c.people.map(p=>p.id),pids=[...new Set(I.map(e=>e.person||''))].sort((a,b)=>(ord.indexOf(a)+1||999)-(ord.indexOf(b)+1||999));
@@ -2168,7 +2222,7 @@ function openPayModal(ids){
 function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.payId;delete e.payRef;pcrSave(e);render();
   toastAction('Moved back to planned payables','Undo',()=>{pcrSave(prev);render()})}
 function pcrApView(R,live){
-  const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?'Paid '+esc(fmtD(pcrEff(e))):'Due '+esc(fmtD(e.date))}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Receipt '+esc(e.ref):''}${e.payRef?' · Code '+esc(e.payRef):''}</small></div>
+  const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?esc(fmtD(e.date))+(e.paidDate&&e.paidDate!==e.date?' · paid '+esc(fmtD(e.paidDate)):''):'Due '+esc(fmtD(e.date))}${e.by?' · by '+esc(e.by):''}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Receipt '+esc(e.ref):''}${e.payRef?' · Code '+esc(e.payRef):''}</small></div>
     <div class="api-amt">${M(num(e.amt))}${num(e.fee)?`<small class="muted">+ fee ${fmt(num(e.fee))}</small>`:''}</div>
     <div class="api-act">${paid?`<button class="btn ghost sm" data-act="pcUnpay" data-id="${e.id}">Undo payment</button>`:`<button class="btn ${g.reimb?'ghost ':''}sm" data-act="pcPay" data-id="${e.id}">Pay</button>`}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></div>`;
   const tots=x=>`<div class="api-amt"><b>${M(x.total)}</b>${x.fee?`<small class="muted">${fmt(x.amt)} + fees ${fmt(x.fee)}</small>`:''}</div>`;
@@ -2192,6 +2246,11 @@ document.addEventListener('focusout',ev=>{const el=ev.target;if(!el.classList||!
   if(v===k)delete c.words[k];else c.words[k]=v;pcrSaveCfg();document.querySelectorAll('.ew').forEach(x=>{if(x!==el&&x.dataset.w===k)x.textContent=v});el.textContent=v;toast('Wording saved')});
 document.addEventListener('keydown',ev=>{const el=ev.target;if(el.classList&&el.classList.contains('ew')&&el.isContentEditable){if(ev.key==='Enter'){ev.preventDefault();el.blur()}else if(ev.key==='Escape'){el.textContent=pcrT(el.dataset.w);el.blur()}}});
 document.addEventListener('paste',ev=>{const el=ev.target.closest&&ev.target.closest('.ew');if(!el||!el.isContentEditable)return;ev.preventDefault();document.execCommand('insertText',false,(ev.clipboardData.getData('text/plain')||'').replace(/\s+/g,' '))});
+function pcrClerkEntries(R,from,to){const ents=pcrEntsIn(R,from,to);
+  return`<div class="clerkent"><button type="button" class="optchip" data-act="pcEditToggle" aria-pressed="${!!ui.pcrEdit}">${ui.pcrEdit?'Hide entries':'✎ Edit entries ('+ents.length+')'}</button>
+  ${ui.pcrEdit?`<div class="tw" style="margin-top:10px"><table><thead><tr><th>Date</th><th>Description</th><th>Category / person</th><th class="n">Amount</th><th class="n">Fee</th><th>Status</th><th></th></tr></thead><tbody>
+  ${ents.map(e=>`<tr><td>${esc(fmtD(e.date))}</td><td>${esc(e.desc||'')}${e.by?`<div class="small muted">logged by ${esc(e.by)}</div>`:''}</td><td>${esc(pcrCat(e.cat))}${e.person?`<div class="small muted">${esc(pcrPerson(e.person))}</div>`:''}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td><td>${e.status==='paid'?'<span class="pill good">Paid</span>':'<span class="pill warn">Planned</span>'}</td>
+    <td><div class="inline-actions">${e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')||'<tr><td colspan="7" class="muted">No expenses in this period yet.</td></tr>'}</tbody></table></div>`:''}</div>`}
 function openPrevBal(){
   const c=pcrCfg(),[from]=pcrRange(),first=pcrIsFirst(from),anc=c.anchors.find(a=>a.date===from),cur=pcrBal(dayBefore(from)),carried=first?null:pcrCarried(from);
   pcrModal(`${mdHead('Previous balance')}
@@ -2218,9 +2277,9 @@ function openErase(){
       <div class="inline-actions"><button class="btn danger" type="submit" style="flex:1" ${L.length?'':'disabled'}>Erase ${L.length} entr${L.length===1?'y':'ies'}</button></div>`,close=>{
       const re=()=>{from=$('#erFrom').value||from;to=$('#erTo').value||to;kinds.paid=$('#erPaid').checked;kinds.planned=$('#erPlanned').checked;kinds.in=$('#erIn').checked;close();draw()};
       ['#erFrom','#erTo','#erPaid','#erPlanned','#erIn'].forEach(s=>$(s).onchange=re);
-      $('#mdForm').onsubmit=ev=>{ev.preventDefault();const sn=pcrSnap();let n=0;
-        for(const k in PCR.years){const b=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(e=>!match(e));if(PCR.years[k].length!==b){n+=b-PCR.years[k].length;queue('pcr-'+k)}}
-        close();render();toastAction(n+' entr'+(n===1?'y':'ies')+' erased','Undo',()=>pcrRestore(sn))}});
+      $('#mdForm').onsubmit=ev=>{ev.preventDefault();const L=pcrAll().filter(match),n=L.length;
+        const bt=pcrKill(L,'Erased '+n+' entr'+(n===1?'y':'ies')+' · '+fmtD(from)+' – '+fmtD(to));
+        close();render();toastAction(n+' entr'+(n===1?'y':'ies')+' moved to the recycle bin','Undo',()=>pcrRevive(bt))}});
   };draw();
 }
 function openFresh(){
@@ -2232,8 +2291,10 @@ function openFresh(){
     <div class="inline-actions"><button class="btn danger" type="submit" style="flex:1">Erase everything &amp; start afresh</button></div>`,close=>{
     $('#frAmt').focus();
     $('#mdForm').onsubmit=ev=>{ev.preventDefault();if(!$('#frOk').checked){toast('Tick the box to confirm');return}const d=$('#frDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick a start date');return}
-      const sn=pcrSnap(),c=pcrCfg();for(const k in PCR.years){PCR.years[k]=[];queue('pcr-'+k)}c.sets=[];c.anchors=[];c.opening=num($('#frAmt').value);c.openingDate=d;pcrSaveCfg();
-      ui.pcr.preset='set';ui.pcrTab='summary';close();render();toastAction('Started afresh from '+fmtD(d)+' with '+fmt(c.opening),'Undo',()=>pcrRestore(sn))}});
+      const c=pcrCfg(),lbl='Start afresh on '+fmtD(todayStr())+' (all entries and sets)',bt=pcrKill(pcrAll(),lbl);
+      c.binSets.push({batch:bt,at:Date.now(),label:lbl,by:pcrMyName(),cfg:JSON.parse(JSON.stringify({sets:c.sets,anchors:c.anchors,opening:c.opening,openingDate:c.openingDate}))});
+      c.sets=[];c.anchors=[];c.opening=num($('#frAmt').value);c.openingDate=d;pcrSaveCfg();
+      ui.pcr.preset='set';ui.pcrTab='summary';close();render();toastAction('Started afresh from '+fmtD(d)+' with '+fmt(c.opening),'Undo',()=>pcrRevive(bt))}});
 }
 function openCloseSet(){
   const from=pcrSetStart(),no=pcrCurNo();let to=todayStr();if(to<from)to=from;
@@ -2261,11 +2322,11 @@ function openPcr(e,opts){
     const catOptsP=c.cats.map(k=>({v:k.id,l:k.name,g:'Category'})),ptOpts=c.points.map(x=>({v:x,l:x,g:'Payment point'})),pplOpts=c.people.map(x=>({v:x.id,l:x.name,g:'Person'}));
     $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="pcForm" role="dialog" aria-modal="true" aria-labelledby="pcTitle" novalidate>
       <div class="card-h" style="margin:0"><h2 id="pcTitle">${ed?'Edit petty cash entry':'Petty cash entry'}</h2><button type="button" class="x" id="pcClose" aria-label="Close">×</button></div>
-      <div class="seg seg2"><button type="button" data-pk="ap" aria-pressed="${kind==='ap'}">Expense / payable</button><button type="button" data-pk="in" aria-pressed="${kind==='in'}">Cash dispensed</button></div>
+      ${pcrClerk()?'':`<div class="seg seg2"><button type="button" data-pk="ap" aria-pressed="${kind==='ap'}">Expense / payable</button><button type="button" data-pk="in" aria-pressed="${kind==='in'}">Cash dispensed</button></div>`}
       ${kind==='ap'?`<div class="seg seg2"><button type="button" data-ps="paid" aria-pressed="${status==='paid'}">Paid</button><button type="button" data-ps="planned" aria-pressed="${status!=='paid'}">Planned (not yet paid)</button></div>`:''}
       <div class="pcbal" id="pcBal"></div>
       <div class="field amt-in"><label for="pcAmt">Amount (Ksh)</label><input id="pcAmt" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.amt)}" placeholder="0"></div>
-      <div class="fgrid"><div class="field"><label for="pcDate">${kind==='ap'&&status!=='paid'?'Due date':'Date'}</label><input id="pcDate" type="date" value="${esc(kind==='ap'&&status==='paid'?(t.paidDate||t.date):t.date)}"></div><div class="field"><label for="pcRef">Ref / receipt no. (optional)</label><input id="pcRef" value="${esc(t.ref||'')}"></div></div>
+      <div class="fgrid"><div class="field"><label for="pcDate">${kind==='ap'&&status!=='paid'?'Due date':kind==='ap'?'Date of item / receipt':'Date'}</label><input id="pcDate" type="date" value="${esc(t.date||todayStr())}"></div>${kind==='ap'&&status==='paid'?`<div class="field"><label for="pcPaidOn">Paid on <small class="muted">(decides the set it counts in)</small></label><input id="pcPaidOn" type="date" value="${esc(t.paidDate||todayStr())}"></div>`:''}<div class="field"><label for="pcRef">Ref / receipt no. (optional)</label><input id="pcRef" value="${esc(t.ref||'')}"></div></div>
       <div class="field"><label for="pcDesc">Description of item / service</label><input id="pcDesc" value="${esc(t.desc||'')}" placeholder="${kind==='ap'?'e.g. Fuel for KDT 598M':'e.g. Petty cash dispensed for November'}" maxlength="160"></div>
       ${kind==='ap'?`<div class="fgrid"><div class="field"><label for="pcCat-q">Category</label>${combo('pcCat',catOptsP,t.cat||'',{ph:'Type a category'})}</div>
         <div class="field" id="pcPersonF"><label for="pcPerson-q">Person reimbursed</label>${combo('pcPerson',pplOpts,t.person||'',{ph:'Type a name, new or existing',free:true})}</div>
@@ -2285,16 +2346,16 @@ function openPcr(e,opts){
     box.className='pcbal '+cls;box.innerHTML=kind==='ap'&&status!=='paid'?`Petty cash balance <b>${fmt(base)}</b>. Planned items don’t change it until they are paid.`:`Petty cash balance <b>${fmt(base)}</b> → after this ${kind==='in'?'cash':'expense'}: <b>${fmt(after)}</b>${after<0?' · this overdraws petty cash':after<num(c.alert)?' · below your '+fmt(num(c.alert))+' alert level':''}${kind==='ap'&&f?' (amount + fee '+fmt(a+f)+')':''}`;
     const ls=pcrLastSet(),dv=$('#pcDate').value;if(ls&&dv&&dv<=ls.to)box.innerHTML+=`<br><b>Note:</b> this date is in closed set ${esc(pcrSetRef(ls.no,ls.from))}, so saving changes that set’s figures.`;
     const cc=$('#pcCat');if(cc){const r=pcrIsReimb(cc.value);$('#pcPersonF').hidden=!r;$('#pcPayeeF').hidden=r}};
-  const grab=()=>{t.amt=$('#pcAmt').value;t.date=$('#pcDate').value;t.ref=$('#pcRef').value;t.desc=$('#pcDesc').value;t.payee=$('#pcPayee').value;const cc=$('#pcCat');if(cc)t.cat=cc.value;const pp=$('#pcPerson');if(pp)t.person=pp.value;t.point=$('#pcPt').value;const f=$('#pcFee');if(f)t.fee=f.value};
+  const grab=()=>{t.amt=$('#pcAmt').value;t.date=$('#pcDate').value;const po=$('#pcPaidOn');if(po)t.paidDate=po.value;t.ref=$('#pcRef').value;t.desc=$('#pcDesc').value;t.payee=$('#pcPayee').value;const cc=$('#pcCat');if(cc)t.cat=cc.value;const pp=$('#pcPerson');if(pp)t.person=pp.value;t.point=$('#pcPt').value;const f=$('#pcFee');if(f)t.fee=f.value};
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',esc_)};const esc_=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',esc_);
   const save=again=>{grab();const amt=num(t.amt),d=t.date;
     if(!(amt>0)){toast('Enter an amount above zero');return}if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick a date');return}
     if(kind==='ap'&&!t.cat){toast('Choose a category');$('#pcCat-q').focus();return}
     let person='';if(kind==='ap'&&pcrIsReimb(t.cat)){const raw=String(t.person||'').trim();if(!raw){toast('Type the name of the person being reimbursed');$('#pcPerson-q').focus();return}
-      let pp=c.people.find(x=>x.id===raw)||c.people.find(x=>x.name.toLowerCase()===raw.toLowerCase());if(!pp){pp={id:nid(),name:raw};c.people.push(pp);pcrSaveCfg()}person=pp.id}
+      let pp=c.people.find(x=>x.id===raw)||c.people.find(x=>x.name.toLowerCase()===raw.toLowerCase());if(!pp&&pcrClerk())person='n:'+raw;else{if(!pp){pp={id:nid(),name:raw};c.people.push(pp);pcrSaveCfg()}person=pp.id}}
     const pt=String(t.point||'').trim();if(pt&&!c.points.some(x=>x.toLowerCase()===pt.toLowerCase())){c.points.push(pt);pcrSaveCfg()}
     const rec={id:ed?t.id:nid(),ts:t.ts||Date.now(),kind,amt,date:d,ref:(t.ref||'').trim(),desc:(t.desc||'').trim(),payee:person?'':(t.payee||'').trim(),point:pt};
-    if(kind==='ap'){rec.cat=t.cat;rec.fee=num(t.fee);if(person)rec.person=person;rec.status=status==='paid'?'paid':'planned';if(rec.status==='paid'){rec.paidDate=d;rec.date=e&&e.date&&e.status!=='paid'?e.date:d}}
+    if(kind==='ap'){rec.cat=t.cat;rec.fee=num(t.fee);if(person)rec.person=person;rec.status=status==='paid'?'paid':'planned';if(rec.status==='paid'){rec.paidDate=/^\d{4}-\d{2}-\d{2}$/.test(t.paidDate||'')?t.paidDate:d}if(t.by)rec.by=t.by;if(t.payId)rec.payId=t.payId;if(t.payRef)rec.payRef=t.payRef}
     pcrSave(rec);const nb=pcrBal();
     if(nb<0)toast('Saved. Petty cash is now overdrawn: '+fmt(nb));else if(nb<num(c.alert))toast('Saved. Low petty cash balance: '+fmt(nb));else toast('Saved. Petty cash balance: '+fmt(nb));
     close();render();if(again)openPcr(null,{k:kind,s:status});
@@ -2304,6 +2365,7 @@ function openPcr(e,opts){
 document.addEventListener('change',ev=>{
   const el=ev.target;if(!el.closest||!el.closest('#app'))return;
   if(el.id==='pc-preset'){ui.pcr.preset=el.value;render();return}
+  if(el.id==='pc-pvf'){ui.pcrRep.pv=el.value;render();return}
   if(el.id==='pc-from'||el.id==='pc-to'){ui.pcr[el.id==='pc-from'?'from':'to']=el.value;ui.pcr.preset='custom';render();return}
   const c=pcrCfg();
   if(el.id==='pcLogoFile'){const f=el.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const k=Math.min(1,320/Math.max(img.width,img.height));const cv=document.createElement('canvas');cv.width=Math.round(img.width*k);cv.height=Math.round(img.height*k);const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.drawImage(img,0,0,cv.width,cv.height);c.logo=cv.toDataURL('image/png');pcrSaveCfg();toast('Logo updated');render()};img.onerror=()=>toast('That image could not be read');img.src=r.result};r.readAsDataURL(f);return}
@@ -2314,13 +2376,21 @@ document.addEventListener('change',ev=>{
   if(el.dataset.ppl){const k=c.people.find(x=>x.id===el.dataset.ppl);if(k&&el.value.trim()){k.name=el.value.trim();pcrSaveCfg();render()}return}
   if(el.dataset.ppt!=null){const i=+el.dataset.ppt;if(el.value.trim()){c.points[i]=el.value.trim();pcrSaveCfg();render()}return}
 });
+const PCR_CLERK_OK=new Set(['pcTab','pcMode','pcOpt','pcUi','pcUiT','pcNew','pcEdit','pcDel','pcPay','pcPayPerson','pcUnpay','pcExp','pcPv','pcEditToggle']);
 function pcrAction(a,t){
   const c=pcrCfg();
+  if(pcrClerk()){const e=t.dataset.id&&pcrAll().find(x=>x.id===t.dataset.id);if(!PCR_CLERK_OK.has(a)||(a==='pcNew'&&t.dataset.k==='in')||(e&&e.kind==='in')||(a==='pcTab'&&t.dataset.v!=='reports')){toast('Only the petty cash owner can do that');return true}}
   if(a==='pcTab'){ui.pcrTab=t.dataset.v;render()}
   else if(a==='pcMode'){ui.pcrMode=t.dataset.v;render()}
   else if(a==='pcNew')openPcr(null,{k:t.dataset.k,s:t.dataset.s});
   else if(a==='pcEdit'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(e)openPcr(e)}
-  else if(a==='pcDel'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const snap=JSON.stringify(e);pcrDel(e.id);render();toastAction('Entry deleted','Undo',()=>{pcrSave(JSON.parse(snap));render()})}
+  else if(a==='pcDel'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const bt=pcrDel(e.id);render();toastAction('Entry moved to the recycle bin','Undo',()=>pcrRevive(bt))}
+  else if(a==='pcDelSet'){const st=c.sets[c.sets.length-1];if(!st)return;const L=pcrAll().filter(e=>{if(!pcrIsPaid(e))return false;const d=pcrEff(e);return d>=st.from&&d<=st.to});
+    const lbl='Set '+pcrSetRef(st.no,st.from)+' deleted ('+fmtD(st.from)+' – '+fmtD(st.to)+')',bt=pcrKill(L,lbl);c.binSets.push({batch:bt,at:Date.now(),label:lbl,by:pcrMyName(),set:st});c.sets.pop();pcrSaveCfg();ui.pcr.preset='set';render();
+    toastAction(pcrSetRef(st.no,st.from)+' and its '+L.length+' entr'+(L.length===1?'y':'ies')+' moved to the recycle bin','Undo',()=>pcrRevive(bt))}
+  else if(a==='pcBinRestore'){const n=pcrRevive(t.dataset.b);toast('Restored'+(n?' '+n+' entr'+(n===1?'y':'ies'):''))}
+  else if(a==='pcBinForget'){const b=t.dataset.b;if(!confirm('Delete this permanently? It cannot be restored afterwards.'))return;pcrBinForget(b)}
+  else if(a==='pcBinEmpty'){if(!confirm('Empty the recycle bin? Nothing in it can be restored afterwards.'))return;pcrBinForget(null);toast('Recycle bin emptied')}
   else if(a==='pcPay')openPayModal([t.dataset.id]);
   else if(a==='pcPv')pcrPvExport(t.dataset.i==null?null:t.dataset.i);
   else if(a==='pcPayPerson')openPayModal(t.dataset.ids.split(','));
@@ -2341,7 +2411,7 @@ function pcrAction(a,t){
   else if(a==='pcPrev')openPrevBal();
   else if(a==='pcWords'){ui.pcrWords=!ui.pcrWords;render()}
   else if(a==='pcWordsReset'){const old=c.words||{};c.words={};pcrSaveCfg();render();toastAction('Wording reset to the original','Undo',()=>{c.words=old;pcrSaveCfg();render()})}
-  else if(a==='pcErasePre'){const ids=new Set(pcrPre().map(e=>e.id));if(!ids.size)return;const sn=pcrSnap();for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(e=>!ids.has(e.id));if(PCR.years[k].length!==n)queue('pcr-'+k)}render();toastAction(ids.size+' older entr'+(ids.size===1?'y':'ies')+' erased','Undo',()=>pcrRestore(sn))}
+  else if(a==='pcErasePre'){const L=pcrPre();if(!L.length)return;const bt=pcrKill(L,'Older entries before the start date');render();toastAction(L.length+' older entr'+(L.length===1?'y':'ies')+' moved to the recycle bin','Undo',()=>pcrRevive(bt))}
   else if(a==='pcEditToggle'){ui.pcrEdit=!ui.pcrEdit;render()}
   else if(a==='pcErase')openErase();
   else if(a==='pcFresh')openFresh();
