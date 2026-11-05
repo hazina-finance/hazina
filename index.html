@@ -285,6 +285,10 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .chkrow{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:.9rem;align-items:center}.chkrow label{display:flex;gap:6px;align-items:center}
 .danger-zone .dz-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}.danger-zone .dz-row p{margin:2px 0 0}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+/* editable wording */
+.wordbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+.ew[contenteditable="true"]{outline:1px dashed #9ca3af;outline-offset:1px;border-radius:2px;cursor:text;min-width:1ch;display:inline-block}
+.ew[contenteditable="true"]:hover{background:#fff7d6}.ew[contenteditable="true"]:focus{outline:2px solid var(--accent);background:#fffbea}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -521,7 +525,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='9 Nov 2026 · PCR balance fix';
+const APP_BUILD='10 Nov 2026 · editable report wording';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1564,7 +1568,7 @@ const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.j
 const PCR_DARK=[54,86,40],PCR_BAND=[226,239,218];
 function pcrCfg(){
   if(!PCR.cfg)PCR.cfg={title:'Petty Cash',org:'',custodian:'',opening:0,openingDate:todayStr(),cats:PCR_CATS.map(n=>({id:nid(),name:n})),points:PCR_POINTS.slice()};
-  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!Array.isArray(c.anchors))c.anchors=[];if(!c.rep)c.rep={share:true,people:true};return c;
+  const c=PCR.cfg;if(!Array.isArray(c.people))c.people=[];if(c.mode!=='consolidated')c.mode=c.mode||'detailed';if(c.alert==null)c.alert=5000;if(c.approver==null)c.approver='';if(!Array.isArray(c.sets))c.sets=[];if(!Array.isArray(c.anchors))c.anchors=[];if(!c.words||typeof c.words!=='object')c.words={};if(!c.rep)c.rep={share:true,people:true};return c;
 }
 const pcrOn=()=>isAdmin()&&!store.viewing&&lsGet('hz-pcr-'+store.uid)==='1';
 const pcrAll=()=>Object.values(PCR.years).flat();
@@ -1633,6 +1637,8 @@ function pcrModel(type,o){
   o=o||pcrOpts();const c=pcrCfg(),[from,to]=pcrRange(),today=fmtD(todayStr());
   const M={type,title:PCR_TITLES[type],org:c.org||'',from,to,ref:pcrRef(from,to),prepared:today,orient:'p',figs:null,blocks:[],
     approve:[{role:'Prepared by',name:c.custodian||'',sig:c.sigPrep||'',date:today},{role:'Approved by',name:c.approver||'',sig:c.sigAppr||'',date:''}]};
+  M.kick=M.org||'Petty cash';M.sub=pcrSubLine(M);M.foot=[M.org,M.title,M.ref?'Ref '+M.ref:''].filter(Boolean).join('  ·  ');
+  M.L={approval:'Approval',name:'Name',signature:'Signature',date:'Date',supp:'Supporting documents',coverNote:'Place the receipts for this category behind this page, in item-number order.',page:'Page'};
   const B=M.blocks;
   if(type==='pcr'){
     const D=pcrDoc(from,to,o.mode),fee=D.totalFee>0,pc=v=>D.totalExp?(Math.round(v/D.totalExp*1000)/10)+'%':'0%',f0=v=>v?v:'–';
@@ -1694,6 +1700,11 @@ function pcrModel(type,o){
   }
   return M;
 }
+const pcrT=s=>{if(typeof s!=='string'||!s)return s;const w=pcrCfg().words||{};return Object.prototype.hasOwnProperty.call(w,s)?w[s]:s};
+function pcrTr(M){const t=pcrT,X=JSON.parse(JSON.stringify(M));X.approve.forEach((a,i)=>a.sig=M.approve[i].sig);
+  ['title','kick','sub','foot'].forEach(k=>X[k]=t(X[k]));for(const k in X.L)X.L[k]=t(X.L[k]);if(X.figs)X.figs=X.figs.map(([l,v])=>[t(l),typeof v==='string'?t(v):v]);
+  X.blocks.forEach(b=>{if(b.x)b.x=t(b.x);if(b.cols)b.cols.forEach(c=>c.h=t(c.h));if(b.t==='table')b.rows.forEach(r=>r.c=r.c.map(t));if(b.t==='recon')b.rows.forEach(r=>r[0]=t(r[0]));if(b.list)b.list.forEach(l=>l.title=t(l.title))});
+  X.approve.forEach(a=>{a.role=t(a.role);a.name=t(a.name);a.date=t(a.date)});return X}
 const pcrSubLine=M=>'Period '+fmtD(M.from)+' – '+fmtD(M.to)+(M.ref?'  ·  Ref '+M.ref:'')+'  ·  Prepared '+M.prepared;
 
 /* ---------- report fonts: Aptos when uploaded on this device, otherwise a close open-source match ---------- */
@@ -1730,21 +1741,23 @@ async function pcrFontUpload(files){let n=0;const pick={};
 
 /* ---------- renderers ---------- */
 function pcrHTML(M){
-  const cell=(v,col)=>`<td class="${col.n?'n':''}${col.box?' c':''}">${col.box?'<span class="ex-box"></span>':typeof v==='number'?pcrA(v):esc(v==null?'':v)}</td>`;
+  const ce=ui.pcrWords?' contenteditable="true" spellcheck="true"':'';
+  const ew=s=>typeof s==='string'&&s?`<span class="ew" data-w="${esc(s)}"${ce}>${esc(pcrT(s))}</span>`:esc(s==null?'':s);
+  const cell=(v,col)=>`<td class="${col.n?'n':''}${col.box?' c':''}">${col.box?'<span class="ex-box"></span>':typeof v==='number'?pcrA(v):ew(v)}</td>`;
   const blk=b=>{
-    if(b.t==='h')return`<div class="ex-h">${esc(b.x)}</div>`;
-    if(b.t==='note')return`<p class="ex-note">${esc(b.x)}</p>`;
-    if(b.t==='table')return`<div class="tw"><table class="ex-table"><thead><tr>${b.cols.map(col=>`<th class="${col.n?'n':''}${col.box?' c':''}"${col.w?` style="width:${Math.round(col.w*1.25)}px"`:''}>${esc(col.h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr class="ex-${r.k||'r'}">${r.c.map((v,i)=>cell(v,b.cols[i])).join('')}</tr>`).join('')}</tbody></table></div>`;
-    if(b.t==='recon')return`<table class="ex-table ex-recon"><tbody>${b.rows.map(([l,v,k])=>`<tr class="${k==='key'?'ex-tot':k==='b'?'ex-sub':''}"><td>${esc(l)}</td><td class="n">${pcrA(v)}</td></tr>`).join('')}</tbody></table>`;
-    if(b.t==='covers')return`<div class="ex-h">Cover pages for filing (added to the PDF)</div><div class="ex-covers">${b.list.map(l=>`<div class="ex-cover"><b>${esc(l.letter)}</b><span>${esc(l.title)}</span><small>${l.n} document${l.n===1?'':'s'} · ${pcrA(l.total)} · items ${esc(l.range)}</small></div>`).join('')}</div>`;
+    if(b.t==='h')return`<div class="ex-h">${ew(b.x)}</div>`;
+    if(b.t==='note')return`<p class="ex-note">${ew(b.x)}</p>`;
+    if(b.t==='table')return`<div class="tw"><table class="ex-table"><thead><tr>${b.cols.map(col=>`<th class="${col.n?'n':''}${col.box?' c':''}"${col.w?` style="width:${Math.round(col.w*1.25)}px"`:''}>${ew(col.h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r=>`<tr class="ex-${r.k||'r'}">${r.c.map((v,i)=>cell(v,b.cols[i])).join('')}</tr>`).join('')}</tbody></table></div>`;
+    if(b.t==='recon')return`<table class="ex-table ex-recon"><tbody>${b.rows.map(([l,v,k])=>`<tr class="${k==='key'?'ex-tot':k==='b'?'ex-sub':''}"><td>${ew(l)}</td><td class="n">${pcrA(v)}</td></tr>`).join('')}</tbody></table>`;
+    if(b.t==='covers')return`<div class="ex-h">Cover pages for filing (added to the PDF)</div><div class="ex-covers">${b.list.map(l=>`<div class="ex-cover"><b>${esc(l.letter)}</b><span>${ew(l.title)}</span><small>${l.n} document${l.n===1?'':'s'} · ${pcrA(l.total)} · items ${esc(l.range)}</small></div>`).join('')}</div>`;
     return'';};
   return`<div class="pcrdoc exec">
-   <div class="ex-head"><div><div class="ex-kicker">${esc(M.org||'Petty cash')}</div><div class="ex-title">${esc(M.title)}</div><div class="ex-sub">${esc(pcrSubLine(M))}</div></div><img class="pd-logo" src="${pcrLogo()}" alt="Logo"></div>
-   ${M.figs?`<div class="ex-figs" style="grid-template-columns:repeat(${M.figs.length},1fr)">${M.figs.map(([l,v],i)=>`<div class="${i===M.figs.length-1?'ex-key':''}"><small>${esc(l)}</small><b>${typeof v==='number'?pcrA(v):esc(v)}</b></div>`).join('')}</div>`:''}
+   <div class="ex-head"><div><div class="ex-kicker">${ew(M.kick)}</div><div class="ex-title">${ew(M.title)}</div><div class="ex-sub">${ew(M.sub)}</div></div><img class="pd-logo" src="${pcrLogo()}" alt="Logo"></div>
+   ${M.figs?`<div class="ex-figs" style="grid-template-columns:repeat(${M.figs.length},1fr)">${M.figs.map(([l,v],i)=>`<div class="${i===M.figs.length-1?'ex-key':''}"><small>${ew(l)}</small><b>${typeof v==='number'?pcrA(v):ew(v)}</b></div>`).join('')}</div>`:''}
    ${M.blocks.map(blk).join('')}
-   <div class="ex-h">Approval</div>
-   <table class="ex-approve"><tr><th></th><th>Name</th><th>Signature</th><th>Date</th></tr>${M.approve.map(a=>`<tr><td>${esc(a.role)}</td><td>${esc(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" src="${a.sig}" alt="Signature">`:''}</td><td>${esc(a.date)}</td></tr>`).join('')}</table>
-   <div class="ex-foot"><span>${esc([M.org,M.title,M.ref?'Ref '+M.ref:''].filter(Boolean).join(' · '))}</span></div></div>`;
+   <div class="ex-h">${ew(M.L.approval)}</div>
+   <table class="ex-approve"><tr><th></th><th>${ew(M.L.name)}</th><th>${ew(M.L.signature)}</th><th>${ew(M.L.date)}</th></tr>${M.approve.map(a=>`<tr><td>${ew(a.role)}</td><td>${ew(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" src="${a.sig}" alt="Signature">`:''}</td><td>${ew(a.date)}</td></tr>`).join('')}</table>
+   <div class="ex-foot"><span>${ew(M.foot)}</span></div></div>`;
 }
 
 async function pcrPDF(M,file){
@@ -1755,9 +1768,9 @@ async function pcrPDF(M,file){
   const INK=[17,24,39],SLATE=[100,108,120],LINE=[214,218,224],FILL=[243,244,246],covers=new Set();
   const tbl=o=>doc.autoTable(Object.assign({theme:'plain',margin:{left:L0,right:W-R0,top:60,bottom:54},styles:{font:FN.body,fontStyle:'normal',fontSize:8.5,textColor:INK,cellPadding:{top:4.2,bottom:4.2,left:5,right:5},valign:'middle'},headStyles:{font:FN.body,fontStyle:'bold',fillColor:FILL,textColor:INK,fontSize:7.6}},o));
   const logo=pcrLogo();try{const dm=await imgDims(logo);const h=44,w=Math.min(90,h*dm.w/dm.h);doc.addImage(logo,'PNG',R0-w,36,w,h)}catch(e){}
-  doc.setFont(FN.body,'normal');doc.setFontSize(7.8);doc.setTextColor(...SLATE);doc.text(tx((M.org||'Petty cash').toUpperCase()),L0,49,{charSpace:1.4});
+  doc.setFont(FN.body,'normal');doc.setFontSize(7.8);doc.setTextColor(...SLATE);doc.text(tx((M.kick||'').toUpperCase()),L0,49,{charSpace:1.4});
   doc.setFont(FN.head,'bold');doc.setFontSize(21);doc.setTextColor(...INK);doc.text(tx(M.title),L0,73);
-  doc.setFont(FN.body,'normal');doc.setFontSize(8.6);doc.setTextColor(...SLATE);doc.text(tx(pcrSubLine(M)),L0,89);
+  doc.setFont(FN.body,'normal');doc.setFontSize(8.6);doc.setTextColor(...SLATE);doc.text(tx(M.sub),L0,89);
   doc.setDrawColor(...INK);doc.setLineWidth(1.3);doc.line(L0,99,R0,99);doc.setLineWidth(.4);doc.line(L0,101.6,R0,101.6);
   let y=120;
   const lab=t=>{if(y>H-120){doc.addPage();y=70}doc.setFont(FN.body,'bold');doc.setFontSize(7.6);doc.setTextColor(...SLATE);doc.text(tx(t.toUpperCase()),L0,y,{charSpace:1.1});y+=7};
@@ -1788,9 +1801,9 @@ async function pcrPDF(M,file){
         didDrawCell:d=>{const k=b.rows[d.row.index][2];if(k==='key')totLines(d.cell.x,d.cell.y,d.cell.width,d.cell.height);else lineB(d.cell.x,d.cell.y+d.cell.height,d.cell.width)}});
       y=doc.lastAutoTable.finalY+26}
   }
-  if(y>H-170){doc.addPage();y=70}lab('Approval');
+  if(y>H-170){doc.addPage();y=70}lab(M.L.approval);
   const ap=M.approve,dims=await Promise.all(ap.map(a=>a.sig?imgDims(a.sig).catch(()=>null):null));
-  tbl({startY:y,head:[['','Name','Signature','Date']],body:ap.map(a=>[tx(a.role),tx(a.name||''),'',tx(a.date||'')]),
+  tbl({startY:y,head:[['',tx(M.L.name),tx(M.L.signature),tx(M.L.date)]],body:ap.map(a=>[tx(a.role),tx(a.name||''),'',tx(a.date||'')]),
     styles:{font:FN.body,fontStyle:'normal',fontSize:9,textColor:INK,minCellHeight:46,valign:'bottom',cellPadding:{top:6,bottom:7,left:5,right:5}},
     columnStyles:{0:{cellWidth:96,fontStyle:'bold'},2:{cellWidth:(R0-L0)*0.34},3:{cellWidth:96}},
     didParseCell:d=>{if(d.section==='head'){d.cell.styles.minCellHeight=0;d.cell.styles.valign='middle'}},
@@ -1799,7 +1812,7 @@ async function pcrPDF(M,file){
       if(d.column.index===2&&a.sig&&dm){let ih=h-8,iw=ih*dm.w/dm.h;if(iw>w-10){iw=w-10;ih=iw*dm.h/dm.w}try{doc.addImage(a.sig,'PNG',x+5,yy+h-ih-3,iw,ih)}catch(e){}}}});
   const cv=M.blocks.find(b=>b.t==='covers');
   if(cv)cv.list.forEach(l=>{doc.addPage();covers.add(doc.getNumberOfPages());const cx=W/2,t0=H*0.32;
-    doc.setFont(FN.body,'normal');doc.setFontSize(8);doc.setTextColor(...SLATE);doc.text(tx(((M.org?M.org+'  ·  ':'')+'Supporting documents').toUpperCase()),cx,t0-16,{align:'center',charSpace:1.4});
+    doc.setFont(FN.body,'normal');doc.setFontSize(8);doc.setTextColor(...SLATE);doc.text(tx(((M.org?M.org+'  ·  ':'')+M.L.supp).toUpperCase()),cx,t0-16,{align:'center',charSpace:1.4});
     doc.setDrawColor(...INK);doc.setLineWidth(1.3);doc.line(L0+60,t0,R0-60,t0);doc.setLineWidth(.4);doc.line(L0+60,t0+2.6,R0-60,t0+2.6);
     doc.setFont(FN.head,'bold');doc.setFontSize(96);doc.setTextColor(...INK);doc.text(tx(l.letter),cx,t0+104,{align:'center'});
     doc.setFontSize(22);doc.text(doc.splitTextToSize(tx(l.title),R0-L0-120),cx,t0+140,{align:'center'});
@@ -1807,10 +1820,10 @@ async function pcrPDF(M,file){
     doc.text(tx(l.n+' document'+(l.n===1?'':'s')+'   ·   KES '+pcrA(l.total)+'   ·   Items '+l.range),cx,t0+172,{align:'center'});
     doc.text(tx('Period '+fmtD(M.from)+' – '+fmtD(M.to)+(M.ref?'   ·   Ref '+M.ref:'')),cx,t0+188,{align:'center'});
     doc.setDrawColor(...LINE);doc.setLineWidth(.5);doc.line(L0+60,t0+204,R0-60,t0+204);
-    doc.setFontSize(8.5);doc.text(tx('Place the receipts for this category behind this page, in item-number order.'),cx,H-90,{align:'center'})});
+    doc.setFontSize(8.5);doc.text(tx(M.L.coverNote),cx,H-90,{align:'center'})});
   const n=doc.getNumberOfPages();
   for(let i=1;i<=n;i++){doc.setPage(i);doc.setDrawColor(...LINE);doc.setLineWidth(.4);doc.line(L0,H-38,R0,H-38);doc.setFont(FN.body,'normal');doc.setFontSize(7.4);doc.setTextColor(...SLATE);
-    doc.text(tx([M.org,M.title,M.ref?'Ref '+M.ref:''].filter(Boolean).join('  ·  ')),L0,H-25);doc.text('Page '+i+' of '+n,R0,H-25,{align:'right'});
+    doc.text(tx(M.foot),L0,H-25);doc.text(tx(M.L.page)+' '+i+' / '+n,R0,H-25,{align:'right'});
     if(i>1&&!covers.has(i)){doc.setFontSize(7.6);doc.text(tx(M.title+'  ·  '+fmtD(M.from)+' – '+fmtD(M.to)),L0,36)}}
   doc.save(file+'.pdf');
 }
@@ -1823,15 +1836,15 @@ async function pcrXLSX(M,file){
   const tables=M.blocks.filter(b=>b.t==='table'),span=cols=>cols.reduce((s,c)=>s+(c.xs||1),0);
   const NC=Math.max(10,...tables.map(b=>span(b.cols)));
   const ws=wb.addWorksheet(M.title.slice(0,31),{views:[{showGridLines:false}],pageSetup:{paperSize:9,orientation:M.orient==='l'?'landscape':'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:0.5,right:0.5,top:0.6,bottom:0.6,header:0.3,footer:0.3}},
-    headerFooter:{oddFooter:'&L&"Aptos"&8'+[M.org,M.title,M.ref?'Ref '+M.ref:''].filter(Boolean).join(' · ').replace(/&/g,'&&')+'&R&"Aptos"&8Page &P of &N'}});
+    headerFooter:{oddFooter:'&L&"Aptos"&8'+String(M.foot||'').replace(/&/g,'&&')+'&R&"Aptos"&8'+String(M.L.page).replace(/&/g,'&&')+' &P / &N'}});
   ws.columns=Array.from({length:NC},(_,i)=>({width:i===0?11:12}));
   const put=(r,c1,c2,v,o={})=>{if(c2>c1)ws.mergeCells(r,c1,r,c2);for(let i=c1;i<=c2;i++){const x=ws.getRow(r).getCell(i);if(o.fill)x.fill={type:'pattern',pattern:'solid',fgColor:{argb:o.fill}};if(o.border)x.border=o.border}
     const x=ws.getRow(r).getCell(c1);x.value=v===''||v==null?null:v;x.font={name:o.head?'Aptos Serif':'Aptos',size:o.size||10,bold:!!o.bold,italic:!!o.italic,color:{argb:o.color||INK}};
     if(typeof v==='number'){x.numFmt=NUMF;x.alignment={horizontal:'right',vertical:'middle'}}else x.alignment={horizontal:o.right?'right':o.center?'center':'left',vertical:o.top?'top':'middle',wrapText:!!o.wrap,indent:o.indent||0};return x};
   const layout=cols=>{const extra=NC-span(cols);let fi=cols.findIndex(c=>(c.xs||1)>1);if(fi<0)fi=cols.findIndex(c=>!c.n);let p=1;return cols.map((c,i)=>{const s=p;p+=(c.xs||1)+(i===fi?extra:0);return[s,p-1]})};
-  put(1,1,NC-2,(M.org||'Petty cash').toUpperCase(),{size:8,color:SLATE});
+  put(1,1,NC-2,(M.kick||'').toUpperCase(),{size:8,color:SLATE});
   put(2,1,NC-2,M.title,{head:true,size:18,bold:true});ws.getRow(2).height=28;
-  put(3,1,NC-2,pcrSubLine(M),{size:9,color:SLATE});
+  put(3,1,NC-2,M.sub,{size:9,color:SLATE});
   for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};
   try{const dm=await imgDims(pcrLogo());const id=wb.addImage({base64:pcrLogo(),extension:'png'});const h=54,w=Math.min(110,h*dm.w/dm.h);ws.addImage(id,{tl:{col:NC-1.6,row:0.15},ext:{width:w,height:h}})}catch(e){}
   let r=6;
@@ -1854,8 +1867,8 @@ async function pcrXLSX(M,file){
     else if(b.t==='recon'){b.rows.forEach(([l,v,k])=>{const o={bold:k!=='',fill:k==='key'?FILL:undefined,border:k==='key'?{top:med,bottom:dbl}:{bottom:thin}};put(r,NC-4,NC-1,l,o);put(r,NC,NC,v,o);r++});r++}
     else if(b.t==='covers'){put(r,1,NC,'Category cover pages for filing the receipts are included in the PDF version of this schedule.',{size:9,italic:true,color:SLATE});r+=2}
   }
-  label('Approval');const A1=[1,2],A2=[3,5],A3=[6,NC-2],A4=[NC-1,NC];
-  [['',A1],['Name',A2],['Signature',A3],['Date',A4]].forEach(([h,[c1,c2]])=>put(r,c1,c2,h,{bold:true,size:9,fill:FILL,border:{bottom:med}}));r++;
+  label(M.L.approval);const A1=[1,2],A2=[3,5],A3=[6,NC-2],A4=[NC-1,NC];
+  [['',A1],[M.L.name,A2],[M.L.signature,A3],[M.L.date,A4]].forEach(([h,[c1,c2]])=>put(r,c1,c2,h,{bold:true,size:9,fill:FILL,border:{bottom:med}}));r++;
   for(const a of M.approve){[[a.role,A1,true],[a.name,A2],['',A3],[a.date,A4]].forEach(([v,[c1,c2],bd])=>put(r,c1,c2,v,{bold:!!bd,border:{bottom:thin},top:false}));ws.getRow(r).height=44;
     if(a.sig){try{const dm=await imgDims(a.sig);const id=wb.addImage({base64:a.sig,extension:'png'});let h=48,w=h*dm.w/dm.h;if(w>200){w=200;h=w*dm.h/dm.w}ws.addImage(id,{tl:{col:A3[0]-1+0.1,row:r-1+0.05},ext:{width:w,height:h}})}catch(e){}}r++}
   const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -1864,16 +1877,16 @@ async function pcrXLSX(M,file){
 
 function pcrCSV(M,file){
   const q=x=>{const s=typeof x==='number'?(Math.round(x*100)/100).toFixed(2):String(x==null?'':x);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
-  const L=[[M.title.toUpperCase()],[M.org],['Period',fmtD(M.from),fmtD(M.to)],...(M.ref?[['Ref',M.ref]]:[]),['Prepared',M.prepared],[]];
+  const L=[[M.title.toUpperCase()],[M.kick],[M.sub],[]];
   if(M.figs){L.push(['KEY FIGURES']);M.figs.forEach(f=>L.push(f));L.push([])}
   M.blocks.forEach(b=>{if(b.t==='h')L.push([b.x.toUpperCase()]);else if(b.t==='note')L.push([b.x],[]);
     else if(b.t==='table'){L.push(b.cols.map(c=>c.h));b.rows.forEach(r=>L.push(r.c.map((v,i)=>b.cols[i].box?'':v)));L.push([])}
     else if(b.t==='recon'){b.rows.forEach(([l,v])=>L.push([l,v]));L.push([])}});
-  L.push(['APPROVAL'],['','Name','Signature','Date'],...M.approve.map(a=>[a.role,a.name,a.sig?'(signed)':'',a.date]));
+  L.push([M.L.approval.toUpperCase()],['',M.L.name,M.L.signature,M.L.date],...M.approve.map(a=>[a.role,a.name,a.sig?'(signed)':'',a.date]));
   download(file+'.csv',L.map(r=>r.map(q).join(',')).join('\n'));
 }
 async function pcrExport(type,f){
-  const M=pcrModel(type);const base={pcr:'petty-cash-reconciliation',ap:'accounts-payable',ledger:'petty-cash-ledger',rc:'supporting-documents'}[type];
+  const M=pcrTr(pcrModel(type));const base={pcr:'petty-cash-reconciliation',ap:'accounts-payable',ledger:'petty-cash-ledger',rc:'supporting-documents'}[type];
   const file=(M.ref?base+'-'+M.ref.replace(/\//g,'-').toLowerCase():base)+'-'+M.from+'-to-'+M.to;
   if(f==='csv')pcrCSV(M,file);else if(f==='pdf')await pcrPDF(M,file);else await pcrXLSX(M,file);
 }
@@ -1893,6 +1906,8 @@ function vPCR(){
     ${chip('people','Show each person in the summary',o.people)}${chip('share','Show share %',o.share)}</div>`;
   const apRow=e=>`<tr><td>${esc(fmtD(e.date))}</td><td>${esc(e.desc||'')}${e.person?`<div class="small muted">Reimburse: ${esc(pcrPerson(e.person))}</div>`:e.payee?`<div class="small muted">To: ${esc(e.payee)}</div>`:''}</td><td>${esc(pcrCat(e.cat))}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td><td class="n"><b>${M(pcrOut(e))}</b></td><td>${e.status==='paid'?`<span class="pill good">Paid ${esc(fmtD(pcrEff(e)))}</span>`:`<span class="pill warn">Planned</span>`}</td>
     <td><div class="inline-actions">${e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`;
+  const nW=Object.keys(c.words||{}).length;
+  const wordBar=`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="pcWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing wording':'✎ Edit wording'}</button><span class="small muted">${ui.pcrWords?'Click any text in the report below and type. Press Enter to finish a line. Changes are used in the PDF, Excel and CSV.':nW?nW+' wording change'+(nW===1?'':'s')+' applied to downloads.':'Change any heading, label or line of text before downloading.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="pcWordsReset">Reset wording</button>':''}</div>`;
   const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn ghost sm" data-act="pcCloseSet">Close this set &amp; start the next</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
   let body='';
   if(tab==='summary'){
@@ -1906,7 +1921,7 @@ function vPCR(){
       <div><small>Amount dispensed</small><b>${M(R.received)}</b><span class="small muted">${R.rec.length} entr${R.rec.length===1?'y':'ies'}</span><button class="btn ghost sm" data-act="pcNew" data-k="in">+ Add</button></div>
       <div><small>Expenditure</small><b>${M(R.totalOut)}</b><span class="small muted">${R.paid.length} paid · ${ents.length} entries in period</span><button class="btn ghost sm" data-act="pcEditToggle">${ui.pcrEdit?'Hide entries':'✎ Edit entries'}</button></div></div>${ui.pcrEdit?entT:''}`;
     const pre=pcrPre();const preNote=pre.length?`<div class="pcbal warn" style="margin-bottom:12px">${pre.length} older entr${pre.length===1?'y is':'ies are'} dated before your start date (${esc(fmtD(c.openingDate))}) and ${pre.length===1?'is':'are'} not counted in any balance (${fmt(sum(pre,e=>e.kind==='in'?num(e.amt):pcrOut(e)))}). <button class="btn ghost sm" data-act="pcErasePre">Erase ${pre.length===1?'it':'them'}</button></div>`:'';
-    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${preNote}${strip}${pcrOptsUI}${pcrHTML(pcrModel('pcr',o))}</div>`;
+    body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${preNote}${strip}${pcrOptsUI}${wordBar}${pcrHTML(pcrModel('pcr',o))}</div>`;
   } else if(tab==='payables'){
     body=`<div class="card s12"><div class="card-h"><h2>Planned payables</h2><div class="inline-actions"><b>${M(R.plannedTot)} to pay</b><button class="btn sm" data-act="pcNew" data-k="ap" data-s="planned">+ Plan a payable</button></div></div>
       <div class="tw"><table><thead><tr><th>Due</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th class="n">Total</th><th>Status</th><th></th></tr></thead><tbody>${R.planned.map(apRow).join('')||'<tr><td colspan="9" class="muted">Nothing planned. Use “Plan a payable” to list what needs paying.</td></tr>'}</tbody></table></div>
@@ -1930,7 +1945,7 @@ function vPCR(){
       :ty==='rc'?`<div class="ex-opts"><span class="small muted">Items</span>${seg('rc',[['paid','Paid'],['planned','Planned'],['all','Both']],o.rc)}${chip('covers','Cover page per category (PDF)',o.covers,'pcUiT')}</div><p class="small muted" style="margin:6px 0 0">For the clerk: print this schedule, put each category’s receipts behind its cover page in item-number order, tick “Filed”, and send the bundle with the PCR report.</p>`:'';
     body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
       <div class="ex-opts">${seg('type',types,ty)}</div>${opts}
-      <p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
+      ${wordBar}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
   } else {
     const sig=(k,l)=>`<div class="sigset"><div class="sigbox">${c[k]?`<img src="${c[k]}" alt="${l} signature">`:'<span class="small muted">No signature</span>'}</div><div><b class="small">${l}</b><div class="inline-actions" style="margin-top:6px"><label class="btn ghost sm" for="${k}File" style="display:inline-flex;align-items:center">Upload signature</label><input type="file" id="${k}File" data-sig="${k}" accept="image/png,image/webp,image/jpeg" hidden>${c[k]?`<button class="btn ghost sm" data-act="pcSigDel" data-k="${k}">Remove</button>`:''}</div></div></div>`;
@@ -1986,6 +2001,11 @@ function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id
   $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});const x=$('#mdX');if(x)x.onclick=close;onReady(close)}
 const mdHead=t=>`<div class="card-h" style="margin:0"><h2 id="mdT">${t}</h2><button type="button" class="x" id="mdX" aria-label="Close">×</button></div>`;
 const pcrPre=()=>{const od=pcrCfg().openingDate;return od?pcrAll().filter(e=>(e.kind==='ap'&&e.status!=='paid'?e.date:pcrEff(e))<od):[]};
+document.addEventListener('focusout',ev=>{const el=ev.target;if(!el.classList||!el.classList.contains('ew')||!el.isContentEditable)return;
+  const c=pcrCfg(),k=el.dataset.w,v=el.textContent.replace(/\s+/g,' ').trim(),cur=pcrT(k);if(v===cur)return;
+  if(v===k)delete c.words[k];else c.words[k]=v;pcrSaveCfg();document.querySelectorAll('.ew').forEach(x=>{if(x!==el&&x.dataset.w===k)x.textContent=v});el.textContent=v;toast('Wording saved')});
+document.addEventListener('keydown',ev=>{const el=ev.target;if(el.classList&&el.classList.contains('ew')&&el.isContentEditable){if(ev.key==='Enter'){ev.preventDefault();el.blur()}else if(ev.key==='Escape'){el.textContent=pcrT(el.dataset.w);el.blur()}}});
+document.addEventListener('paste',ev=>{const el=ev.target.closest&&ev.target.closest('.ew');if(!el||!el.isContentEditable)return;ev.preventDefault();document.execCommand('insertText',false,(ev.clipboardData.getData('text/plain')||'').replace(/\s+/g,' '))});
 function openPrevBal(){
   const c=pcrCfg(),[from]=pcrRange(),first=pcrIsFirst(from),anc=c.anchors.find(a=>a.date===from),cur=pcrBal(dayBefore(from)),carried=first?null:pcrCarried(from);
   pcrModal(`${mdHead('Previous balance')}
@@ -2129,6 +2149,8 @@ function pcrAction(a,t){
   else if(a==='pcUiT'){ui.pcrRep[t.dataset.k]=!ui.pcrRep[t.dataset.k];render()}
   else if(a==='pcCloseSet')openCloseSet();
   else if(a==='pcPrev')openPrevBal();
+  else if(a==='pcWords'){ui.pcrWords=!ui.pcrWords;render()}
+  else if(a==='pcWordsReset'){const old=c.words||{};c.words={};pcrSaveCfg();render();toastAction('Wording reset to the original','Undo',()=>{c.words=old;pcrSaveCfg();render()})}
   else if(a==='pcErasePre'){const ids=new Set(pcrPre().map(e=>e.id));if(!ids.size)return;const sn=pcrSnap();for(const k in PCR.years){const n=PCR.years[k].length;PCR.years[k]=PCR.years[k].filter(e=>!ids.has(e.id));if(PCR.years[k].length!==n)queue('pcr-'+k)}render();toastAction(ids.size+' older entr'+(ids.size===1?'y':'ies')+' erased','Undo',()=>pcrRestore(sn))}
   else if(a==='pcEditToggle'){ui.pcrEdit=!ui.pcrEdit;render()}
   else if(a==='pcErase')openErase();
