@@ -289,6 +289,25 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .wordbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
 .ew[contenteditable="true"]{outline:1px dashed #9ca3af;outline-offset:1px;border-radius:2px;cursor:text;min-width:1ch;display:inline-block}
 .ew[contenteditable="true"]:hover{background:#fff7d6}.ew[contenteditable="true"]:focus{outline:2px solid var(--accent);background:#fffbea}
+/* accounts payable groups */
+.apsum{border:1px solid var(--line);border-radius:10px;padding:6px 12px;margin-bottom:14px}
+.aps-r{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:.92rem}.aps-r.ind{padding-left:16px;color:var(--ink-2);font-size:.85rem}
+.aps-r>*:last-child,.apsub b,.apgh b,.apph b{white-space:nowrap}
+.aps-r.tot{border-bottom:0;border-top:2px solid var(--ink);font-weight:700;margin-top:2px}
+.apgrp{border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.apgh{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-2)}
+.apgh>div:first-child,.apph>div:first-child,.api-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.appers{border-top:1px solid var(--line)}.apph{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 12px;padding:10px 12px;background:color-mix(in srgb,var(--surface-2) 45%,transparent)}
+.apph .btn{flex-basis:100%}@media(min-width:700px){.apph .btn{flex-basis:auto}}
+.apitem{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 12px;border-top:1px solid var(--line);align-items:center}
+.appers .apitem{padding-left:22px}
+.api-amt{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;white-space:nowrap}
+.api-act{grid-column:1/-1;display:flex;gap:6px;align-items:center;justify-content:flex-end}
+@media(min-width:700px){.apitem{grid-template-columns:1fr auto auto}.api-act{grid-column:auto}}
+.apsub{display:flex;justify-content:space-between;padding:10px 12px;border-top:2px solid var(--ink);font-weight:700}
+.paylist{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px}
+.payi{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px;border-radius:8px}.payi:hover{background:var(--surface-2)}
+.paytot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.paytot>div{background:var(--surface-2);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}.paytot span{font-size:.75rem;color:var(--ink-2)}
 /* lending */
 .segtype{grid-template-columns:repeat(5,1fr)!important}
 .seg2{grid-template-columns:1fr 1fr}
@@ -525,7 +544,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='10 Nov 2026 · editable report wording';
+const APP_BUILD='11 Nov 2026 · payables by category & reimburse totals';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1665,12 +1684,15 @@ function pcrModel(type,o){
   else if(type==='ap'){
     const R=pcrReport(from,to),st=o.ap||'all';M.orient='l';
     M.figs=[['Planned payables',R.plannedTot],['Paid in period',R.totalOut],['Petty cash balance',R.close],['After planned payables',R.close-R.plannedTot]];
-    const cols=d=>[{h:d,w:68},{h:'Description',xs:3},{h:'Paid to / person',xs:2,w:110},{h:'Category',xs:2,w:140},{h:'Payment point',w:72},{h:'Amount (KES)',n:1,w:80},{h:'Fee',n:1,w:48},{h:'Total (KES)',n:1,w:80}];
-    const row=(e,d)=>({c:[fmtD(d),e.desc||'',e.person?pcrPerson(e.person):(e.payee||''),pcrCat(e.cat),e.point||'',num(e.amt),num(e.fee)||'–',pcrOut(e)],k:''});
-    const tot=L=>({c:['','Total','','','',sum(L,e=>num(e.amt)),sum(L,e=>num(e.fee))||'–',sum(L,pcrOut)],k:'tot'});
-    const empty=t=>({c:['',t,'','','','','',''],k:'muted'});
-    if(st!=='paid')B.push({t:'h',x:'Planned payables (not yet paid)'},{t:'table',cols:cols('Due date'),rows:R.planned.length?[...R.planned.map(e=>row(e,e.date)),tot(R.planned)]:[empty('Nothing planned.')]});
-    if(st!=='planned')B.push({t:'h',x:'Paid in this period'},{t:'table',cols:cols('Paid on'),rows:R.paid.length?[...R.paid.map(e=>row(e,pcrEff(e))),tot(R.paid)]:[empty('No payments in this period.')]});
+    const cols=d=>[{h:d,w:70},{h:'Description',xs:4},{h:'Paid to / person',xs:2,w:120},{h:'Payment point',w:80},{h:'Amount (KES)',n:1,w:86},{h:'Fee',n:1,w:56},{h:'Total (KES)',n:1,w:86}];
+    const f0=v=>v||'–';
+    const grows=(L,paid)=>{const rows=[];pcrGroup(L).forEach(g=>{rows.push({c:['',g.name.toUpperCase(),'','',g.amt,f0(g.fee),g.total],k:'sec'});
+        const it=e=>({c:[fmtD(paid?pcrEff(e):e.date),e.desc||'',e.person?pcrPerson(e.person):(e.payee||''),e.point||'',num(e.amt),f0(num(e.fee)),pcrOut(e)],k:''});
+        if(g.reimb)g.people.forEach(p=>{rows.push({c:['',p.name+' — reimbursement','','',p.amt,f0(p.fee),p.total],k:'sub'});p.items.forEach(e=>rows.push(it(e)))});else g.items.forEach(e=>rows.push(it(e)))});
+      rows.push({c:['','Total','','',sum(L,e=>num(e.amt)),f0(sum(L,e=>num(e.fee))),sum(L,pcrOut)],k:'tot'});return rows};
+    const empty=t=>({c:['',t,'','','','',''],k:'muted'});
+    if(st!=='paid')B.push({t:'h',x:'Planned payables (not yet paid)'},{t:'table',cols:cols('Due date'),rows:R.planned.length?grows(R.planned,false):[empty('Nothing planned.')]});
+    if(st!=='planned')B.push({t:'h',x:'Paid in this period'},{t:'table',cols:cols('Paid on'),rows:R.paid.length?grows(R.paid,true):[empty('No payments in this period.')]});
     const cr=c.cats.map(k=>[k.name,sum(R.planned.filter(e=>e.cat===k.id),pcrOut),sum(R.paid.filter(e=>e.cat===k.id),pcrOut)]).filter(r=>r[1]||r[2]);
     B.push({t:'h',x:'By category'},{t:'table',cols:[{h:'Category',xs:6},{h:'Planned (KES)',n:1,w:110},{h:'Paid incl. fees (KES)',n:1,w:130}],rows:[...cr.map(r=>({c:r,k:''})),{c:['Total',sum(cr,r=>r[1]),sum(cr,r=>r[2])],k:'tot'}]});
   }
@@ -1923,11 +1945,7 @@ function vPCR(){
     const pre=pcrPre();const preNote=pre.length?`<div class="pcbal warn" style="margin-bottom:12px">${pre.length} older entr${pre.length===1?'y is':'ies are'} dated before your start date (${esc(fmtD(c.openingDate))}) and ${pre.length===1?'is':'are'} not counted in any balance (${fmt(sum(pre,e=>e.kind==='in'?num(e.amt):pcrOut(e)))}). <button class="btn ghost sm" data-act="pcErasePre">Erase ${pre.length===1?'it':'them'}</button></div>`:'';
     body=`<div class="card s12"><div class="card-h"><h2>Petty Cash Reconciliation report</h2>${dl('pcr')}</div>${setBar}${preNote}${strip}${pcrOptsUI}${wordBar}${pcrHTML(pcrModel('pcr',o))}</div>`;
   } else if(tab==='payables'){
-    body=`<div class="card s12"><div class="card-h"><h2>Planned payables</h2><div class="inline-actions"><b>${M(R.plannedTot)} to pay</b><button class="btn sm" data-act="pcNew" data-k="ap" data-s="planned">+ Plan a payable</button></div></div>
-      <div class="tw"><table><thead><tr><th>Due</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th class="n">Total</th><th>Status</th><th></th></tr></thead><tbody>${R.planned.map(apRow).join('')||'<tr><td colspan="9" class="muted">Nothing planned. Use “Plan a payable” to list what needs paying.</td></tr>'}</tbody></table></div>
-      ${R.plannedTot>live?`<p class="note neg">Planned payables (${fmt(R.plannedTot)}) are more than the petty cash balance (${fmt(live)}).</p>`:''}</div>
-     <div class="card s12"><div class="card-h"><h2>Paid in this period</h2><b>${M(R.totalOut)}</b></div>
-      <div class="tw"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Amount</th><th class="n">Fee</th><th class="n">Total</th><th>Status</th><th></th></tr></thead><tbody>${R.paid.slice().reverse().map(apRow).join('')||'<tr><td colspan="9" class="muted">No payments in this period.</td></tr>'}</tbody></table></div></div>`;
+    body=pcrApView(R,live);
   } else if(tab==='ledger'){
     body=`<div class="card s12"><div class="card-h"><h2>Petty cash ledger</h2><span class="small muted">${fmtD(from)} – ${fmtD(to)}</span></div>
      <div class="tw"><table><thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Category</th><th>Payment point</th><th class="n">Dispensed</th><th class="n">Paid</th><th class="n">Charges</th><th class="n">Balance</th><th></th></tr></thead><tbody>
@@ -2000,7 +2018,65 @@ function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',k)};const k=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',k);
   $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});const x=$('#mdX');if(x)x.onclick=close;onReady(close)}
 const mdHead=t=>`<div class="card-h" style="margin:0"><h2 id="mdT">${t}</h2><button type="button" class="x" id="mdX" aria-label="Close">×</button></div>`;
-const pcrPre=()=>{const od=pcrCfg().openingDate;return od?pcrAll().filter(e=>(e.kind==='ap'&&e.status!=='paid'?e.date:pcrEff(e))<od):[]};
+const pcrPre=()=>{const od=pcrCfg().openingDate;return od?pcrAll().filter(e=>pcrIsPaid(e)&&pcrEff(e)<od):[]};
+/* ---------- accounts payable: grouping and payment ---------- */
+function pcrGroup(L){const c=pcrCfg(),known=id=>c.cats.some(k=>k.id===id),out=[];
+  [...c.cats,{id:'__other',name:'Other expenses'}].forEach(k=>{const I=L.filter(e=>(known(e.cat)?e.cat:'__other')===k.id);if(!I.length)return;
+    const reimb=k.id!=='__other'&&pcrIsReimb(k.id),g={id:k.id,name:k.name,reimb,items:I,amt:sum(I,e=>num(e.amt)),fee:sum(I,e=>num(e.fee))};g.total=g.amt+g.fee;
+    if(reimb){const ord=c.people.map(p=>p.id),pids=[...new Set(I.map(e=>e.person||''))].sort((a,b)=>(ord.indexOf(a)+1||999)-(ord.indexOf(b)+1||999));
+      g.people=pids.map(pid=>{const P=I.filter(e=>(e.person||'')===pid),a=sum(P,e=>num(e.amt)),f=sum(P,e=>num(e.fee));return{pid,name:pcrPerson(pid)||'Unnamed',items:P,amt:a,fee:f,total:a+f}})}
+    out.push(g)});return out}
+function openPayModal(ids){
+  const c=pcrCfg(),items=ids.map(id=>pcrAll().find(e=>e.id===id)).filter(e=>e&&e.kind==='ap'&&e.status!=='paid');if(!items.length)return;
+  const multi=items.length>1,pp=items[0].person&&items.every(e=>e.person===items[0].person)?pcrPerson(items[0].person):'',sel=new Set(items.map(e=>e.id));
+  const ptOpts=c.points.map(x=>({v:x,l:x,g:'Payment point'})),feeDef=sum(items,e=>num(e.fee));
+  pcrModal(`${mdHead(pp?'Reimburse '+esc(pp):multi?'Pay '+items.length+' items':'Pay: '+esc(items[0].desc||pcrCat(items[0].cat)))}
+    ${multi?`<p class="small muted" style="margin:0">Untick anything you are not paying now. One payment covers the ticked items, with one transaction fee.</p>
+      <div class="paylist">${items.map(e=>`<label class="payi"><input type="checkbox" data-pyi="${e.id}" checked><span>${esc(e.desc||'(no description)')}<small class="muted"> · due ${esc(fmtD(e.date))}</small></span><b>${fmt(num(e.amt))}</b></label>`).join('')}</div>`
+      :`<p class="small muted" style="margin:0">${esc(pcrCat(items[0].cat))}${items[0].person?' · '+esc(pcrPerson(items[0].person)):items[0].payee?' · '+esc(items[0].payee):''} · due ${esc(fmtD(items[0].date))}</p>`}
+    <div class="paytot" id="pyTot"></div>
+    <div class="fgrid"><div class="field"><label for="pyDate">Date paid</label><input type="date" id="pyDate" value="${todayStr()}"></div>
+      <div class="field"><label for="pyFee">Transaction fee (Ksh)</label><input id="pyFee" class="numin" inputmode="decimal" autocomplete="off" value="${fmtIn(feeDef)}" placeholder="0"></div></div>
+    <div class="fgrid"><div class="field"><label for="pyPt-q">Payment point</label>${combo('pyPt',ptOpts,items[0].point||'',{ph:'e.g. M-Pesa',free:true})}</div>
+      <div class="field"><label for="pyRef">Ref / M-Pesa code (optional)</label><input id="pyRef" value="" maxlength="40"></div></div>
+    <div class="pcbal" id="pyBal"></div>
+    <div class="inline-actions"><button class="btn" type="submit" style="flex:1" id="pyGo">Pay</button></div>`,close=>{
+    const base=pcrBal();
+    const upd=()=>{const S=items.filter(e=>sel.has(e.id)),a=sum(S,e=>num(e.amt)),f=num($('#pyFee').value),after=base-a-f,cls=after<0?'bad':after<num(c.alert)?'warn':'good';
+      $('#pyTot').innerHTML=`<div><span>Amount</span><b>${fmt(a)}</b></div><div><span>+ Fee</span><b>${fmt(f)}</b></div><div><span>= Total from petty cash</span><b>${fmt(a+f)}</b></div>`;
+      const b=$('#pyBal');b.className='pcbal '+cls;b.innerHTML=`Petty cash balance <b>${fmt(base)}</b> → after this payment: <b>${fmt(after)}</b>${after<0?' · this overdraws petty cash':after<num(c.alert)?' · below your alert level':''}`;
+      $('#pyGo').textContent=S.length?'Pay '+fmt(a+f):'Tick at least one item';$('#pyGo').disabled=!S.length};
+    document.querySelectorAll('[data-pyi]').forEach(x=>x.onchange=()=>{x.checked?sel.add(x.dataset.pyi):sel.delete(x.dataset.pyi);upd()});
+    $('#pyFee').addEventListener('input',upd);upd();
+    $('#mdForm').onsubmit=ev=>{ev.preventDefault();const S=items.filter(e=>sel.has(e.id));if(!S.length)return;const d=$('#pyDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick the date paid');return}
+      const fee=num($('#pyFee').value),pt=String($('#pyPt').value||'').trim(),ref=$('#pyRef').value.trim(),payId=S.length>1?nid():'',prev=S.map(e=>JSON.parse(JSON.stringify(e)));
+      if(pt&&!c.points.some(x=>x.toLowerCase()===pt.toLowerCase())){c.points.push(pt);pcrSaveCfg()}
+      S.forEach((e,i)=>{e.status='paid';e.paidDate=d;if(pt)e.point=pt;if(ref)e.ref=ref;e.fee=i===S.length-1?fee:0;if(payId)e.payId=payId;else delete e.payId;pcrSave(e)});
+      const tot=sum(S,e=>num(e.amt))+fee;close();render();
+      toastAction('Paid '+fmt(tot)+' · added to the PCR report. Petty cash balance '+fmt(pcrBal()),'Undo',()=>{prev.forEach(p=>pcrSave(p));render()})}});
+}
+function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.payId;pcrSave(e);render();
+  toastAction('Moved back to planned payables','Undo',()=>{pcrSave(prev);render()})}
+function pcrApView(R,live){
+  const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?'Paid '+esc(fmtD(pcrEff(e))):'Due '+esc(fmtD(e.date))}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Ref '+esc(e.ref):''}</small></div>
+    <div class="api-amt">${M(num(e.amt))}${num(e.fee)?`<small class="muted">+ fee ${fmt(num(e.fee))}</small>`:''}</div>
+    <div class="api-act">${paid?`<button class="btn ghost sm" data-act="pcUnpay" data-id="${e.id}">Undo payment</button>`:`<button class="btn ${g.reimb?'ghost ':''}sm" data-act="pcPay" data-id="${e.id}">Pay</button>`}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></div>`;
+  const tots=x=>`<div class="api-amt"><b>${M(x.total)}</b>${x.fee?`<small class="muted">${fmt(x.amt)} + fees ${fmt(x.fee)}</small>`:''}</div>`;
+  const groups=(G,paid)=>G.map(g=>`<div class="apgrp"><div class="apgh"><div><b>${esc(g.name)}</b><small class="muted">${g.items.length} item${g.items.length===1?'':'s'}${g.reimb?' · '+g.people.length+' '+(g.people.length===1?'person':'people'):''}</small></div>${tots(g)}</div>
+    ${g.reimb?g.people.map(p=>`<div class="appers"><div class="apph"><div><b>${esc(p.name)}</b><small class="muted">${p.items.length} item${p.items.length===1?'':'s'}</small></div>${tots(p)}
+      ${!paid?`<button class="btn sm" data-act="pcPayPerson" data-ids="${p.items.map(e=>e.id).join(',')}">Reimburse ${esc(p.name)} ${fmt(p.amt)}</button>`:''}</div>${p.items.map(e=>item(e,g,paid)).join('')}</div>`).join('')
+      +`<div class="apsub"><span>Total ${esc(g.name.toLowerCase())}</span><b>${fmt(g.total)}</b></div>`
+    :g.items.map(e=>item(e,g,paid)).join('')}</div>`).join('');
+  const summ=(G,lbl)=>`<div class="apsum">${G.map(g=>`<div class="aps-r"><span>${esc(g.name)}</span><b>${fmt(g.total)}</b></div>${g.reimb?g.people.map(p=>`<div class="aps-r ind"><span>${esc(p.name)}</span><span>${fmt(p.total)}</span></div>`).join(''):''}`).join('')}<div class="aps-r tot"><span>${lbl}</span><b>${fmt(sum(G,g=>g.total))}</b></div></div>`;
+  const GP=pcrGroup(R.planned),GD=pcrGroup(R.paid);
+  return`<div class="card s12"><div class="card-h"><h2>Planned payables</h2><div class="inline-actions"><b>${M(R.plannedTot)} to pay</b><button class="btn sm" data-act="pcNew" data-k="ap" data-s="planned">+ Plan a payable</button></div></div>
+    ${GP.length?summ(GP,'Total planned payables')+groups(GP,false):'<p class="muted">Nothing planned. Use “Plan a payable” to list what needs paying.</p>'}
+    ${R.plannedTot>live?`<p class="note neg">Planned payables (${fmt(R.plannedTot)}) are more than the petty cash balance (${fmt(live)}).</p>`:''}</div>
+   <div class="card s12"><div class="card-h"><h2>Paid in this period</h2><b>${M(R.totalOut)}</b></div>
+    <p class="small muted" style="margin-top:0">Everything paid here, with its transaction fee, is already in the PCR report and reduces petty cash.</p>
+    ${GD.length?summ(GD,'Total paid incl. fees')+groups(GD,true):'<p class="muted">No payments in this period.</p>'}</div>`;
+}
+
 document.addEventListener('focusout',ev=>{const el=ev.target;if(!el.classList||!el.classList.contains('ew')||!el.isContentEditable)return;
   const c=pcrCfg(),k=el.dataset.w,v=el.textContent.replace(/\s+/g,' ').trim(),cur=pcrT(k);if(v===cur)return;
   if(v===k)delete c.words[k];else c.words[k]=v;pcrSaveCfg();document.querySelectorAll('.ew').forEach(x=>{if(x!==el&&x.dataset.w===k)x.textContent=v});el.textContent=v;toast('Wording saved')});
@@ -2135,7 +2211,10 @@ function pcrAction(a,t){
   else if(a==='pcNew')openPcr(null,{k:t.dataset.k,s:t.dataset.s});
   else if(a==='pcEdit'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(e)openPcr(e)}
   else if(a==='pcDel'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const snap=JSON.stringify(e);pcrDel(e.id);render();toastAction('Entry deleted','Undo',()=>{pcrSave(JSON.parse(snap));render()})}
-  else if(a==='pcPay'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const prev={...e};e.status='paid';e.paidDate=todayStr();pcrSave(e);render();toastAction('Paid · now in the ledger and PCR report. Balance '+fmt(pcrBal()),'Undo',()=>{pcrSave(prev);render()})}
+  else if(a==='pcPay')openPayModal([t.dataset.id]);
+  else if(a==='pcPayPerson')openPayModal(t.dataset.ids.split(','));
+  else if(a==='pcUnpay')pcrUnpay(t.dataset.id);
+  else if(a==='pcPayOld'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const prev={...e};e.status='paid';e.paidDate=todayStr();pcrSave(e);render();toastAction('Paid · now in the ledger and PCR report. Balance '+fmt(pcrBal()),'Undo',()=>{pcrSave(prev);render()})}
   else if(a==='pcCatAdd'){c.cats.push({id:nid(),name:'New category'});pcrSaveCfg();render()}
   else if(a==='pcCatDel'){if(pcrAll().some(e=>e.cat===t.dataset.id)){toast('This category is used by entries. Rename it instead.');return}c.cats=c.cats.filter(x=>x.id!==t.dataset.id);pcrSaveCfg();render()}
   else if(a==='pcPplAdd'){c.people.push({id:nid(),name:'New person'});pcrSaveCfg();render();const ins=document.querySelectorAll('[data-ppl]');const l=ins[ins.length-1];if(l){l.focus();l.select()}}
