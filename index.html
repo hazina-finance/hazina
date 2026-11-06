@@ -553,7 +553,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='14 Nov 2026 · new reconciliation & accountant view';
+const APP_BUILD='14 Nov 2026 · new reconciliation button & recycle bin fix';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -1625,7 +1625,7 @@ const ymd=d=>String(d||'').replace(/-/g,'');
 function pcrAnchors(){const c=pcrCfg();return[{date:c.openingDate||'2000-01-01',bal:num(c.opening),first:true},...c.anchors.filter(a=>a.date>(c.openingDate||''))].sort((a,b)=>a.date.localeCompare(b.date))}
 function pcrBal(upto){const A=pcrAnchors();let a=A[0];if(upto){for(const x of A)if(x.date<=addDay(upto))a=x}else a=A[A.length-1];let b=a.bal;
   pcrAll().forEach(e=>{if(!pcrIsPaid(e))return;const d=pcrEff(e);if((upto&&d>upto)||d<a.date)return;b+=e.kind==='in'?num(e.amt):-pcrOut(e)});return b}
-function pcrSave(e){e.mt=Date.now();if(!e.by)e.by=pcrMyName();const y=pcrEff(e).slice(0,4);
+function pcrSave(e){let dm=0;for(const k in PCR.dead){const r=PCR.dead[k]&&PCR.dead[k][e.id];if(r)dm=Math.max(dm,num(r.mt))}e.mt=Math.max(Date.now(),num(e.mt)+1,dm+1);if(!e.by)e.by=pcrMyName();const y=pcrEff(e).slice(0,4);
   for(const k in PCR.years){if(k!==y&&PCR.years[k].some(x=>x.id===e.id)){PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.dead[k]=PCR.dead[k]||{})[e.id]={mt:e.mt-1,move:1};queue('pcr-'+k)}}
   PCR.years[y]=(PCR.years[y]||[]).filter(x=>x.id!==e.id);PCR.years[y].push(e);if(PCR.dead[y])delete PCR.dead[y][e.id];queue('pcr-'+y)}
 function pcrDel(id){const e=pcrAll().find(x=>x.id===id);return e?pcrKill([e],'Entry: '+(e.desc||pcrCat(e.cat)||'item')):null}
@@ -1637,18 +1637,18 @@ const pcrOwnerId=()=>pcrClerk()?store.me.pcr_owner:store.uid;
 const pcrMyName=()=>(store.me&&(store.me.full_name||store.me.email))||'';
 function pcrAbsorb(r){if(r.doc_id==='pcr-cfg')PCR.cfg=r.body;else if(/^pcr-\d{4}$/.test(r.doc_id)){const y=r.doc_id.slice(4);PCR.years[y]=(r.body&&r.body.items)||[];PCR.dead[y]=(r.body&&r.body.dead)||{}}}
 function pcrMerge(Sv,L){Sv=Sv||{};const items={},dead={};
-  const addD=d=>{for(const id in(d||{})){const r=d[id];if(!dead[id]||num(r.mt)>num(dead[id].mt))dead[id]=r}};addD(Sv.dead);addD(L.dead);
+  const addD=d=>{for(const id in(d||{})){const r=d[id],o=dead[id];let w=!o||num(r.mt)>num(o.mt)?r:o;if(o&&(o.gone||r.gone)){w=Object.assign({},w,{gone:1,mt:Math.max(num(o.mt),num(r.mt))});delete w.e;delete w.label}dead[id]=w}};addD(Sv.dead);addD(L.dead);
   [...(Sv.items||[]),...(L.items||[])].forEach(e=>{const o=items[e.id];if(!o||num(e.mt)>num(o.mt))items[e.id]=e});
   const out=[];for(const id in items){const e=items[id];if(dead[id]&&num(dead[id].mt)>=num(e.mt))continue;if(dead[id])delete dead[id];out.push(e)}
   const cut=Date.now()-150*864e5;for(const id in dead)if(num(dead[id].mt)<cut)delete dead[id];
   return{items:out,dead}}
-function pcrKill(list,label,batch){batch=batch||nid();const t=Date.now(),by=pcrMyName();
-  list.forEach(e=>{for(const k in PCR.years){if(PCR.years[k].some(x=>x.id===e.id)){PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.dead[k]=PCR.dead[k]||{})[e.id]={mt:t,e:JSON.parse(JSON.stringify(e)),by,batch,label,at:t};queue('pcr-'+k)}}});return batch}
-const pcrBinEntries=()=>Object.values(PCR.dead||{}).flatMap(d=>Object.values(d)).filter(r=>r&&r.e);
+function pcrKill(list,label,batch){batch=batch||nid();const t0=Date.now(),by=pcrMyName();
+  list.forEach(e=>{const t=Math.max(t0,num(e.mt)+1);for(const k in PCR.years){if(PCR.years[k].some(x=>x.id===e.id)){PCR.years[k]=PCR.years[k].filter(x=>x.id!==e.id);(PCR.dead[k]=PCR.dead[k]||{})[e.id]={mt:t,e:JSON.parse(JSON.stringify(e)),by,batch,label,at:t};queue('pcr-'+k)}}});return batch}
+const pcrBinEntries=()=>Object.values(PCR.dead||{}).flatMap(d=>Object.values(d)).filter(r=>r&&r.e&&!r.gone);
 function pcrRevive(batch){const L=pcrBinEntries().filter(r=>r.batch===batch);L.forEach(r=>pcrSave(JSON.parse(JSON.stringify(r.e))));
   if(!pcrClerk()){const c=pcrCfg(),bs=c.binSets.filter(x=>x.batch===batch);if(bs.length){bs.forEach(x=>{if(x.set&&!c.sets.some(s=>s.id===x.set.id))c.sets.push(x.set);if(x.cfg)Object.assign(c,JSON.parse(JSON.stringify(x.cfg)))});c.sets.sort((a,b)=>a.no-b.no);c.binSets=c.binSets.filter(x=>x.batch!==batch);pcrSaveCfg()}}
   render();return L.length}
-function pcrBinForget(batch){for(const k in PCR.dead){let ch=false;for(const id in PCR.dead[k]){const r=PCR.dead[k][id];if(r.e&&(batch==null||r.batch===batch)){delete r.e;delete r.label;ch=true}}if(ch)queue('pcr-'+k)}
+function pcrBinForget(batch){for(const k in PCR.dead){let ch=false;for(const id in PCR.dead[k]){const r=PCR.dead[k][id];if(r.e&&!r.gone&&(batch==null||r.batch===batch)){delete r.e;delete r.label;r.gone=1;r.mt=Math.max(Date.now(),num(r.mt)+1);ch=true}}if(ch)queue('pcr-'+k)}
   if(!pcrClerk()){const c=pcrCfg();c.binSets=batch==null?[]:c.binSets.filter(x=>x.batch!==batch);pcrSaveCfg()}render()}
 function pcrBinGroups(){const g={};pcrBinEntries().forEach(r=>{const b=g[r.batch]||(g[r.batch]={batch:r.batch,label:r.label||'Deleted entries',at:r.at||r.mt,by:r.by||'',items:[]});b.items.push(r.e)});
   (pcrCfg().binSets||[]).forEach(x=>{const b=g[x.batch]||(g[x.batch]={batch:x.batch,label:x.label,at:x.at,by:x.by||'',items:[]});b.set=x.set||b.set;b.label=x.label});
@@ -2026,11 +2026,11 @@ function vPCR(){
         ${P0.V.filter(v=>v.kind==='cat').map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.letter+' · '+v.cat)}</option>`).join('')}
         ${rc.map(id=>{const L=P0.V.filter(v=>v.kind==='person'&&v.catId===id);return`<optgroup label="${esc(L[0].letter+' · '+L[0].cat)}"><option value="reimb:${esc(id)}" ${ui.pcrRep.pv==='reimb:'+id?'selected':''}>Everyone reimbursed (${L.length})</option>${L.map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.payee)}</option>`).join('')}</optgroup>`}).join('')}</select></div>`;
       body=`<div class="card s12"><div class="card-h"><h2>Reports</h2><div class="expgrp"><span class="small muted">Word</span><button class="btn sm" data-act="pcPv" ${P.V.length?'':'disabled'}>Download ${P.V.length===P0.V.length&&P.V.length>1?'all ':''}${P.V.length} voucher${P.V.length===1?'':'s'} (.docx)</button></div></div>
-      <div class="ex-opts">${seg('type',types,ty)}</div>${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}${P0.V.length?pvSel:''}
+      ${clerk?'':setBar}<div class="ex-opts">${seg('type',types,ty)}</div>${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}${P0.V.length?pvSel:''}
       <p class="small muted" style="margin:4px 0 12px">One voucher per expense category and one per person reimbursed, built from the paid items in ${esc(fmtD(from))} – ${esc(fmtD(to))}${P.ref?' · '+esc(P.ref):''}: <b>${nC}</b> category voucher${nC===1?'':'s'}, <b>${nP}</b> reimbursement voucher${nP===1?'':'s'}. Download the Word file, paste each receipt into its dotted box (the box grows to fit), sign, and file it with the PCR report.</p>
       ${pvHTML(P)}</div>`}
     else body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
-      <div class="ex-opts">${seg('type',types,ty)}</div>${opts}
+      ${clerk?'':setBar}<div class="ex-opts">${seg('type',types,ty)}</div>${opts}
       ${wordBar}${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
   } else {
@@ -2053,7 +2053,7 @@ function vPCR(){
      <div class="card s6"><div class="card-h"><h2>Reimbursement sets</h2></div>
       <p class="small muted" style="margin-top:0">Current set <b>${esc(curRef)}</b> since ${esc(fmtD(pcrSetStart()))} · previous balance ${fmt(pcrBal(dayBefore(pcrSetStart())))}</p>
       ${pcrSets().slice().reverse().map((s,i)=>`<div class="kv"><span><b>${esc(pcrSetRef(s.no,s.from))}</b> <span class="small muted">${esc(fmtD(s.from))} – ${esc(fmtD(s.to))} · closed ${esc(fmtD(s.closedOn))}</span></span><span class="inline-actions"><b>${fmt(s.balance)}</b>${i===0?'<button class="btn ghost sm" data-act="pcReopen">Reopen</button><button class="btn ghost sm" data-act="pcDelSet">Delete</button>':''}</span></div>`).join('')||'<p class="muted small">No closed sets yet.</p>'}
-      <button class="addrow" data-act="pcCloseSet">Close the current set…</button>
+      <button class="btn sm" data-act="pcCloseSet" style="margin-top:8px">Close &amp; start new reconciliation…</button>
       <div class="card-h" style="margin-top:18px"><h2>People reimbursed</h2></div>
       ${c.people.map(pp=>`<div class="kv"><input class="pcin" data-ppl="${pp.id}" value="${esc(pp.name)}" aria-label="Name"><button class="x" data-act="pcPplDel" data-id="${pp.id}" aria-label="Remove">×</button></div>`).join('')||'<p class="muted small">No names yet. Add the people you reimburse, for example Nicholas, Irene or Anthony.</p>'}
       <button class="addrow" data-act="pcPplAdd">+ Add person</button>
@@ -2076,7 +2076,7 @@ function vPCR(){
     <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button></div></div>
   <section class="grid"><div class="card s12">${per}</div>${body}</section>`;
   return `<div class="pageh"><div><h1>${esc(c.title||'Petty Cash')}${c.org?' · '+esc(c.org):''}</h1><p>Petty cash reconciliation and accounts payable. Separate from your personal Hazina figures. Your petty cash clerk can log entries into the same report.</p></div>
-    <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button><button class="btn ghost" data-act="pcNew" data-k="in">+ Cash dispensed</button></div></div>
+    <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button><button class="btn ghost" data-act="pcNew" data-k="in">+ Cash dispensed</button><button class="btn ghost" data-act="pcCloseSet">Close &amp; start new reconciliation</button></div></div>
   <section class="grid">
    <div class="card hero s12 pcrhero"><div><div class="eyebrow">Petty cash balance now</div><div class="nw ${live<0?'neg':''}">${M(live)}</div>
      ${low?`<span class="pill ${low}" style="margin-top:6px">${live<0?'Overspent: petty cash is below zero':'Low balance: below '+fmt(num(c.alert))}</span>`:''}
