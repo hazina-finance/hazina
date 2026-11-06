@@ -553,7 +553,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='13 Nov 2026 · clerk access, recycle bin, item dates';
+const APP_BUILD='14 Nov 2026 · new reconciliation & accountant view';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -582,7 +582,7 @@ async function loadData(){
   setSync(ok?'':'local',ok?'Saved to your account':'Offline – changes will sync');
   render();if(store.pending.size)flush();
 }
-function queue(id){if(store.viewing){toast('Read-only: you are viewing another account');return}if(store.fresh){store.fresh=false;store.pending.add('profile');Object.keys(TX).forEach(mk=>store.pending.add('tx-'+mk))}store.pending.add(id);cacheSoon();setSync('busy','Saving…');flushSoon()}
+function queue(id){if(/^pcr-/.test(id)&&typeof pcrViewer==='function'&&pcrViewer())return;if(store.viewing){toast('Read-only: you are viewing another account');return}if(store.fresh){store.fresh=false;store.pending.add('profile');Object.keys(TX).forEach(mk=>store.pending.add('tx-'+mk))}store.pending.add(id);cacheSoon();setSync('busy','Saving…');flushSoon()}
 const flushSoon=debounce(()=>flush(),700);
 /* ---------- administrator incognito view (read-only) ---------- */
 async function loadViewed(){
@@ -716,13 +716,15 @@ function vUsers(){
    <div class="card s7"><div class="card-h"><h2>People</h2><span class="small muted">${ui.users.length} account${ui.users.length===1?'':'s'}</span></div>
     <div class="tw"><table><thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
     ${ui.users.map(u=>{const me=u.id===store.uid;return `<tr><td><b>${esc(u.full_name||'—')}</b>${me?' <span class="pill">you</span>':''}<div class="small muted">${esc(u.email||'')}</div></td>
-      <td>${u.role==='admin'?'<span class="pill good">Admin</span>':'<span class="pill">User</span>'}${u.pcr_owner?'<div><span class="pill warn" style="margin-top:4px">Petty cash clerk</span></div>':''}</td>
+      <td>${u.role==='admin'?'<span class="pill good">Admin</span>':'<span class="pill">User</span>'}${u.pcr_owner?`<div><span class="pill warn" style="margin-top:4px">${u.pcr_role==='viewer'?'PCR accountant (view only)':'Petty cash clerk'}</span></div>`:''}</td>
       <td>${u.active?'<span class="pill good">Active</span>':'<span class="pill warn">Inactive</span>'}</td>
       <td><div class="inline-actions">${me?'<span class="small muted">—</span>':`
         <button class="addrow" style="margin:0" data-act="uActive" data-id="${u.id}" data-v="${u.active?0:1}">${u.active?'Deactivate':'Activate'}</button>
         <button class="addrow" style="margin:0" data-act="uRole" data-id="${u.id}" data-v="${u.role==='admin'?'user':'admin'}">${u.role==='admin'?'Remove admin':'Make admin'}</button>
         <button class="addrow" style="margin:0" data-act="uPw" data-id="${u.id}">Reset password</button>
-        <button class="addrow" style="margin:0" data-act="uPcr" data-id="${u.id}" data-v="${u.pcr_owner?0:1}">${u.pcr_owner?'Remove petty cash access':'Make petty cash clerk'}</button>
+        ${u.pcr_owner&&u.pcr_role!=='viewer'?'':`<button class="addrow" style="margin:0" data-act="uPcr" data-id="${u.id}" data-v="clerk">Make petty cash clerk</button>`}
+        ${u.pcr_owner&&u.pcr_role==='viewer'?'':`<button class="addrow" style="margin:0" data-act="uPcr" data-id="${u.id}" data-v="viewer">Make PCR accountant (view only)</button>`}
+        ${u.pcr_owner?`<button class="addrow" style="margin:0" data-act="uPcr" data-id="${u.id}" data-v="">Remove petty cash access</button>`:''}
         <button class="addrow" style="margin:0" data-act="viewAs" data-id="${u.id}" data-name="${esc(u.full_name||u.email)}">View finances</button>`}</div>
         ${pw===u.id?`<div class="inline-actions" style="margin-top:8px"><input id="rpw" type="text" placeholder="New temporary password" style="border:1px solid var(--line);border-radius:8px;padding:8px;min-width:0;flex:1"><button class="btn" style="min-height:36px;padding:6px 12px" data-act="uPwSave" data-id="${u.id}">Set</button><button class="x" data-act="uPwCancel" aria-label="Cancel">×</button></div>`:''}</td></tr>`}).join('')}
     </tbody></table></div></div>
@@ -752,7 +754,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-act]');if(!t)return;const a=t.dataset.act,id=t.dataset.id;
   if(a==='uActive')adminCall('hz_admin_set_active',{p_id:id,p_active:t.dataset.v==='1'},t.dataset.v==='1'?'User activated':'User deactivated');
   else if(a==='uRole')adminCall('hz_admin_set_role',{p_id:id,p_role:t.dataset.v},t.dataset.v==='admin'?'Now an administrator':'Administrator role removed');
-  else if(a==='uPcr')adminCall('hz_admin_set_pcr_clerk',{p_id:id,p_on:t.dataset.v==='1'},t.dataset.v==='1'?'Now a petty cash clerk: they see Reports & receipts and can log expenses into your petty cash':'Petty cash access removed');
+  else if(a==='uPcr'){const v=t.dataset.v;adminCall('hz_admin_set_pcr_access',{p_id:id,p_role:v||null},v==='clerk'?'Now a petty cash clerk: they can log expenses and download reports':v==='viewer'?'Now a PCR accountant: view and download reports only':'Petty cash access removed')}
   else if(a==='uPw'){ui.pwFor=id;render();const i=$('#rpw');if(i)i.focus()}
   else if(a==='uPwCancel'){ui.pwFor=null;render()}
   else if(a==='uPwSave'){const v=$('#rpw').value;if(v.length<8){toast('Use at least 8 characters');return}ui.pwFor=null;adminCall('hz_admin_set_password',{p_id:id,p_password:v},'Password reset. Share the new password with them.')}
@@ -1630,6 +1632,7 @@ function pcrDel(id){const e=pcrAll().find(x=>x.id===id);return e?pcrKill([e],'En
 const pcrSaveCfg=()=>{if(pcrClerk())return;queue('pcr-cfg')};
 /* ---------- shared petty cash (owner + clerk), merge-safe sync, recycle bin ---------- */
 const pcrClerk=()=>!!(store.me&&store.me.pcr_owner&&store.me.pcr_owner!==store.uid&&!store.viewing);
+const pcrViewer=()=>pcrClerk()&&store.me.pcr_role==='viewer';
 const pcrOwnerId=()=>pcrClerk()?store.me.pcr_owner:store.uid;
 const pcrMyName=()=>(store.me&&(store.me.full_name||store.me.email))||'';
 function pcrAbsorb(r){if(r.doc_id==='pcr-cfg')PCR.cfg=r.body;else if(/^pcr-\d{4}$/.test(r.doc_id)){const y=r.doc_id.slice(4);PCR.years[y]=(r.body&&r.body.items)||[];PCR.dead[y]=(r.body&&r.body.dead)||{}}}
@@ -1986,7 +1989,7 @@ function vPCR(){
     <td><div class="inline-actions">${e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`;
   const nW=Object.keys(c.words||{}).length;
   const wordBar=clerk?'':`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="pcWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing wording':'✎ Edit wording'}</button><span class="small muted">${ui.pcrWords?'Click any text in the report below and type. Press Enter to finish a line. Changes are used in the PDF, Excel and CSV.':nW?nW+' wording change'+(nW===1?'':'s')+' applied to downloads.':'Change any heading, label or line of text before downloading.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="pcWordsReset">Reset wording</button>':''}</div>`;
-  const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn ghost sm" data-act="pcCloseSet">Close this set &amp; start the next</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
+  const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn sm" data-act="pcCloseSet">Close &amp; start new reconciliation</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
   let body='';
   if(tab==='summary'){
     const anc=c.anchors.some(a=>a.date===from),first=pcrIsFirst(from);
@@ -1995,7 +1998,7 @@ function vPCR(){
       ${ents.map(e=>`<tr><td>${esc(fmtD(e.date))}${e.kind==='ap'&&e.status==='paid'&&e.paidDate&&e.paidDate!==e.date?`<div class="small muted">paid ${esc(fmtD(e.paidDate))}</div>`:''}</td><td>${e.kind==='in'?'<span class="pill good">Dispensed</span>':e.status==='paid'?'<span class="pill">Expense</span>':'<span class="pill warn">Planned</span>'}</td><td>${esc(e.desc||'')}${e.by?`<div class="small muted">logged by ${esc(e.by)}</div>`:''}</td><td>${e.kind==='in'?esc(e.payee||''):esc(pcrCat(e.cat))+(e.person?`<div class="small muted">${esc(pcrPerson(e.person))}</div>`:'')}</td><td>${esc(e.point||'')}</td><td class="n">${M(num(e.amt))}</td><td class="n">${num(e.fee)?M(num(e.fee)):'–'}</td>
         <td><div class="inline-actions">${e.kind==='ap'&&e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`).join('')||'<tr><td colspan="8" class="muted">No entries in this period yet.</td></tr>'}</tbody></table></div>`;
     const strip=`<div class="pfig">
-      <div><small>Previous balance</small><b>${M(R.open)}</b><span class="small muted">${anc?'Keyed in':first?'Starting balance':'Carried forward'}</span><button class="btn ghost sm" data-act="pcPrev">✎ Edit</button></div>
+      <div><small>Previous balance</small><b>${M(R.open)}</b><span class="small muted">${anc?'Keyed in':first?'Starting balance':(()=>{const ps=pcrSets().find(x=>addDay(x.to)===from);return ps?'Brought forward from '+esc(pcrSetRef(ps.no,ps.from)):'Carried forward'})()}</span><button class="btn ghost sm" data-act="pcPrev">✎ Edit</button></div>
       <div><small>Amount dispensed</small><b>${M(R.received)}</b><span class="small muted">${R.rec.length} entr${R.rec.length===1?'y':'ies'}</span><button class="btn ghost sm" data-act="pcNew" data-k="in">+ Add</button></div>
       <div><small>Expenditure</small><b>${M(R.totalOut)}</b><span class="small muted">${R.paid.length} paid · ${ents.length} entries in period</span><button class="btn ghost sm" data-act="pcEditToggle">${ui.pcrEdit?'Hide entries':'✎ Edit entries'}</button></div></div>${ui.pcrEdit?entT:''}`;
     const pre=pcrPre();const preNote=pre.length?`<div class="pcbal warn" style="margin-bottom:12px">${pre.length} older entr${pre.length===1?'y is':'ies are'} dated before your start date (${esc(fmtD(c.openingDate))}) and ${pre.length===1?'is':'are'} not counted in any balance (${fmt(sum(pre,e=>e.kind==='in'?num(e.amt):pcrOut(e)))}). <button class="btn ghost sm" data-act="pcErasePre">Erase ${pre.length===1?'it':'them'}</button></div>`:'';
@@ -2023,12 +2026,12 @@ function vPCR(){
         ${P0.V.filter(v=>v.kind==='cat').map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.letter+' · '+v.cat)}</option>`).join('')}
         ${rc.map(id=>{const L=P0.V.filter(v=>v.kind==='person'&&v.catId===id);return`<optgroup label="${esc(L[0].letter+' · '+L[0].cat)}"><option value="reimb:${esc(id)}" ${ui.pcrRep.pv==='reimb:'+id?'selected':''}>Everyone reimbursed (${L.length})</option>${L.map(v=>`<option value="${esc(pvKey(v))}" ${ui.pcrRep.pv===pvKey(v)?'selected':''}>${esc(v.payee)}</option>`).join('')}</optgroup>`}).join('')}</select></div>`;
       body=`<div class="card s12"><div class="card-h"><h2>Reports</h2><div class="expgrp"><span class="small muted">Word</span><button class="btn sm" data-act="pcPv" ${P.V.length?'':'disabled'}>Download ${P.V.length===P0.V.length&&P.V.length>1?'all ':''}${P.V.length} voucher${P.V.length===1?'':'s'} (.docx)</button></div></div>
-      <div class="ex-opts">${seg('type',types,ty)}</div>${clerk?pcrClerkEntries(R,from,to):''}${P0.V.length?pvSel:''}
+      <div class="ex-opts">${seg('type',types,ty)}</div>${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}${P0.V.length?pvSel:''}
       <p class="small muted" style="margin:4px 0 12px">One voucher per expense category and one per person reimbursed, built from the paid items in ${esc(fmtD(from))} – ${esc(fmtD(to))}${P.ref?' · '+esc(P.ref):''}: <b>${nC}</b> category voucher${nC===1?'':'s'}, <b>${nP}</b> reimbursement voucher${nP===1?'':'s'}. Download the Word file, paste each receipt into its dotted box (the box grows to fit), sign, and file it with the PCR report.</p>
       ${pvHTML(P)}</div>`}
     else body=`<div class="card s12"><div class="card-h"><h2>Reports</h2>${dl(ty)}</div>
       <div class="ex-opts">${seg('type',types,ty)}</div>${opts}
-      ${wordBar}${clerk?pcrClerkEntries(R,from,to):''}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
+      ${wordBar}${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
   } else {
     const sig=(k,l)=>`<div class="sigset"><div class="sigbox">${c[k]?`<img src="${c[k]}" alt="${l} signature">`:'<span class="small muted">No signature</span>'}</div><div><b class="small">${l}</b><div class="inline-actions" style="margin-top:6px"><label class="btn ghost sm" for="${k}File" style="display:inline-flex;align-items:center">Upload signature</label><input type="file" id="${k}File" data-sig="${k}" accept="image/png,image/webp,image/jpeg" hidden>${c[k]?`<button class="btn ghost sm" data-act="pcSigDel" data-k="${k}">Remove</button>`:''}</div></div></div>`;
@@ -2067,6 +2070,8 @@ function vPCR(){
       <div class="dz-row"><div><b>Erase entries in a period</b><p class="small muted">Remove expenses, planned payables or cash dispensed between two dates, for example to re-key a month.</p></div><button class="btn ghost" data-act="pcErase">Erase a period…</button></div>
       <div class="dz-row"><div><b>Start afresh</b><p class="small muted">Erase all petty cash entries and closed sets, then begin again from a new previous balance. Settings are kept.</p></div><button class="btn danger" data-act="pcFresh">Start afresh…</button></div></div>`;
   }
+  if(clerk&&pcrViewer())return `<div class="pageh"><div><h1>Petty Cash reports${c.org?' · '+esc(c.org):''}</h1><p>View-only access for the accountant. Choose a period or set, preview any report and download it as PDF, Excel, CSV or Word vouchers.</p></div></div>
+  <section class="grid"><div class="card s12">${per}</div>${body}</section>`;
   if(clerk)return `<div class="pageh"><div><h1>Petty Cash${c.org?' · '+esc(c.org):''}</h1><p>You are helping to compile the petty cash reconciliation. Log expenses (paid or planned), edit entries and download reports and payment vouchers. Your entries go straight into the shared report.</p></div>
     <div class="inline-actions"><button class="btn" data-act="pcNew" data-k="ap" data-s="paid">+ Record expense</button><button class="btn ghost" data-act="pcNew" data-k="ap" data-s="planned">+ Plan payable</button></div></div>
   <section class="grid"><div class="card s12">${per}</div>${body}</section>`;
@@ -2084,7 +2089,7 @@ function vPCR(){
 }
 /* ---------- edit period figures, erase a period, start afresh ---------- */
 function pcrCarried(from){const c=pcrCfg(),keep=c.anchors;c.anchors=keep.filter(a=>a.date!==from);const v=pcrBal(dayBefore(from));c.anchors=keep;return v}
-const pcrIsFirst=from=>{const c=pcrCfg();return !c.openingDate||from<=c.openingDate||!pcrAll().some(e=>pcrIsPaid(e)&&pcrEff(e)<from)};
+const pcrIsFirst=from=>{const c=pcrCfg();if(pcrSets().some(x=>x.to<from))return false;return !c.openingDate||from<=c.openingDate||!pcrAll().some(e=>pcrIsPaid(e)&&pcrEff(e)<from)};
 function pcrModal(html,onReady){$('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="mdForm" role="dialog" aria-modal="true" aria-labelledby="mdT" novalidate>${html}</form></div>`;
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',k)};const k=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',k);
   $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});const x=$('#mdX');if(x)x.onclick=close;onReady(close)}
@@ -2304,7 +2309,7 @@ function openCloseSet(){
       <p class="small muted" style="margin:0">Closing ends this reimbursement set. Its closing balance becomes the previous balance of the next set automatically. You can still open and download closed sets from the Period list.</p>
       <div class="field"><label for="csTo">Last day of this set</label><input type="date" id="csTo" min="${from}" value="${to}"></div>
       <div class="pcbal">${esc(fmtD(from))} – ${esc(fmtD(to))}<br>Previous balance ${fmt(D.previous)} + dispensed ${fmt(D.dispensed)} − expenditure ${fmt(D.totalExp)} = <b>${fmt(D.balance)}</b> carried forward</div>
-      <div class="inline-actions"><button class="btn" type="submit" style="flex:1">Close &amp; start ${esc(pcrSetRef(no+1,addDay(to)))}</button></div></form></div>`;
+      <div class="inline-actions"><button class="btn" type="submit" style="flex:1">Close &amp; start new reconciliation ${esc(pcrSetRef(no+1,addDay(to)))}</button></div></form></div>`;
     $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});$('#csX').onclick=close;
     $('#csTo').onchange=ev=>{const v=ev.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v)&&v>=from){to=v;draw()}};
     $('#csForm').onsubmit=ev=>{ev.preventDefault();const c=pcrCfg(),s={id:nid(),no,from,to,closedOn:todayStr(),previous:D.previous,dispensed:D.dispensed,exp:D.totalExp,balance:D.balance};
@@ -2376,9 +2381,11 @@ document.addEventListener('change',ev=>{
   if(el.dataset.ppl){const k=c.people.find(x=>x.id===el.dataset.ppl);if(k&&el.value.trim()){k.name=el.value.trim();pcrSaveCfg();render()}return}
   if(el.dataset.ppt!=null){const i=+el.dataset.ppt;if(el.value.trim()){c.points[i]=el.value.trim();pcrSaveCfg();render()}return}
 });
+const PCR_VIEW_OK=new Set(['pcTab','pcMode','pcOpt','pcUi','pcUiT','pcExp','pcPv']);
 const PCR_CLERK_OK=new Set(['pcTab','pcMode','pcOpt','pcUi','pcUiT','pcNew','pcEdit','pcDel','pcPay','pcPayPerson','pcUnpay','pcExp','pcPv','pcEditToggle']);
 function pcrAction(a,t){
   const c=pcrCfg();
+  if(pcrViewer()&&!PCR_VIEW_OK.has(a)){toast('View-only: the accountant account can view and download reports');return true}
   if(pcrClerk()){const e=t.dataset.id&&pcrAll().find(x=>x.id===t.dataset.id);if(!PCR_CLERK_OK.has(a)||(a==='pcNew'&&t.dataset.k==='in')||(e&&e.kind==='in')||(a==='pcTab'&&t.dataset.v!=='reports')){toast('Only the petty cash owner can do that');return true}}
   if(a==='pcTab'){ui.pcrTab=t.dataset.v;render()}
   else if(a==='pcMode'){ui.pcrMode=t.dataset.v;render()}
@@ -2766,7 +2773,7 @@ let toastT;function toast(msg){let el=$('.toast');if(!el){el=document.createElem
 $('#mPrev').onclick=()=>{ui.month=addM(ui.month,-1);render()};
 $('#mNext').onclick=()=>{ui.month=addM(ui.month,1);render()};
 $('#privBtn').onclick=()=>{ui.priv=!ui.priv;lsSet('hz-priv',ui.priv?'1':'0');render()};
-$('#fab').onclick=()=>{if(store.viewing){toast('Read-only: you are viewing another account');return}if(ui.view==='pcr'){openPcr(null,{k:'ap',s:'paid'});return}openLog()};
+$('#fab').onclick=()=>{if(store.viewing){toast('Read-only: you are viewing another account');return}if(ui.view==='pcr'&&!pcrViewer()){openPcr(null,{k:'ap',s:'paid'});return}openLog()};
 window.addEventListener('hashchange',route);
 document.body.classList.toggle('private',ui.priv);
 $('#app').innerHTML='<div class="empty">Loading your finances…</div>';
