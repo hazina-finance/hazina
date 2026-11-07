@@ -553,7 +553,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.2';
-const APP_BUILD='14 Nov 2026 · new reconciliation button & recycle bin fix';
+const APP_BUILD='15 Nov 2026 · fee on savings';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -791,7 +791,7 @@ const feeOf=t=>num(t.fee);
 function fx(t){
   const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t),o={avail:0,ch:{}};const add=(id,x)=>{if(id)o.ch[id]=(o.ch[id]||0)+x};
   if(t.type==='income'){let s=0;const sv=t.saves||{};for(const k in sv){const x=num(sv[k]);if(x>0){add(k,x);s+=x}}o.avail=v-s}
-  else if(t.type==='save'){let s=0;saveLines(t).forEach(([k,x])=>{add(k,x);s+=x});o.avail=-s}
+  else if(t.type==='save'){let s=0;saveLines(t).forEach(([k,x])=>{add(k,x);s+=x});o.avail=-s-f}
   else if(t.type==='expense'){const c=t.ch?Math.min(v,num(t.chAmt)):0;if(c>0)add(t.ch,-c);o.avail=-(v-c)}
   else if(t.type==='withdraw'){add(t.ch,-(v+f));o.avail=v}
   else if(t.type==='lend'){if(t.ch)add(t.ch,-(v+f));else o.avail=-(v+f)}
@@ -830,7 +830,7 @@ function actualFor(L,openUpto,closeUpto){
   const addSrc=(s,ch,x)=>{(a.savedSrc[s]=a.savedSrc[s]||{})[ch]=(a.savedSrc[s][ch]||0)+x};
   L.forEach(t=>{const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t);a.fees+=f;
     if(t.type==='income'){a.income+=v;a.bySrc[t.src]=(a.bySrc[t.src]||0)+v;for(const k in (t.saves||{})){const x=num(t.saves[k]);if(x>0){a.saved+=x;a.savedCh[k]=(a.savedCh[k]||0)+x;addSrc(t.src,k,x)}}}
-    else if(t.type==='save'){saveLines(t).forEach(([k,x])=>{a.saved+=x;a.savedCh[k]=(a.savedCh[k]||0)+x;addSrc(t.src||'avail',k,x)})}
+    else if(t.type==='save'){saveLines(t).forEach(([k,x])=>{a.saved+=x;a.savedCh[k]=(a.savedCh[k]||0)+x;addSrc(t.src||'avail',k,x)});if(f>0){a.spent+=f;a.spentAvail+=f;const k=t.feeCat||'';a.byCat[k]=(a.byCat[k]||0)+f;a.count[k]=(a.count[k]||0)+1}}
     else if(t.type==='expense'){a.spent+=v;const c=t.ch?Math.min(v,num(t.chAmt)):0;a.spentSav+=c;a.spentAvail+=v-c;if(c>0)a.usedCh[t.ch]=(a.usedCh[t.ch]||0)+c;const k=t.cat||'';a.byCat[k]=(a.byCat[k]||0)+v;a.count[k]=(a.count[k]||0)+1}
     else if(t.type==='lend'||t.type==='repay'){
       if(t.type==='lend'){a.lent+=v;if(t.ch)a.lentCh[t.ch]=(a.lentCh[t.ch]||0)+v;else a.lentAvail+=v}else{a.repaid+=v;if(t.ch)a.repaidCh[t.ch]=(a.repaidCh[t.ch]||0)+v;else a.repaidAvail+=v}
@@ -842,7 +842,7 @@ function actualFor(L,openUpto,closeUpto){
   a.open=bal(openUpto);a.close=bal(closeUpto);a.left=a.close.avail;
   return a;
 }
-const spendOf=t=>t.type==='expense'?xTot(t):t.type==='writeoff'?num(t.amt):['withdraw','transfer','lend','repay'].includes(t.type)?feeOf(t):0;
+const spendOf=t=>t.type==='expense'?xTot(t):t.type==='writeoff'?num(t.amt):['withdraw','transfer','lend','repay','save'].includes(t.type)?feeOf(t):0;
 const ytdSpent=mk=>{const y=mk.slice(0,4);return sum(Object.keys(TX).filter(k=>k.startsWith(y)&&k<=mk),k=>sum(TX[k],spendOf))};
 const bName=id=>{const b=(P.borrowers||[]).find(x=>x.id===id);return b?b.name:'Someone'};
 function lendInfo(id,upto){
@@ -1182,7 +1182,7 @@ function txRow(t,withDate){
     meta='Income · '+srcName(t.src)+(sv.length?' · saved '+sv.map(([k,x])=>fmt(num(x))+' to '+chName(k)).join(', ')+' · '+fmt(v-s)+' to Available':' · all to Available');}
   else if(t.type==='expense'){const ci=catInfo(t.cat);v=xTot(t);const c=t.ch?Math.min(v,num(t.chAmt)):0;title=t.desc||ci.name;ic='EX';
     meta=ci.name+(feeOf(t)?' · '+fmt(num(t.amt))+' + fee '+fmt(feeOf(t)):'')+' · paid from '+(c<=0?'Available':c>=v?chName(t.ch):'Available '+fmt(v-c)+' + '+chName(t.ch)+' '+fmt(c));if(c>0)cls='expense sav';}
-  else if(t.type==='save'){const sl=saveLines(t);v=sum(sl,e=>e[1]);title=t.desc||(sl.length===1?'Saved to '+chName(sl[0][0]):'Saved to '+sl.length+' accounts');meta='Saving from '+srcName(t.src||'avail')+' · '+sl.map(([k,x])=>chName(k)+' '+fmt(x)).join(' · ');ic='SV'}
+  else if(t.type==='save'){const sl=saveLines(t);v=sum(sl,e=>e[1]);title=t.desc||(sl.length===1?'Saved to '+chName(sl[0][0]):'Saved to '+sl.length+' accounts');meta='Saving from '+srcName(t.src||'avail')+' · '+sl.map(([k,x])=>chName(k)+' '+fmt(x)).join(' · ')+(feeOf(t)?' · fee '+fmt(feeOf(t))+' (counted as spending)':'');ic='SV'}
   else if(t.type==='withdraw'){title=t.desc||'Taken from '+chName(t.ch);meta='Moved from '+chName(t.ch)+' to Available'+(feeOf(t)?' · fee '+fmt(feeOf(t))+' (total out of '+chName(t.ch)+' '+fmt(v+feeOf(t))+')':'');sign='+';ic='MV'}
   else if(t.type==='lend'){title=t.desc||'Lent to '+bName(t.who);meta='Lent to '+bName(t.who)+' from '+(t.ch?chName(t.ch):'Available')+(feeOf(t)?' · fee '+fmt(feeOf(t)):'')+(t.due?' · due '+fmtD(t.due):'');ic='LN';cls='lend'}
   else if(t.type==='repay'){title=t.desc||'Repayment from '+bName(t.who);meta='Repaid by '+bName(t.who)+' into '+(t.ch?chName(t.ch):'Available')+(feeOf(t)?' · fee '+fmt(feeOf(t))+' (you received '+fmt(v-feeOf(t))+')':'');sign='+';ic='RP';cls='repay'}
@@ -1471,6 +1471,7 @@ function buildReport(){
     let E=L.filter(t=>t.type==='expense').map(t=>({...t,_tot:xTot(t),_kind:'exp'}));
     L.forEach(t=>{if((t.type==='lend'||t.type==='repay')&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:t.ch,chAmt:t.ch?feeOf(t):0,_tot:feeOf(t),_kind:'fee',desc:'Fee: '+(t.type==='lend'?'lending to ':'repayment from ')+bName(t.who)+(t.desc?' · '+t.desc:'')});
       if(t.type==='writeoff')E.push({...t,cat:'',fee:0,ch:undefined,chAmt:0,_tot:num(t.amt),_kind:'wo',desc:'Loan written off: '+bName(t.who)})});
+    L.forEach(t=>{if(t.type==='save'&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:undefined,chAmt:0,_tot:feeOf(t),_kind:'fee',desc:'Fee: saving to '+saveLines(t).map(([k])=>chName(k)).join(', ')+(t.desc?' · '+t.desc:'')})});
     L.forEach(t=>{if((t.type==='withdraw'||t.type==='transfer')&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:t.ch,chAmt:feeOf(t),_tot:feeOf(t),_kind:'fee',desc:'Fee: '+(t.type==='withdraw'?'move from '+chName(t.ch)+' to Available':chName(t.ch)+' to '+chName(t.to))+(t.desc?' · '+t.desc:'')})});
     E.sort((a,b)=>a.date.localeCompare(b.date));
     if(r.cat){E=E.filter(t=>r.cat==='__other'?!t.cat:t.cat===r.cat);out.filters.push('Category: '+(r.cat==='__other'?'Other':catInfo(r.cat).name))}
@@ -1527,7 +1528,7 @@ function buildReport(){
     out.rows=U.map(x=>[fmtD(x.date),chName(x.ch),x.how,x.desc,x.amt]);
   } else {
     const o=bal(dayBefore(from)),c=bal(to);let inc=0,sv=0,sp=0,spS=0,wd=0,lnA=0,lnS=0,rpA=0,rpS=0;
-    L.forEach(t=>{const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t);if((t.type==='withdraw'||t.type==='transfer')&&f){sp+=f;spS+=f}if((t.type==='lend'||t.type==='repay')&&f){sp+=f;if(t.ch)spS+=f}if(t.type==='lend'){if(t.ch)lnS+=v;else lnA+=v}if(t.type==='repay'){if(t.ch)rpS+=v;else rpA+=v}if(t.type==='writeoff')sp+=v;if(t.type==='income'){inc+=v;sv+=sum(Object.values(t.saves||{}),num)}else if(t.type==='save')sv+=v;else if(t.type==='expense'){const x=t.ch?Math.min(v,num(t.chAmt)):0;sp+=v;spS+=x}else if(t.type==='withdraw')wd+=v});
+    L.forEach(t=>{const v=t.type==='expense'?xTot(t):num(t.amt),f=feeOf(t);if((t.type==='withdraw'||t.type==='transfer')&&f){sp+=f;spS+=f}if(t.type==='save'&&f)sp+=f;if((t.type==='lend'||t.type==='repay')&&f){sp+=f;if(t.ch)spS+=f}if(t.type==='lend'){if(t.ch)lnS+=v;else lnA+=v}if(t.type==='repay'){if(t.ch)rpS+=v;else rpA+=v}if(t.type==='writeoff')sp+=v;if(t.type==='income'){inc+=v;sv+=sum(Object.values(t.saves||{}),num)}else if(t.type==='save')sv+=v;else if(t.type==='expense'){const x=t.ch?Math.min(v,num(t.chAmt)):0;sp+=v;spS+=x}else if(t.type==='withdraw')wd+=v});
     out.title='Money summary';
     out.summary=[['Available to spend brought forward',o.avail],['Income received',inc],['Saved to accounts',-sv],['Taken from savings to spend',wd],['Lent to people (from Available)',-lnA],['Loan repayments received (into Available)',rpA],['Spent from Available',c.avail-o.avail-inc+sv-wd+lnA-rpA],['Available to spend carried forward',c.avail],['Spent in total',sp],['Paid straight from savings',spS]];
     out.groups=[{title:'Savings accounts',head:['Account','Start of period','End of period','Change'],rows:P.chambers.map(ch=>[ch.name,o.ch[ch.id]||0,c.ch[ch.id]||0,(c.ch[ch.id]||0)-(o.ch[ch.id]||0)]).concat([['Total savings',o.total,c.total,c.total-o.total]])}];
@@ -2667,7 +2668,9 @@ function openLog(found){
       <div class="savebox"><div class="card-h" style="margin:0 0 6px"><b>Amounts to save</b><div class="inline-actions"><button type="button" class="addrow" style="margin:0" id="lgSuggest">Use suggestion</button><button type="button" class="addrow" style="margin:0" id="lgClearS">Clear</button></div></div>
         ${P.chambers.map(c=>`<div class="saverow"><label for="lgS-${c.id}">${chPill(c.id)} <small class="muted">balance ${fmt(B.ch[c.id]||0)}</small><small class="muted" style="display:block;margin-top:3px">${rem[c.id]?'Suggested '+fmt(rem[c.id])+' (left of this month’s target)':'This month’s target reached'}</small></label><input id="lgS-${c.id}" class="lgS numin" data-ch="${c.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="${fmtIn(sv0[c.id])}"></div>`).join('')}
         <div class="kv" style="margin-top:6px"><span>Total to save</span><b id="lgSaveTot">–</b></div>
+        <div class="feebox" style="margin-top:8px"><div class="field"><label for="lgFee">Transaction fee (optional)</label><input id="lgFee" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.fee)}" placeholder="0"></div><div class="kv feetot"><span>Saved + fee</span><b id="lgTot">–</b></div></div>
         <div class="kv"><span>Available to spend after this</span><b id="lgRest">–</b></div></div>
+      <p class="note" style="margin:0">A fee (e.g. M-Pesa or bank charge for sending the money to savings) is taken from the income you are saving and counted as spending${feeCatId()?' under '+esc(catInfo(feeCatId()).name):''}. It does not reduce the amount saved.</p>
       <p class="note" style="margin:0">Type your own amounts, or tap <b>Use suggestion</b> to fill in what is left of each account’s monthly target. You can change any figure before saving.</p>`;
     } else {
       body=`<div class="fgrid"><div class="field"><label for="lgCh-q">From account</label>${chPick('lgCh',t.ch)}</div><div class="field"><label for="lgTo-q">To</label>${combo('lgTo',chOptsList(null,true),t.type==='transfer'&&t.to?t.to:'avail',{ph:'Type Available or an account'})}</div></div>
@@ -2709,7 +2712,7 @@ function openLog(found){
     if(type==='lend'){const ow=$('#lgOwes'),w=$('#lgWho').value,b=(P.borrowers||[]).find(x=>x.id===w);if(b){const i=lendInfo(b.id);const back=orig&&orig.who===b.id?(orig.type==='repay'?num(orig.amt):orig.type==='lend'?-num(orig.amt):0):0;const o2=Math.max(0,i.out+back);ow.innerHTML=lendMode==='repay'?`<b>${esc(b.name)} owes you ${fmt(o2)}.</b> After this: ${fmt(Math.max(0,o2-amt0))}`:`${esc(b.name)} already owes you ${fmt(o2)}. After this: <b>${fmt(o2+amt0)}</b>`;ow.hidden=false}else ow.hidden=true}
     if(type==='income'&&$('#lgIncAv')){$('#lgIncAv').textContent=fmt(B.avail)+' now → '+fmt(B.avail+amt)+' after this income'}
     if(type==='income'&&$('#lgRest')){const s=sum([...document.querySelectorAll('.lgS')],i=>num(i.value));const r=$('#lgRest');r.textContent=fmt(amt-s);r.className=amt-s<0?'neg':''}
-    if(type==='save'){const s=sum([...document.querySelectorAll('.lgS')],i=>num(i.value));$('#lgAmt').value=s;$('#lgSaveTot').textContent=fmt(s);const r=$('#lgRest'),left=B.avail-s;r.textContent=fmt(left);r.className=left<0?'neg':''}
+    if(type==='save'){const s=sum([...document.querySelectorAll('.lgS')],i=>num(i.value));$('#lgAmt').value=s;$('#lgSaveTot').textContent=fmt(s);if(tt)tt.textContent=fee?fmt(s)+' + '+fmt(fee)+' = '+fmt(s+fee):fmt(s);const r=$('#lgRest'),left=B.avail-s-fee;r.textContent=fmt(left);r.className=left<0?'neg':''}
     if(type==='expense'){const box=$('#lgShort'),from=$('#lgFrom').value;
       if(from==='avail'&&amt>Math.max(0,B.avail)){const short=amt-Math.max(0,B.avail);const best=P.chambers.slice().sort((x,y)=>(B.ch[y.id]||0)-(B.ch[x.id]||0))[0];
         const had=$('#lgShortCh');const prev=had?had.value:(t.ch||(best&&best.id));
@@ -2729,7 +2732,7 @@ function openLog(found){
     if(!(amt>0)){toast(type==='save'?'Type an amount for at least one account':'Enter an amount above zero');(type==='save'?$('.lgS'):$('#lgAmt')).focus();return}
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){toast('Pick a date');return}
     const rec={id:editing?t.id:nid(),date,amt,desc:$('#lgDesc').value.trim(),ts:orig&&orig.ts?orig.ts:Date.now()};
-    const fee=(type==='expense'||type==='move'||type==='lend')&&$('#lgFee')?num($('#lgFee').value):0;if(fee>0)rec.fee=fee;const tot=amt+fee;
+    const fee=(type==='expense'||type==='move'||type==='lend'||type==='save')&&$('#lgFee')?num($('#lgFee').value):0;if(fee>0)rec.fee=fee;const tot=amt+fee;
     if(type==='income'){rec.type='income';rec.src=$('#lgSrc').value;if(!rec.src){toast('Choose an income source');return}rec.saves={};let s=0;
       document.querySelectorAll('.lgS').forEach(i=>{const v=num(i.value);if(v>0){rec.saves[i.dataset.ch]=v;s+=v}});
       if(s>amt){toast('You can’t save more than the income itself');return}}
@@ -2749,7 +2752,7 @@ function openLog(found){
         rec.type='lend';const du=$('#lgDue').value;if(du)rec.due=du}
       rec.who=b.id;if(acc!=='avail')rec.ch=acc;if(fee>0)rec.feeCat=feeCatId()}
     else if(type==='save'){rec.type='save';rec.src=$('#lgSrc').value||'avail';rec.saves={};document.querySelectorAll('.lgS').forEach(i=>{const v=num(i.value);if(v>0)rec.saves[i.dataset.ch]=v});
-      if(amt>Math.max(0,B.avail)+0.5){toast('Only '+fmt(Math.max(0,B.avail))+' is available to spend. Lower the amounts.');return}}
+      if(tot>Math.max(0,B.avail)+0.5){toast('Only '+fmt(Math.max(0,B.avail))+' is available to spend'+(fee?' (savings + fee is '+fmt(tot)+')':'')+'. Lower the amounts.');return}if(fee>0)rec.feeCat=feeCatId()}
     else {const from=$('#lgCh').value,to=$('#lgTo').value;if(from===to){toast('Pick two different accounts');return}
       if(tot>(B.ch[from]||0)+0.5){toast(chName(from)+' only has '+fmt(B.ch[from]||0)+(fee?' (amount + fee is '+fmt(tot)+')':''));return}
       rec.ch=from;if(fee>0)rec.feeCat=feeCatId();if(to==='avail')rec.type='withdraw';else{rec.type='transfer';rec.to=to}}
