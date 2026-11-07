@@ -203,6 +203,18 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 /* update banner */
 .updbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:80;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:calc(100% - 32px)}
 .updbar .btn{background:var(--accent-ink);color:var(--accent)}
+/* casual labour */
+.cl-drop{display:flex;flex-direction:column;gap:4px;border:1.5px dashed var(--line);border-radius:12px;padding:18px;cursor:pointer;background:var(--surface-2)}
+.cl-drop:hover{border-color:var(--accent)}.cl-drop b{color:var(--accent)}
+.cl-days{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px}
+.cl-day{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:.85rem;cursor:pointer}
+.cl-day input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.cl-day:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.cl-day.u{flex-direction:column;align-items:stretch;gap:4px;cursor:default}.cl-day.u input{border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--surface);min-height:36px;text-align:right}
+.cl-w{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line)}.cl-w .pill{flex:none;margin-top:1px}
+.cl-t td{white-space:nowrap}.cl-t td:nth-child(2){white-space:normal;min-width:170px}
+th.cl-dc{font-size:.66rem;letter-spacing:0;line-height:1.15}td.cl-dc{font-size:.8rem;color:var(--ink-2);padding:6px 4px}
+.cl-rm{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface-2)}
 /* refresh, search, dashboard bar, PCR */
 #refreshBtn.spin span:first-child{display:inline-block;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -552,8 +564,8 @@ let P=null, TX={};
 const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{type:'',cat:'',q:'',from:'',to:''},pcr:{preset:'set',from:'',to:''},pcrRep:{type:'pcr',ap:'all',rc:'paid',covers:true},dash:{preset:'month',from:'',to:''},q:{},txSort:lsGet('hz-sort')||'added',planGroup:lsGet('hz-pg')||'all',rep:{type:'expense',preset:'month',cat:'',ch:'',src:'',item:'',from:'',to:''},common:'count',confirm:null};
 
 /* ---------- persistence (Supabase) ---------- */
-const APP_VERSION='1.2';
-const APP_BUILD='15 Nov 2026 · fee on savings';
+const APP_VERSION='1.3';
+const APP_BUILD='7 Nov 2026 · casual labour module';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -562,7 +574,7 @@ const parse=s=>{try{return s?JSON.parse(s):null}catch(e){return null}};
 const isAdmin=()=>!!(store.me&&store.me.role==='admin'&&store.me.active);
 function setSync(cls,txt){const el=$('#sync');el.className='sync '+cls;el.querySelector('span').textContent=txt;el.title=txt}
 const cacheKey=()=>'hz-cache-'+store.uid, pendKey=()=>'hz-pend-'+store.uid;
-function cacheSave(){if(!store.uid||!P||store.viewing)return;lsSet(cacheKey(),JSON.stringify({P,TX,PCR}));lsSet(pendKey(),JSON.stringify([...store.pending]))}
+function cacheSave(){if(!store.uid||!P||store.viewing)return;lsSet(cacheKey(),JSON.stringify({P,TX,PCR,CL}));lsSet(pendKey(),JSON.stringify([...store.pending]))}
 const cacheSoon=debounce(cacheSave,300);
 async function loadData(){
   if(store.viewing)return loadViewed();
@@ -571,13 +583,13 @@ async function loadData(){
     const {data,error}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.uid);
     if(error)throw error;
     let prof=null;const tx={};
-    PCR={cfg:null,years:{},dead:{}};
-    data.forEach(r=>{if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
+    PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};
+    data.forEach(r=>{if(r.doc_id.startsWith('cl-')){clAbsorb(r);return}if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
     if(pcrClerk()){const {data:pd,error:pe}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(pe)throw pe;(pd||[]).forEach(pcrAbsorb)}
     P=migrate(prof);TX=tx;ok=true;
-  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}}}
+  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}if(cached.CL)CL=Object.assign({cfg:null,reg:null,runs:{}},cached.CL)}}
   // put back changes made on this device that had not reached the server yet
-  if(cached&&pend.length){pend.forEach(id=>{store.pending.add(id);if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR){PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[];PCR.dead[id.slice(4)]=(cached.PCR.dead||{})[id.slice(4)]||{}}}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]})}
+  if(cached&&pend.length){pend.forEach(id=>{store.pending.add(id);if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id.startsWith('cl-'))clFromCache(id,cached.CL);else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR){PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[];PCR.dead[id.slice(4)]=(cached.PCR.dead||{})[id.slice(4)]||{}}}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]})}
   if(!P){if(store.me&&store.me.pcr_owner){P=baseProfile(false);TX={}}else{P=baseProfile(true);TX=exampleTx(P);store.fresh=true}}
   setSync(ok?'':'local',ok?'Saved to your account':'Offline – changes will sync');
   render();if(store.pending.size)flush();
@@ -611,7 +623,8 @@ async function flush(){
     const id=[...store.pending][0];store.pending.delete(id);
     if(id==='pcr-cfg'&&pcrClerk())continue;
     let body,target=store.uid;
-    if(/^pcr-\d{4}$/.test(id)){const y=id.slice(4);target=pcrOwnerId();
+    if(id.startsWith('cl-')){body=clBody(id);if(body===null){const {data:dd,error:de}=await sb.from('hz_docs').delete().eq('user_id',store.uid).eq('doc_id',id).select('doc_id');if(!de&&dd&&dd.length)continue;body={gone:true}}}
+    else if(/^pcr-\d{4}$/.test(id)){const y=id.slice(4);target=pcrOwnerId();
       const {data:row,error:e0}=await sb.from('hz_docs').select('body').eq('user_id',target).eq('doc_id',id).maybeSingle();
       if(e0){store.pending.add(id);failed=true;break}
       const before=(PCR.years[y]||[]).map(e=>e.id+':'+num(e.mt)).sort().join();
@@ -648,7 +661,7 @@ async function afterLogin(u){
   await loadData();
 }
 function showLogin(msg){
-  P=null;TX={};PCR={cfg:null,years:{},dead:{}};store.uid=null;store.me=null;store.fresh=false;store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
+  P=null;TX={};PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};ui.cl=null;store.uid=null;store.me=null;store.fresh=false;store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
   $('#acct').hidden=true;$('#fab').hidden=true;$('#refreshBtn').hidden=true;$('#app').innerHTML='';$('#modalRoot').innerHTML='';$('#tabs').innerHTML='';
   $('#auth').hidden=false;const m=$('#authMsg');m.textContent=msg||'';m.hidden=!msg;setSync('local','Signed out');
 }
@@ -678,7 +691,7 @@ function openAccount(){
   $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="pwForm" role="dialog" aria-modal="true" aria-labelledby="acTitle">
     <div class="card-h" style="margin:0"><h2 id="acTitle">${esc(me.full_name||'My account')}</h2><button type="button" class="x" id="acClose" aria-label="Close">×</button></div>
     <div class="small muted">${esc(me.email||'')} · ${me.role==='admin'?'Administrator':'User'} · Hazina ${APP_VERSION}</div>
-    ${me.role==='admin'?`<label class="pcrswitch"><input type="checkbox" id="acPcr" ${lsGet('hz-pcr-'+store.uid)==='1'?'checked':''}> <span>Show the Petty Cash module on this device <small class="muted" style="display:block">Petty cash reconciliation and accounts payable. Only you can see it.</small></span></label>`:''}
+    ${me.role==='admin'?`<label class="pcrswitch"><input type="checkbox" id="acPcr" ${lsGet('hz-pcr-'+store.uid)==='1'?'checked':''}> <span>Show the Petty Cash module on this device <small class="muted" style="display:block">Petty cash reconciliation and accounts payable. Only you can see it.</small></span></label><label class="pcrswitch"><input type="checkbox" id="acCl" ${lsGet('hz-cl-'+store.uid)!=='0'?'checked':''}> <span>Show the Casual Labour module on this device <small class="muted" style="display:block">Payment runs, clerk uploads, executive approval file and bank file. Super admin only.</small></span></label>`:''}
     <div class="eyebrow" style="margin-top:6px">Change password</div>
     <div class="field"><label for="pw1">New password (at least 8 characters)</label><input id="pw1" type="password" autocomplete="new-password" minlength="8"></div>
     <div class="field"><label for="pw2">Repeat new password</label><input id="pw2" type="password" autocomplete="new-password"></div>
@@ -687,6 +700,7 @@ function openAccount(){
   const close=()=>{$('#modalRoot').innerHTML=''};
   $('#scrim').onclick=e=>{if(e.target.id==='scrim')close()};$('#acClose').onclick=close;$('#acOut').onclick=()=>{close();signOut()};
   const pc=$('#acPcr');if(pc)pc.onchange=()=>{lsSet('hz-pcr-'+store.uid,pc.checked?'1':'0');if(!pc.checked&&ui.view==='pcr')location.hash='#dashboard';render();toast(pc.checked?'Petty Cash module shown. Open it from the tabs.':'Petty Cash module hidden')};
+  const cx=$('#acCl');if(cx)cx.onchange=()=>{lsSet('hz-cl-'+store.uid,cx.checked?'1':'0');if(!cx.checked&&ui.view==='casual')location.hash='#dashboard';render();toast(cx.checked?'Casual Labour module shown. Open it from the tabs.':'Casual Labour module hidden')};
   $('#pwForm').onsubmit=async e=>{e.preventDefault();const a=$('#pw1').value,b=$('#pw2').value;
     if(a.length<8){toast('Use at least 8 characters');return}if(a!==b){toast('The two passwords don’t match');return}
     const {error}=await sb.auth.updateUser({password:a});if(error){toast('Could not change password: '+error.message);return}close();toast('Password changed')};
@@ -911,7 +925,7 @@ function trendChart(mk){
 
 /* ---------- views ---------- */
 const VIEWS=[['dashboard','Dashboard'],['planner','Monthly Planner'],['tracker','Daily Tracker'],['reports','Reports'],['goals','Sinking Funds & Goals'],['debt','Debt & Net Worth'],['shopping','Shopping List'],['setup','Setup']];
-const views=()=>[...VIEWS,...(isAdmin()&&!store.viewing?[['users','Users']]:[]),...(pcrOn()?[['pcr','Petty Cash']]:[])];
+const views=()=>[...VIEWS,...(isAdmin()&&!store.viewing?[['users','Users']]:[]),...(pcrOn()?[['pcr','Petty Cash']]:[]),...(clOn()?[['casual','Casual Labour']]:[])];
 function banner(){if(store.viewing){const v=store.viewing;return `<div class="banner incog"><p><b>Incognito view: ${esc(v.name)}.</b> Read-only. Nothing you do here is saved, and ${esc(v.name.split(' ')[0])} is not notified.${v.empty?' This person hasn’t entered any figures yet.':''}</p><button class="btn" data-act="exitView">Exit incognito</button></div>`}return P.example?`<div class="banner"><p><b>You’re looking at example figures.</b> Explore freely, then clear the examples to start with your own numbers. Your categories, savings chambers and shopping list stay.</p><button class="btn" data-act="clearExample">Clear examples &amp; start</button><button class="btn ghost" data-act="keepExample">Keep as my starting point</button></div>`:''}
 
 function statement(mk,a){
@@ -1847,7 +1861,7 @@ async function pcrPDF(M,file){
   const FN=await pcrPdfFonts(doc);const tx=s=>FN.custom?String(s==null?'':s).replace(/[\u{10000}-\u{10FFFF}]/gu,''):pdfTxt(s==null?'':s);
   const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),L0=48,R0=W-48;
   const INK=[17,24,39],SLATE=[100,108,120],LINE=[214,218,224],FILL=[243,244,246],covers=new Set();
-  const tbl=o=>doc.autoTable(Object.assign({theme:'plain',margin:{left:L0,right:W-R0,top:60,bottom:54},styles:{font:FN.body,fontStyle:'normal',fontSize:8.5,textColor:INK,cellPadding:{top:4.2,bottom:4.2,left:5,right:5},valign:'middle'},headStyles:{font:FN.body,fontStyle:'bold',fillColor:FILL,textColor:INK,fontSize:7.6}},o));
+  const tbl=o=>doc.autoTable(Object.assign({theme:'plain',rowPageBreak:'avoid',margin:{left:L0,right:W-R0,top:60,bottom:54},styles:{font:FN.body,fontStyle:'normal',fontSize:8.5,textColor:INK,cellPadding:{top:4.2,bottom:4.2,left:5,right:5},valign:'middle'},headStyles:{font:FN.body,fontStyle:'bold',fillColor:FILL,textColor:INK,fontSize:7.6}},o));
   const logo=pcrLogo();try{const dm=await imgDims(logo);const h=44,w=Math.min(90,h*dm.w/dm.h);doc.addImage(logo,'PNG',R0-w,36,w,h)}catch(e){}
   doc.setFont(FN.body,'normal');doc.setFontSize(7.8);doc.setTextColor(...SLATE);doc.text(tx((M.kick||'').toUpperCase()),L0,49,{charSpace:1.4});
   doc.setFont(FN.head,'bold');doc.setFontSize(21);doc.setTextColor(...INK);doc.text(tx(M.title),L0,73);
@@ -1868,28 +1882,28 @@ async function pcrPDF(M,file){
     else if(b.t==='note'){doc.setFont(FN.body,'normal');doc.setFontSize(8.4);doc.setTextColor(...SLATE);const ls=doc.splitTextToSize(tx(b.x),R0-L0);if(y+ls.length*11>H-70){doc.addPage();y=70}doc.text(ls,L0,y+2);y+=ls.length*11+14}
     else if(b.t==='table'){const cs={};b.cols.forEach((col,i)=>{cs[i]={halign:col.n?'right':col.box?'center':'left'};if(col.w)cs[i].cellWidth=col.w});
       tbl({startY:y,head:[b.cols.map(col=>tx(col.h))],body:b.rows.map(r=>r.c.map(v=>typeof v==='number'?pcrA(v):tx(v))),columnStyles:cs,showHead:'everyPage',
-        didParseCell:d=>{const st=d.cell.styles;if(d.section==='head'){st.halign=cs[d.column.index].halign;return}const k=b.rows[d.row.index].k;
+        didParseCell:d=>{const st=d.cell.styles;if(d.section==='head'){st.halign=cs[d.column.index].halign;return}const k=(b.rows[d.row.index]||{}).k;
           if(k==='sec'){st.fillColor=FILL;st.fontStyle='bold'}else if(k==='sub'||k==='tot')st.fontStyle='bold';
           else if(k==='ind'){st.textColor=SLATE;st.fontSize=8;st.cellPadding={top:3.4,bottom:3.4,left:d.column.index===1?18:5,right:5}}else if(k==='muted')st.textColor=SLATE},
         didDrawCell:d=>{const x=d.cell.x,yy=d.cell.y,w=d.cell.width,h=d.cell.height;
           if(d.section==='head'){doc.setDrawColor(...INK);doc.setLineWidth(.9);doc.line(x,yy+h,x+w,yy+h);return}
-          const k=b.rows[d.row.index].k;if(k==='tot')totLines(x,yy,w,h);else lineB(x,yy+h,w);
+          const k=(b.rows[d.row.index]||{}).k;if(k==='tot')totLines(x,yy,w,h);else lineB(x,yy+h,w);
           if(b.cols[d.column.index].box&&!k){doc.setDrawColor(...SLATE);doc.setLineWidth(.6);doc.rect(x+w/2-4.5,yy+h/2-4.5,9,9)}}});
       y=doc.lastAutoTable.finalY+24}
     else if(b.t==='recon'){const rx=L0+(R0-L0)*(M.orient==='l'?0.55:0.42);
       tbl({startY:y,margin:{left:rx,right:W-R0,top:60,bottom:54},body:b.rows.map(([l,v])=>[tx(l),pcrA(v)]),columnStyles:{1:{halign:'right',cellWidth:110}},
-        didParseCell:d=>{const k=b.rows[d.row.index][2];if(k==='b')d.cell.styles.fontStyle='bold';if(k==='key'){d.cell.styles.fontStyle='bold';d.cell.styles.fillColor=FILL;d.cell.styles.fontSize=10}},
-        didDrawCell:d=>{const k=b.rows[d.row.index][2];if(k==='key')totLines(d.cell.x,d.cell.y,d.cell.width,d.cell.height);else lineB(d.cell.x,d.cell.y+d.cell.height,d.cell.width)}});
+        didParseCell:d=>{const k=(b.rows[d.row.index]||[])[2];if(k==='b')d.cell.styles.fontStyle='bold';if(k==='key'){d.cell.styles.fontStyle='bold';d.cell.styles.fillColor=FILL;d.cell.styles.fontSize=10}},
+        didDrawCell:d=>{const k=(b.rows[d.row.index]||[])[2];if(k==='key')totLines(d.cell.x,d.cell.y,d.cell.width,d.cell.height);else lineB(d.cell.x,d.cell.y+d.cell.height,d.cell.width)}});
       y=doc.lastAutoTable.finalY+26}
   }
   if(y>H-170){doc.addPage();y=70}lab(M.L.approval);
   const ap=M.approve,dims=await Promise.all(ap.map(a=>a.sig?imgDims(a.sig).catch(()=>null):null));
   tbl({startY:y,head:[['',tx(M.L.name),tx(M.L.signature),tx(M.L.date)]],body:ap.map(a=>[tx(a.role),tx(a.name||''),'',tx(a.date||'')]),
-    styles:{font:FN.body,fontStyle:'normal',fontSize:9,textColor:INK,minCellHeight:46,valign:'bottom',cellPadding:{top:6,bottom:7,left:5,right:5}},
+    rowPageBreak:'avoid',styles:{font:FN.body,fontStyle:'normal',fontSize:9,textColor:INK,minCellHeight:46,valign:'bottom',cellPadding:{top:6,bottom:7,left:5,right:5}},
     columnStyles:{0:{cellWidth:96,fontStyle:'bold'},2:{cellWidth:(R0-L0)*0.34},3:{cellWidth:96}},
     didParseCell:d=>{if(d.section==='head'){d.cell.styles.minCellHeight=0;d.cell.styles.valign='middle'}},
     didDrawCell:d=>{const x=d.cell.x,yy=d.cell.y,w=d.cell.width,h=d.cell.height;if(d.section==='head'){doc.setDrawColor(...INK);doc.setLineWidth(.9);doc.line(x,yy+h,x+w,yy+h);return}
-      lineB(x,yy+h,w);const a=ap[d.row.index],dm=dims[d.row.index];
+      lineB(x,yy+h,w);const a=ap[d.row.index],dm=dims[d.row.index];if(!a)return;
       if(d.column.index===2&&a.sig&&dm){let ih=h-8,iw=ih*dm.w/dm.h;if(iw>w-10){iw=w-10;ih=iw*dm.h/dm.w}try{doc.addImage(a.sig,'PNG',x+5,yy+h-ih-3,iw,ih)}catch(e){}}}});
   const cv=M.blocks.find(b=>b.t==='covers');
   if(cv)cv.list.forEach(l=>{doc.addPage();covers.add(doc.getNumberOfPages());const cx=W/2,t0=H*0.32;
@@ -2430,12 +2444,544 @@ function pcrAction(a,t){
   else return false;
   return true;
 }
+
+/* ---------- CASUAL LABOUR (super admin only): payment runs, clerk uploads, executive approval file & bank file ---------- */
+let CL={cfg:null,reg:null,runs:{}};
+const clOn=()=>isAdmin()&&!store.viewing&&lsGet('hz-cl-'+store.uid)!=='0';
+function clCfg(){if(!CL.cfg||typeof CL.cfg!=='object')CL.cfg={};const c=CL.cfg;
+  if(c.org==null)c.org='Selu Galana Farm';if(!c.title)c.title='Casual Labour Payment Approval';
+  if(!Array.isArray(c.sign))c.sign=[{role:'Prepared by',name:''},{role:'Checked by',name:''},{role:'Approved by',name:''}];
+  if(c.seq==null)c.seq=0;if(!c.alias||typeof c.alias!=='object')c.alias={};if(!c.kinds||typeof c.kinds!=='object')c.kinds={};return c}
+function clReg(){if(!CL.reg||typeof CL.reg!=='object')CL.reg={};if(!CL.reg.w||typeof CL.reg.w!=='object')CL.reg.w={};return CL.reg.w}
+function clAbsorb(r){const b=r.body;if(!b||b.gone)return;if(r.doc_id==='cl-cfg')CL.cfg=b;else if(r.doc_id==='cl-reg')CL.reg=b;else if(r.doc_id.startsWith('cl-run-'))CL.runs[r.doc_id.slice(7)]=b}
+function clBody(id){if(id==='cl-cfg')return clCfg();if(id==='cl-reg'){clReg();return CL.reg}if(id.startsWith('cl-run-'))return CL.runs[id.slice(7)]||null;return null}
+function clFromCache(id,C){if(!C)return;if(id==='cl-cfg')CL.cfg=C.cfg;else if(id==='cl-reg')CL.reg=C.reg;else if(id.startsWith('cl-run-')){const k=id.slice(7);if(C.runs&&C.runs[k])CL.runs[k]=C.runs[k];else delete CL.runs[k]}}
+const clSaveRun=r=>queue('cl-run-'+r.id),clSaveCfg=()=>queue('cl-cfg'),clSaveReg=()=>queue('cl-reg');
+const clRuns=()=>Object.values(CL.runs).filter(r=>r&&r.id).sort((a,b)=>b.no-a.no);
+const clOpenRun=()=>clRuns().find(r=>r.status==='open')||null;
+const clCur=()=>{const r=ui.cl&&CL.runs[ui.cl.run];return r||clOpenRun()||clRuns()[0]||null};
+const clRef=r=>'CL/'+String(r.from||todayStr()).slice(0,4)+'/'+String(r.no).padStart(2,'0');
+const r2=v=>Math.round(num(v)*100)/100;
+const clFmtN=v=>{v=num(v);return v.toLocaleString('en-KE',{maximumFractionDigits:2})};
+function clMode(vals){const m={};let best=0,bv=0;vals.forEach(v=>{v=num(v);if(!v)return;m[v]=(m[v]||0)+1;if(m[v]>best){best=m[v];bv=v}});return bv}
+
+/* names, IDs, phones, categories */
+const clNorm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+const clIdNorm=s=>{const d=String(s==null?'':s).replace(/\.0+$/,'').replace(/\D/g,'').replace(/^0+/,'');return d.length>=5?d:''};
+const clCatKey=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+const clWKey=r=>{const i=clIdNorm(r.id);return i?'i:'+i:'n:'+clNorm(r.n)};
+function clPhone(v){let s=String(v==null?'':v).replace(/\.0+$/,'').replace(/\D/g,'');if(!s)return'';
+  if(s.length===9&&/^[17]/.test(s))s='254'+s;else if(s.length===10&&s[0]==='0')s='254'+s.slice(1);else if(s.length===13&&s.startsWith('2540'))s='254'+s.slice(4);return s}
+const clPhoneOk=p=>/^254[17]\d{8}$/.test(p);
+const clGender=v=>{const s=String(v==null?'':v).trim().toUpperCase();return /^F/.test(s)?'FEMALE':/^M/.test(s)?'MALE':s};
+const CL_MON=/\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/ig;
+const clTitle=s=>String(s).trim().replace(/\s+/g,' ').split(' ').map(w=>w&&w===w.toUpperCase()&&w.length>3?w[0]+w.slice(1).toLowerCase():w).join(' ');
+function clCatName(s){const x=String(s||'').replace(/\(\s*\d+\s*\)/g,' ').replace(CL_MON,' ').replace(/\b\d{1,4}(\s*[-–\/]\s*\d{1,4})*\b/g,' ').replace(/\s+[-–]\s*$/,'').replace(/\s+/g,' ').trim();return clTitle(x||String(s||'Casuals'))}
+function clCanon(name){const A=clCfg().alias;let n=clCatName(name);for(let i=0;i<6;i++){const a=A[clCatKey(n)];if(!a||a===n)break;n=a}return n}
+
+/* ---------- reading the clerks' workbooks ---------- */
+function clCell(v){if(v==null)return null;if(v instanceof Date)return v;if(typeof v==='object'){if(v.richText)return v.richText.map(t=>t.text).join('');if('result' in v)return v.result instanceof Date?v.result:clCell(v.result);if('formula' in v||'sharedFormula' in v)return null;if(v.text!=null)return clCell(v.text);if(v.error)return null;return null}return v}
+const clIso=d=>d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate());
+const CL_MNUM={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+function clDateOf(raw){const v=clCell(raw);
+  if(v instanceof Date)return isNaN(v)?null:clIso(v);
+  if(typeof v==='number'&&v>36000&&v<73000&&Math.floor(v)===v)return clIso(new Date(Math.round((v-25569)*864e5)));
+  if(typeof v==='string'){const s=v.trim();let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+'-'+m[2]+'-'+m[3];
+    m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);if(m){let y=+m[3];if(y<100)y+=2000;if(+m[2]>=1&&+m[2]<=12&&+m[1]>=1&&+m[1]<=31)return y+'-'+pad(+m[2])+'-'+pad(+m[1])}
+    m=s.match(/^(?:[a-z]{3,9},?\s+)?(\d{1,2})(?:st|nd|rd|th)?[\s\-\/]+([a-z]{3,9})\.?[\s\-\/,]+(\d{4})\b/i);if(m&&CL_MNUM[m[2].slice(0,3).toLowerCase()])return m[3]+'-'+pad(CL_MNUM[m[2].slice(0,3).toLowerCase()])+'-'+pad(+m[1])}
+  return null}
+const clIdStr=raw=>{const v=clCell(raw);if(v==null||v==='')return'';if(typeof v==='number')return String(Math.round(v));return String(v).trim().replace(/\.0+$/,'')};
+const CL_SKIP=/bank|summary|dashboard|instruction|lookup|^lists?$|template|^sheet\d*$/i;
+function clParseWB(wb){const sheets=[],skipped=[];
+  wb.eachSheet(ws=>{if(ws.state&&ws.state!=='visible'){skipped.push(ws.name+' (hidden sheet)');return}
+    if(CL_SKIP.test(ws.name)&&!/offload/i.test(ws.name)){skipped.push(ws.name);return}
+    let s=null;try{s=clParseSheet(ws)}catch(e){console.error(e)}if(s&&(s.rows.length||s.idle.length))sheets.push(s);else skipped.push(ws.name+' (no worker table found)')});
+  return{sheets,skipped}}
+function clParseSheet(ws){
+  const maxR=Math.min(ws.rowCount||0,3000),maxC=Math.min(Math.max(ws.columnCount||0,ws.actualColumnCount||0),160);let hr=0;
+  for(let r=1;r<=Math.min(maxR,30)&&!hr;r++){const row=ws.getRow(r);for(let c=1;c<=maxC;c++){const v=clCell(row.getCell(c).value);if(typeof v==='string'&&/\bnames?\b/i.test(v)&&v.length<40){hr=r;break}}}
+  if(!hr)return null;
+  const H=ws.getRow(hr),col={dates:[],extra:[],tots:[]};
+  for(let c=1;c<=maxC;c++){const raw=clCell(H.getCell(c).value);if(raw==null||raw==='')continue;const d=clDateOf(raw);
+    if(d){col.dates.push({c,d});continue}
+    if(typeof raw!=='string')continue;const t=raw.trim().replace(/\s+/g,' ');
+    if(/\bnames?\b/i.test(t)&&!col.name)col.name=c;
+    else if(/^id\b|\bid\s*(no|number|#)|national/i.test(t)&&!col.id)col.id=c;
+    else if(/phone|mobile|\btel\b|contact|^number$|m-?pesa/i.test(t)&&!col.ph)col.ph=c;
+    else if(/gender|^sex$/i.test(t))col.g=c;
+    else if(/^(s\s*\/?\s*no\.?|no\.?|#|sn|serial( no)?)$/i.test(t))col.sno=c;
+    else if(/rate|price|per\s*(bag|unit|container)/i.test(t))col.rate=c;
+    else if(/total|pay\b|amount|sum|^days?\b|bags?/i.test(t))col.tots.push({c,t});
+    else if(!/sign|remark|comment/i.test(t))col.extra.push({c,t:clTitle(t)})}
+  if(!col.name)return null;
+  const unit=/offload/i.test(ws.name)||(!!col.rate&&col.tots.some(x=>/bag|unit|container|qty|quantit/i.test(x.t)));
+  const kind=unit?'unit':'day';
+  const amtCol=(col.tots.filter(x=>!/bag|unit|qty|quantit|^days?\b/i.test(x.t)).pop()||{}).c;
+  let clerkTot=null;
+  for(let r=1;r<hr&&clerkTot==null;r++){const row=ws.getRow(r);for(let c=1;c<=maxC;c++){const v=clCell(row.getCell(c).value);if(typeof v==='string'&&/total/i.test(v)){for(let k=c+1;k<=Math.min(maxC,c+6);k++){const x=clCell(row.getCell(k).value);if(typeof x==='number'){clerkTot=x;break}}break}}}
+  const rows=[],idle=[],warn=[];let merged=0,marks=0,fall=0;
+  for(let r=hr+1;r<=maxR;r++){const R=ws.getRow(r);const n=String(clCell(R.getCell(col.name).value)??'').replace(/\s+/g,' ').trim();
+    if(!n||/^(grand\s*)?(sub\s*)?totals?\b|^calculated|^prepared|^approved|^checked/i.test(n)||/^[\d.,\s]+$/.test(n))continue;
+    const o={n};if(col.id){const i=clIdStr(R.getCell(col.id).value);if(i)o.id=i}if(col.ph){const p=clPhone(clCell(R.getCell(col.ph).value));if(p)o.ph=p}
+    if(col.g){const g=clGender(clCell(R.getCell(col.g).value));if(g)o.g=g}
+    const x={};col.extra.forEach(e=>{const v=clCell(R.getCell(e.c).value);if(v!=null&&String(v).trim())x[e.t]=v instanceof Date?clIso(v):String(v).trim()});if(Object.keys(x).length)o.x=x;
+    if(col.rate){const rt=num(clCell(R.getCell(col.rate).value));if(rt>0)o.r=rt}
+    o.d={};for(const {c,d} of col.dates){const cell=R.getCell(c);const v=clCell(cell.value);if(v==null||v==='')continue;
+      if(cell.isMerged){merged++;continue}let q=typeof v==='number'?v:num(v);if(!(q>0)){if(typeof v==='string'&&v.trim())marks++;continue}
+      if(kind==='day'&&o.r&&q<=1)q=q*o.r;o.d[d]=r2((o.d[d]||0)+q)}
+    if(!Object.keys(o.d).length){delete o.d;const ac=amtCol?clCell(R.getCell(amtCol).value):null;if(typeof ac==='number'&&ac>0){o.a=r2(ac);fall++}}
+    if(o.d||o.a)rows.push(o);else idle.push({n:o.n,id:o.id,ph:o.ph,g:o.g})}
+  if(merged)warn.push(merged+' merged day cell'+(merged===1?' was':'s were')+' ignored (group totals, not per-worker figures).');
+  if(fall)warn.push(fall+' worker'+(fall===1?' has':'s have')+' no daily figures; the total in “'+((col.tots.find(x=>x.c===amtCol)||{}).t||'Total')+'” was used.');
+  if(marks)warn.push(marks+' day cell'+(marks===1?'':'s')+' held text instead of a number and '+(marks===1?'was':'were')+' ignored.');
+  if(kind==='unit'){const md=clMode(rows.map(o=>o.r));let nr=0;rows.forEach(o=>{if(!o.r&&o.d){if(md)o.r=md;else nr++}});if(nr)warn.push(nr+' offloader'+(nr===1?' has':'s have')+' no unit rate.')}
+  const dates=[...new Set(col.dates.map(x=>x.d))].sort();
+  return{sheet:ws.name,cat:clCatName(ws.name),kind,dates,rows,idle,clerkTot,warn}}
+const clRowAmt=(o,kind)=>kind==='unit'?r2(sum(Object.values(o.d||{}),num)*num(o.r)+num(o.a)):r2(sum(Object.values(o.d||{}),num)+num(o.a));
+const clSheetTot=s=>r2(sum(s.rows,o=>clRowAmt(o,s.kind)));
+
+/* ---------- worker register (auto-fills later runs) ---------- */
+function clRegPut(r,cat,kind){const W=clReg(),k=clWKey(r);if(!r.n||k==='n:')return;
+  const nk='n:'+clNorm(r.n);if(k!==nk&&W[nk]){W[k]=Object.assign({},W[nk],W[k]||{});delete W[nk]}
+  const o=W[k]||(W[k]={});o.n=String(r.n).trim();if(r.id)o.id=String(r.id);if(r.ph)o.ph=r.ph;if(r.g)o.g=r.g;if(!o.c)o.c={};
+  const rt=kind==='unit'?num(r.r):clMode(Object.values(r.d||{}));if(cat&&(rt||o.c[cat]==null))o.c[cat]=rt||o.c[cat]||0;o.t=Date.now();return k}
+
+/* ---------- consolidation: one list per category, one de-duplicated bank list ---------- */
+function clBuild(run){
+  const REG=clReg(),warn=[],cats=new Map(),ex=new Set(run.excl||[]),seen={};const once=(k,lvl,msg)=>{if(seen[k])return;seen[k]=1;warn.push({lvl,msg})};
+  const nameToId={};const see=r=>{const i=clIdNorm(r.id);if(!i)return;const nn=clNorm(r.n);if(nameToId[nn]&&nameToId[nn]!==i)nameToId[nn]='?';else nameToId[nn]=i};
+  (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>s.rows.forEach(see)));(run.manual||[]).forEach(see);
+  const wkey=r=>{const i=clIdNorm(r.id);if(i)return'i:'+i;const nn=clNorm(r.n);const m=nameToId[nn];return m&&m!=='?'?'i:'+m:'n:'+nn};
+  const getCat=(name,kind)=>{const nm=clCanon(name),k=clCatKey(nm);let C=cats.get(k);if(!C){C={key:k,name:nm,kind,dates:new Set(),W:new Map()};cats.set(k,C)}
+    else if(C.kind!==kind)once('kind:'+k,'warn','“'+nm+'” arrived both as a daily-rate sheet and as a per-unit sheet. It is treated as '+(C.kind==='unit'?'per unit (bags)':'daily rate')+'.');return C};
+  const add=(cat,kind,r,src,manual)=>{const C=getCat(cat,kind);const k=wkey(r);if(ex.has(C.key+'|'+k))return;
+    let w=C.W.get(k);
+    if(!w){w={key:k,n:String(r.n||'').trim(),id:r.id||'',ph:r.ph||'',g:r.g||'',x:Object.assign({},r.x||{}),d:{},r:0,a:0,src:[],mids:[]};C.W.set(k,w)}
+    else{if(r.n&&clNorm(r.n)!==clNorm(w.n))once('nm:'+k+r.n,'warn','ID '+(w.id||'?')+' appears as “'+w.n+'” and as “'+r.n+'” in '+C.name+'. Treated as one person.');
+      ['id','ph','g'].forEach(f=>{if(!w[f]&&r[f])w[f]=r[f]});if(r.x)Object.keys(r.x).forEach(q=>{if(!w.x[q])w.x[q]=r.x[q]})}
+    if(r.d)for(const dt in r.d){const v=num(r.d[dt]);if(!(v>0))continue;
+      if(w.d[dt]!=null){if(!manual)once('dup:'+C.key+k+dt,'warn',w.n+' is recorded twice in '+C.name+' on '+fmtD(dt)+' ('+[...new Set([...w.src,src])].join(' / ')+'). Counted once.');w.d[dt]=Math.max(w.d[dt],v)}
+      else w.d[dt]=v;C.dates.add(dt)}
+    if(num(r.r)>0){if(w.r&&w.r!==num(r.r)&&!manual)once('rt:'+C.key+k,'warn',w.n+' has two different rates in '+C.name+' ('+clFmtN(w.r)+' and '+clFmtN(r.r)+'). The first is used.');if(!w.r||manual)w.r=num(r.r)}
+    if(num(r.a))w.a=r2(w.a+num(r.a));if(!w.src.includes(src))w.src.push(src);if(manual&&r.mid)w.mids.push(r.mid)};
+  (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>s.rows.forEach(r=>add(s.cat,s.kind,r,u.clerk||u.file,false))));
+  (run.manual||[]).forEach(m=>add(m.cat,m.kind,m,'Added by admin',true));
+  const out=[];let total=0,removed=0;
+  for(const C of cats.values()){const rows=[];const all=[...C.W.values()];const md=clMode(all.map(w=>w.r));
+    for(const w of all){const rg=REG[w.key];if(rg){if(!w.id&&rg.id)w.id=rg.id;if(!w.ph&&rg.ph)w.ph=rg.ph;if(!w.g&&rg.g)w.g=rg.g}
+      const vals=Object.values(w.d).map(num);w.days=vals.length;
+      if(C.kind==='unit'){w.units=r2(sum(vals));if(!w.r&&md)w.r=md;if(!w.r&&w.units)once('nr:'+C.key+w.key,'bad',w.n+' in '+C.name+' has no unit rate, so is paid nothing for '+clFmtN(w.units)+' units.');w.amt=r2(w.units*w.r+w.a)}
+      else{w.units=w.days;w.amt=r2(sum(vals)+w.a);w.r=clMode(vals)||w.r;w.rv=new Set(vals).size>1}
+      if(w.amt>0)rows.push(w)}
+    rows.sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
+    const ct=r2(sum(rows,w=>w.amt));total=r2(total+ct);
+    const xk=[...new Set(rows.flatMap(w=>Object.keys(w.x)))];
+    if(rows.length)out.push({key:C.key,name:C.name,kind:C.kind,dates:[...C.dates].sort(),rows,total:ct,units:r2(sum(rows,w=>w.units)),days:sum(rows,w=>w.days),xk})}
+  (run.excl||[]).forEach(()=>removed++);
+  const bm=new Map();
+  out.forEach(C=>C.rows.forEach(w=>{let b=bm.get(w.key);if(!b){b={key:w.key,n:w.n,id:w.id,ph:w.ph,g:w.g,by:{},days:0,amt:0,dd:{}};bm.set(w.key,b)}
+    ['id','ph','g'].forEach(f=>{if(!b[f]&&w[f])b[f]=w[f]});b.by[C.key]=r2((b.by[C.key]||0)+w.amt);b.amt=r2(b.amt+w.amt);
+    if(C.kind==='day'){b.days+=w.days;Object.keys(w.d).forEach(dt=>{(b.dd[dt]=b.dd[dt]||[]).push(C.name)})}}));
+  const bank=[...bm.values()].sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
+  const multi=bank.filter(b=>Object.keys(b.by).length>1).length;
+  const clash=bank.map(b=>({b,ds:Object.keys(b.dd).filter(d=>b.dd[d].length>1)})).filter(x=>x.ds.length);
+  clash.slice(0,25).forEach(({b,ds})=>warn.push({lvl:'info',msg:b.n+' is paid in '+[...new Set(ds.flatMap(d=>b.dd[d]))].join(' and ')+' on the same day ('+ds.map(d=>fmtD(d).replace(/ \d{4}$/,'')).join(', ')+').'}));
+  if(clash.length>25)warn.push({lvl:'info',msg:'…and '+(clash.length-25)+' more workers paid in two categories on the same day.'});
+  const noId=bank.filter(b=>!clIdNorm(b.id)),noPh=bank.filter(b=>!clPhoneOk(b.ph));
+  if(noId.length)warn.push({lvl:'bad',msg:noId.length+' worker'+(noId.length===1?' has':'s have')+' no ID number on the bank file: '+noId.slice(0,8).map(b=>b.n).join(', ')+(noId.length>8?'…':'')});
+  if(noPh.length)warn.push({lvl:'bad',msg:noPh.length+' worker'+(noPh.length===1?' has':'s have')+' a missing or invalid phone number: '+noPh.slice(0,8).map(b=>b.n+(b.ph?' ('+b.ph+')':'')).join(', ')+(noPh.length>8?'…':'')});
+  const idN={};bank.forEach(b=>{const nn=clNorm(b.n);(idN[nn]=idN[nn]||[]).push(b)});Object.values(idN).filter(L=>L.length>1).slice(0,10).forEach(L=>warn.push({lvl:'warn',msg:'“'+L[0].n+'” appears with '+L.length+' different ID numbers ('+L.map(b=>b.id||'none').join(', ')+') and is paid separately for each. Check whether they are the same person.'}));
+  (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{const st=clSheetTot(s);if(typeof s.clerkTot==='number'&&Math.abs(s.clerkTot-st)>1)warn.push({lvl:'warn',msg:'“'+s.sheet+'” in '+u.file+': the clerk’s calculated total is '+fmt(s.clerkTot)+' but the worker rows add up to '+fmt(st)+'. The rows are used.'});(s.warn||[]).forEach(m=>warn.push({lvl:'warn',msg:'“'+s.sheet+'” in '+u.file+': '+m}))}));
+  const allD=out.flatMap(C=>C.dates).sort();const from=run.from||allD[0]||'',to=run.to||allD[allD.length-1]||'';
+  const outside=allD.filter(d=>(from&&d<from)||(to&&d>to));if(outside.length)warn.push({lvl:'warn',msg:'Some days worked fall outside the pay period ('+[...new Set(outside)].slice(0,6).map(fmtD).join(', ')+'). They are still paid. Change the period in Runs & settings if needed.'});
+  warn.sort((a,b)=>({bad:0,warn:1,info:2}[a.lvl]-{bad:0,warn:1,info:2}[b.lvl]));
+  return{cats:out,bank,total,from,to,warn,multi,wdays:sum(out,C=>C.kind==='day'?C.days:0),removed}}
+function clPeriodDates(B){if(!B.from||!B.to||B.to<B.from)return[];const L=[];let d=B.from;while(d<=B.to&&L.length<92){L.push(d);d=addDay(d)}return L}
+const clDayLbl=d=>new Date(d+'T00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+/* ---------- report models (shared renderers: preview, PDF, CSV) ---------- */
+function clModel(run,B,type,o){o=o||{};const c=clCfg(),ref=clRef(run),per=B.from?fmtD(B.from)+' – '+fmtD(B.to):'Period not set';
+  const M={kick:(c.org?c.org+' · ':'')+'Casual labour',title:type==='bank'?'Casual Labour Bank Payment Schedule':c.title,sub:'Pay period '+per+'  ·  Ref '+ref+'  ·  Prepared '+fmtD(todayStr()),
+    from:B.from||todayStr(),to:B.to||todayStr(),ref,org:c.org,orient:'p',blocks:[],
+    approve:c.sign.filter(s=>s.role||s.name).map(s=>({role:s.role,name:s.name||'',date:'',sig:null})),
+    L:{approval:'Approval',name:'Name',signature:'Signature',date:'Date',page:'Page',supp:'',coverNote:''},foot:(c.org?c.org+' · ':'')+(type==='bank'?'Casual labour bank payment schedule':'Casual labour payment approval')+' · '+ref};
+  const nWorkers=String(B.bank.length);
+  if(type==='bank'){
+    M.figs=[['Workers paid',nWorkers],['Categories',String(B.cats.length)],['In 2+ categories',String(B.multi)],['Total to pay (KES)',B.total]];
+    M.blocks.push({t:'h',x:'Consolidated bank payment schedule'});
+    M.blocks.push({t:'table',cols:[{h:'No',w:26},{h:'Name'},{h:'ID No',w:62},{h:'Phone No',w:80},{h:'Categories',w:120},{h:'Amount (KES)',n:1,w:74}],
+      rows:[...B.bank.map((b,i)=>({c:[String(i+1),b.n,b.id||'',b.ph||'',B.cats.filter(C=>b.by[C.key]).map(C=>C.name).join(', '),b.amt]})),{k:'tot',c:['','Total · '+nWorkers+' workers','','','',B.total]}]});
+    M.blocks.push({t:'note',x:'Each worker appears once. Pay earned in more than one category during the period is combined into a single payment. Sorted alphabetically by name.'});
+    return M}
+  M.figs=[['Categories',String(B.cats.length)],['Workers (unique)',nWorkers],['Worker-days',clFmtN(B.wdays)],['Grand total (KES)',B.total]];
+  M.blocks.push({t:'h',x:'Expenditure by category'});
+  M.blocks.push({t:'table',cols:[{h:'No',w:26},{h:'Category'},{h:'Workers',n:1,w:56},{h:'Days / units',n:1,w:70},{h:'Amount (KES)',n:1,w:86},{h:'Share',n:1,w:46}],
+    rows:[...B.cats.map((C,i)=>({c:[String(i+1),C.name+(C.kind==='unit'?' (per bag)':''),String(C.rows.length),clFmtN(C.kind==='unit'?C.units:C.days)+(C.kind==='unit'?' bags':' days'),C.total,(B.total?C.total/B.total*100:0).toFixed(1)+'%']})),
+      {k:'tot',c:['','Grand total',nWorkers+' unique','',B.total,'100%']}]});
+  if(B.multi)M.blocks.push({t:'note',x:B.multi+' worker'+(B.multi===1?'':'s')+' worked in more than one category; '+(B.multi===1?'they appear':'they appear')+' once on the bank payment schedule with the combined amount. Bank file total: KES '+pcrA(sum(B.bank,b=>b.amt))+'.'});
+  if(!o.summary)B.cats.forEach((C,ci)=>{const u=C.kind==='unit';
+    M.blocks.push({t:'h',x:String.fromCharCode(65+ci%26)+'. '+C.name+' · '+C.rows.length+' workers'});
+    M.blocks.push({t:'table',cols:[{h:'No',w:26},{h:'Name'},{h:'ID No',w:62},{h:'Phone No',w:80},{h:u?'Bags':'Days',n:1,w:40},{h:u?'Rate / bag':'Daily rate',n:1,w:52},{h:'Amount (KES)',n:1,w:74}],
+      rows:[...C.rows.map((w,i)=>({c:[String(i+1),w.n,w.id||'',w.ph||'',clFmtN(u?w.units:w.days),w.r?clFmtN(w.r)+(w.rv?'*':''):'',w.amt]})),{k:'tot',c:['','Total '+C.name,'','',clFmtN(u?C.units:C.days),'',C.total]}]});
+    if(C.rows.some(w=>w.rv))M.blocks.push({t:'note',x:'* Daily rate varies across the period; the most common rate is shown and the amount is the sum of the actual days.'})});
+  return M}
+
+/* ---------- Excel: executive approval workbook (dashboard + one sheet per category + bank file) ---------- */
+const clColL=n=>{let s='';while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26)}return s};
+const clQ=s=>"'"+String(s).replace(/'/g,"''")+"'";
+async function clWorkbook(wb,run,B,mode){
+  const c=clCfg(),ref=clRef(run),per=B.from?fmtD(B.from)+' – '+fmtD(B.to):'Period not set',prep=fmtD(todayStr());
+  const INK='FF111827',SLATE='FF646C78',LINE='FFD6DAE0',FILL='FFF3F4F6',AMT='#,##0.00;(#,##0.00)',QTY='#,##0.##';
+  const thin={style:'thin',color:{argb:LINE}},med={style:'medium',color:{argb:INK}},dbl={style:'double',color:{argb:INK}};
+  let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
+  const used=new Set();const sname=s=>{const b=String(s).replace(/[\[\]:*?\/\\]/g,' ').replace(/\s+/g,' ').trim().slice(0,31)||'Sheet';let x=b,i=2;while(used.has(x.toLowerCase()))x=b.slice(0,26)+' ('+(i++)+')';used.add(x.toLowerCase());return x};
+  const foot=(c.org?c.org+' · ':'')+'Casual labour · '+ref;
+  const mkWs=(name,orient,a3)=>wb.addWorksheet(sname(name),{views:[{showGridLines:false}],pageSetup:{paperSize:a3?8:9,orientation:orient||'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:0.4,right:0.4,top:0.5,bottom:0.6,header:0.3,footer:0.3}},
+    headerFooter:{oddFooter:'&L&"Aptos"&8'+foot.replace(/&/g,'&&')+'&R&"Aptos"&8Page &P / &N'}});
+  const put=(ws,r,c1,c2,v,o={})=>{if(c2>c1)ws.mergeCells(r,c1,r,c2);for(let i=c1;i<=c2;i++){const x=ws.getRow(r).getCell(i);if(o.fill)x.fill={type:'pattern',pattern:'solid',fgColor:{argb:o.fill}};if(o.border)x.border=o.border}
+    const x=ws.getRow(r).getCell(c1);x.value=v===''||v==null?null:v;x.font={name:o.head?'Aptos Serif':'Aptos',size:o.size||10,bold:!!o.bold,italic:!!o.italic,color:{argb:o.color||INK}};
+    if(o.numFmt)x.numFmt=o.numFmt;const isN=typeof v==='number'||(v&&typeof v==='object'&&'formula' in v);
+    x.alignment={horizontal:o.center?'center':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap};return x};
+  const header=(ws,NC,title,sub)=>{put(ws,1,1,Math.max(1,NC-2),((c.org?c.org+'  ·  ':'')+'Casual labour').toUpperCase(),{size:8,color:SLATE});
+    put(ws,2,1,Math.max(1,NC-2),title,{head:true,size:18,bold:true});ws.getRow(2).height=28;put(ws,3,1,Math.max(1,NC-2),sub,{size:9,color:SLATE});
+    for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};
+    if(logo){const h=50,w=Math.min(100,h*logo.w/logo.h);ws.addImage(logo.id,{tl:{col:Math.max(0,NC-1.3),row:0.1},ext:{width:w,height:h}})}};
+  const label=(ws,r,NC,t)=>put(ws,r,1,NC,t.toUpperCase(),{size:8,bold:true,color:SLATE});
+  const approval=(ws,r,NC,spans)=>{label(ws,r,NC,'Approval');r++;
+    [['',spans[0]],['Name',spans[1]],['Signature',spans[2]],['Date',spans[3]]].forEach(([h,[a,b]])=>put(ws,r,a,b,h,{bold:true,size:9,fill:FILL,border:{bottom:med}}));r++;
+    c.sign.filter(s=>s.role||s.name).forEach(s=>{[[s.role,spans[0],1],[s.name||'',spans[1]],['',spans[2]],['',spans[3]]].forEach(([v,[a,b],bd])=>put(ws,r,a,b,v,{bold:!!bd,border:{bottom:thin}}));ws.getRow(r).height=38;r++});return r};
+  // plan the category sheets first so the dashboard can point at their totals
+  const plans=B.cats.map(C=>{const u=C.kind==='unit',base=5,xs=C.xk.length,d0=base+xs+1,nd=C.dates.length;const cols={d0,dN:d0+nd-1};
+    if(u){cols.units=d0+nd;cols.rate=cols.units+1;cols.amt=cols.rate+1}else{cols.units=d0+nd;cols.amt=cols.units+1}
+    return{C,u,cols,NC:cols.amt,first:7,tot:7+C.rows.length}});
+  let dash=null,bankWs=null;
+  if(mode!=='bank'){dash=mkWs('Summary','portrait');}
+  const catWs=mode!=='bank'?plans.map(p=>{const ws=mkWs(p.C.name,'landscape',p.C.dates.length>16);p.ws=ws;p.name=ws.name;return ws}):[];
+  bankWs=mkWs('Bank File',B.cats.length>3?'landscape':'portrait');
+  // category sheets
+  plans.forEach(p=>{if(!p.ws)return;const {C,u,cols,NC}=p,ws=p.ws;
+    ws.columns=Array.from({length:NC},(_,i)=>{const k=i+1;return{width:k===1?6:k===2?30:k===3?12:k===4?15:k===5?9:k<cols.d0?12:k<=cols.dN?(u?8:7.5):k===cols.amt?15:11}});
+    header(ws,NC,C.name+(u?' · per bag offloaded':''),'Pay period '+per+'  ·  '+C.rows.length+' workers  ·  Ref '+ref+'  ·  Prepared '+prep);
+    const hr=6;const hd=['S/No','Name','ID No','Phone No','Gender',...C.xk];
+    hd.forEach((h,i)=>put(ws,hr,i+1,i+1,h,{bold:true,size:9,fill:FILL,border:{bottom:med}}));
+    C.dates.forEach((d,i)=>{const [y,m,dd]=d.split('-').map(Number);put(ws,hr,cols.d0+i,cols.d0+i,new Date(Date.UTC(y,m-1,dd)),{bold:true,size:9,fill:FILL,border:{bottom:med},center:true,numFmt:'dd-mmm'})});
+    if(u){put(ws,hr,cols.units,cols.units,'Total bags',{bold:true,size:9,fill:FILL,border:{bottom:med},right:true,wrap:true});put(ws,hr,cols.rate,cols.rate,'Rate / bag',{bold:true,size:9,fill:FILL,border:{bottom:med},right:true,wrap:true})}
+    else put(ws,hr,cols.units,cols.units,'Days',{bold:true,size:9,fill:FILL,border:{bottom:med},right:true});
+    put(ws,hr,cols.amt,cols.amt,'Amount (KES)',{bold:true,size:9,fill:FILL,border:{bottom:med},right:true,wrap:true});ws.getRow(hr).height=30;
+    const dL=clColL(cols.d0),dR=clColL(cols.dN),B0=thin;
+    C.rows.forEach((w,i)=>{const r=p.first+i,o={border:{bottom:B0}};
+      put(ws,r,1,1,i+1,Object.assign({center:true},o));put(ws,r,2,2,w.n,o);put(ws,r,3,3,w.id||'',o);put(ws,r,4,4,w.ph||'',o);put(ws,r,5,5,w.g||'',o);
+      C.xk.forEach((k,j)=>put(ws,r,6+j,6+j,w.x[k]||'',o));
+      C.dates.forEach((d,j)=>put(ws,r,cols.d0+j,cols.d0+j,w.d[d]!=null?num(w.d[d]):null,Object.assign({numFmt:u?QTY:'#,##0',center:true},o)));
+      const rng=C.dates.length?dL+r+':'+dR+r:null,fx=w.a?'+'+w.a:'';
+      if(u){put(ws,r,cols.units,cols.units,rng?{formula:'SUM('+rng+')',result:w.units}:w.units,Object.assign({numFmt:QTY},o));put(ws,r,cols.rate,cols.rate,w.r||0,Object.assign({numFmt:AMT},o));
+        put(ws,r,cols.amt,cols.amt,{formula:clColL(cols.units)+r+'*'+clColL(cols.rate)+r+fx,result:w.amt},Object.assign({numFmt:AMT,bold:true},o))}
+      else{put(ws,r,cols.units,cols.units,rng?{formula:'COUNT('+rng+')',result:w.days}:w.days,Object.assign({numFmt:'0'},o));
+        put(ws,r,cols.amt,cols.amt,rng?{formula:'SUM('+rng+')'+fx,result:w.amt}:w.amt,Object.assign({numFmt:AMT,bold:true},o))}});
+    const tr=p.tot,last=tr-1,T={border:{top:med,bottom:dbl},bold:true};
+    put(ws,tr,1,5+C.xk.length,'Total · '+C.rows.length+' workers',T);
+    C.dates.forEach((d,j)=>{const L=clColL(cols.d0+j);put(ws,tr,cols.d0+j,cols.d0+j,{formula:'SUM('+L+p.first+':'+L+last+')',result:r2(sum(C.rows,w=>num(w.d[d])))},Object.assign({numFmt:u?QTY:'#,##0',size:9},T))});
+    const sc=k=>{const L=clColL(k);return{formula:'SUM('+L+p.first+':'+L+last+')'}};
+    put(ws,tr,cols.units,cols.units,Object.assign(sc(cols.units),{result:u?C.units:C.days}),Object.assign({numFmt:u?QTY:'0'},T));
+    if(u)put(ws,tr,cols.rate,cols.rate,'',T);
+    put(ws,tr,cols.amt,cols.amt,Object.assign(sc(cols.amt),{result:C.total}),Object.assign({numFmt:AMT},T));
+    p.totRef=clQ(ws.name)+'!$'+clColL(cols.amt)+'$'+tr;
+    ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false}];ws.pageSetup.printTitlesRow=hr+':'+hr;
+    approval(ws,tr+3,NC,[[1,2],[3,4],[5,Math.max(5,NC-3)],[Math.max(6,NC-2),NC]])});
+  // bank file sheet
+  const bc=B.cats,BN=6+bc.length+1;let bankTot=null;
+  {const ws=bankWs;ws.columns=Array.from({length:BN},(_,i)=>({width:i===0?6:i===1?32:i===2?12:i===3?15:i===4?9:i===BN-1?16:13}));
+    header(ws,BN,'Bank Payment Schedule','Pay period '+per+'  ·  '+B.bank.length+' workers, each listed once  ·  Ref '+ref+'  ·  Prepared '+prep);
+    const hr=6;['S/No','Name','ID No','Phone No','Gender',...bc.map(C=>C.name),'Days','Total (KES)'].forEach((h,i)=>put(ws,hr,i+1,i+1,h,{bold:true,size:9,fill:FILL,border:{bottom:med},right:i>=5,wrap:true}));ws.getRow(hr).height=30;
+    const first=7,cA=clColL(6),cZ=clColL(5+bc.length);
+    B.bank.forEach((b,i)=>{const r=first+i,o={border:{bottom:thin}};put(ws,r,1,1,i+1,Object.assign({center:true},o));put(ws,r,2,2,b.n,o);put(ws,r,3,3,b.id||'',o);put(ws,r,4,4,b.ph||'',o);put(ws,r,5,5,b.g||'',o);
+      bc.forEach((C,j)=>put(ws,r,6+j,6+j,b.by[C.key]||null,Object.assign({numFmt:AMT},o)));put(ws,r,6+bc.length,6+bc.length,b.days||null,Object.assign({numFmt:'0'},o));
+      put(ws,r,BN,BN,bc.length?{formula:'SUM('+cA+r+':'+cZ+r+')',result:b.amt}:b.amt,Object.assign({numFmt:AMT,bold:true},o))});
+    const tr=first+B.bank.length,last=tr-1,T={border:{top:med,bottom:dbl},bold:true};put(ws,tr,1,5,'Total · '+B.bank.length+' workers',T);
+    for(let k=6;k<=BN;k++){const L=clColL(k),res=k===BN?B.total:k===BN-1?sum(B.bank,b=>b.days):r2(sum(B.bank,b=>num(b.by[bc[k-6].key])));put(ws,tr,k,k,{formula:'SUM('+L+first+':'+L+last+')',result:res},Object.assign({numFmt:k===BN-1?'0':AMT},T))}
+    bankTot=clQ(ws.name)+'!$'+clColL(BN)+'$'+tr;ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false}];ws.pageSetup.printTitlesRow=hr+':'+hr;
+    let r=tr+2;put(ws,r,1,BN,'Workers who earned in more than one category appear once with the combined amount. Sorted alphabetically by name.',{size:9,italic:true,color:SLATE});
+    if(mode==='bank')approval(ws,r+2,BN,[[1,2],[3,4],[5,Math.max(5,BN-2)],[Math.max(6,BN-1),BN]])}
+  // dashboard
+  if(dash){const ws=dash,NC=7;ws.columns=[{width:6},{width:34},{width:12},{width:14},{width:18},{width:10},{width:14}];
+    header(ws,NC,c.title,'Pay period '+per+'  ·  Ref '+ref+'  ·  Prepared '+prep);
+    let r=6;label(ws,r,NC,'Key figures');r++;
+    const figs=[['Pay period',per,[1,2]],['Workers (unique)',B.bank.length,[3,4]],['Worker-days',B.wdays,[5,5]],['Grand total (KES)',null,[6,7]]];
+    figs.forEach(([l,v,[a,b]],i)=>{const key=i===figs.length-1;put(ws,r,a,b,l.toUpperCase(),{size:7.5,color:SLATE,fill:key?FILL:undefined,border:{top:med,left:i?thin:undefined}});
+      const x=put(ws,r+1,a,b,key?null:v,{size:12,bold:true,fill:key?FILL:undefined,border:{bottom:med,left:i?thin:undefined},numFmt:typeof v==='number'?'#,##0':undefined});x.alignment={horizontal:'left',vertical:'middle'}});
+    ws.getRow(r+1).height=24;const gtCell=ws.getRow(r+1).getCell(6);r+=3;
+    label(ws,r,NC,'Expenditure by category');r++;
+    ['No','Category','Workers','Days / units','Amount (KES)','Share','Details'].forEach((h,i)=>put(ws,r,i+1,i+1,h,{bold:true,size:9,fill:FILL,border:{bottom:med},right:i>=2&&i<=5,center:i===6}));r++;
+    const c0=r;plans.forEach((p,i)=>{const C=p.C,o={border:{bottom:thin}};put(ws,r,1,1,i+1,Object.assign({center:true},o));put(ws,r,2,2,C.name+(C.kind==='unit'?' (per bag)':''),o);put(ws,r,3,3,C.rows.length,Object.assign({numFmt:'0'},o));
+      put(ws,r,4,4,C.kind==='unit'?C.units:C.days,Object.assign({numFmt:C.kind==='unit'?'#,##0.## "bags"':'#,##0 "days"'},o));
+      put(ws,r,5,5,{formula:p.totRef.replace(/\$/g,''),result:C.total},Object.assign({numFmt:AMT,bold:true},o));
+      put(ws,r,6,6,{formula:'IF($E$'+(c0+plans.length)+'=0,0,E'+r+'/$E$'+(c0+plans.length)+')',result:B.total?C.total/B.total:0},Object.assign({numFmt:'0.0%'},o));
+      const lk=ws.getRow(r).getCell(7);lk.value={text:'Open sheet ›',hyperlink:'#'+clQ(p.name)+'!A1'};lk.font={name:'Aptos',size:9,color:{argb:SLATE},underline:true};lk.alignment={horizontal:'center',vertical:'middle'};lk.border={bottom:thin};r++});
+    const T={border:{top:med,bottom:dbl},bold:true};put(ws,r,1,2,'Grand total',T);put(ws,r,3,3,B.bank.length,Object.assign({numFmt:'0 "unique"'},T));put(ws,r,4,4,'',T);
+    put(ws,r,5,5,{formula:plans.length?'SUM(E'+c0+':E'+(r-1)+')':'0',result:B.total},Object.assign({numFmt:AMT},T));put(ws,r,6,6,{formula:'IF(E'+r+'=0,0,1)',result:B.total?1:0},Object.assign({numFmt:'0%'},T));put(ws,r,7,7,'',T);
+    gtCell.value={formula:'E'+r,result:B.total};gtCell.numFmt=AMT;gtCell.font={name:'Aptos',size:12,bold:true,color:{argb:INK}};const gtRow=r;r+=2;
+    label(ws,r,NC,'Agreement with the bank file');r++;
+    const rec=[['Total approved above',{formula:'E'+gtRow,result:B.total}],['Bank file total ('+B.bank.length+' workers)',{formula:bankTot.replace(/\$/g,''),result:B.total}],['Difference (should be nil)',{formula:'E'+r+'-E'+(r+1),result:0}]];
+    rec.forEach(([l,v],i)=>{const o=i===2?{border:{top:med,bottom:dbl},bold:true}:{border:{bottom:thin}};put(ws,r,2,4,l,o);put(ws,r,5,5,v,Object.assign({numFmt:AMT},o));r++});
+    if(B.multi){put(ws,r,2,NC,B.multi+' worker'+(B.multi===1?'':'s')+' worked in more than one category and '+(B.multi===1?'is':'are')+' paid once with the combined amount.',{size:9,italic:true,color:SLATE});r++}
+    r++;approval(ws,r,NC,[[1,2],[3,4],[5,5],[6,7]]);ws.pageSetup.fitToHeight=1}
+  if(!dash){/* bank-only workbook keeps just the bank sheet */}
+  return wb}
+async function clXLSX(run,B,mode){
+  toast('Preparing Excel file…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel tool. Check your connection.');return}
+  const wb=new ExcelJS.Workbook();wb.creator='Hazina';wb.created=new Date();await clWorkbook(wb,run,B,mode);
+  const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=clFile(run,B,mode)+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
+const clFile=(run,B,mode)=>(mode==='bank'?'casual-labour-bank-file':'casual-labour-approval')+'-'+clRef(run).replace(/\//g,'-').toLowerCase()+(B.from?'-'+B.from+'-to-'+B.to:'');
+function clBankCSV(run,B){const q=x=>{const s=typeof x==='number'?(Math.round(x*100)/100).toFixed(2):String(x==null?'':x);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+  const L=[['S/No','Name','ID No','Phone No','Gender',...B.cats.map(C=>C.name),'Days','Total (KES)']];
+  B.bank.forEach((b,i)=>L.push([i+1,b.n,b.id||'',b.ph||'',b.g||'',...B.cats.map(C=>b.by[C.key]||''),b.days||'',b.amt]));
+  L.push(['','TOTAL','','','',...B.cats.map(C=>r2(sum(B.bank,b=>num(b.by[C.key])))),sum(B.bank,b=>b.days),B.total]);
+  download(clFile(run,B,'bank')+'.csv',L.map(r=>r.map(q).join(',')).join('\n'))}
+async function clExport(kind,f){const run=clCur();if(!run)return;const B=clBuild(run);if(!B.cats.length){toast('Nothing to export yet. Upload the clerks’ files first.');return}
+  if(f==='xlsx')return clXLSX(run,B,kind);
+  if(kind==='bank'&&f==='csv')return clBankCSV(run,B);
+  const M=clModel(run,B,kind==='bank'?'bank':'appr');if(f==='csv')pcrCSV(M,clFile(run,B,kind));else await pcrPDF(M,clFile(run,B,kind))}
+
+/* ---------- uploads ---------- */
+const clClerkGuess=f=>String(f).replace(/\.[^.]+$/,'').replace(/^\d{6,8}[_\-\s]*/,'').replace(/casual\s*labou?r\s*payment\s*record/i,'').replace(/[_\-]+/g,' ').trim();
+async function clUpload(files){const run=clCur();if(!run||run.status!=='open'){toast('Open a payment run first');return}
+  toast('Reading '+files.length+' file'+(files.length===1?'':'s')+'…');
+  try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel reader. Check your connection.');return}
+  let added=0,rows=0;const bad=[];
+  for(const f of files){if(!/\.(xlsx|xlsm)$/i.test(f.name)){bad.push(f.name+' (save it as .xlsx)');continue}
+    try{const wb=new ExcelJS.Workbook();await wb.xlsx.load(await f.arrayBuffer());const P=clParseWB(wb);
+      if(!P.sheets.length){bad.push(f.name+' (no worker sheets found)');continue}
+      const up={id:nid(),file:f.name,clerk:(ui.cl.clerk||'').trim()||clClerkGuess(f.name)||'Clerk',at:Date.now(),by:pcrMyName(),skipped:P.skipped,
+        sheets:P.sheets.map(s=>({sheet:s.sheet,cat:s.cat,kind:s.kind,dates:s.dates,rows:s.rows,clerkTot:s.clerkTot,warn:s.warn}))};
+      (run.uploads=run.uploads||[]).push(up);P.sheets.forEach(s=>{const cn=clCanon(s.cat);clCfg().kinds[cn]=s.kind;[...s.rows,...s.idle].forEach(r=>clRegPut(r,cn,s.kind));rows+=s.rows.length});added++}
+    catch(e){console.error(e);bad.push(f.name+' (could not be read)')}}
+  if(added){clSaveRun(run);clSaveReg();clSaveCfg();ui.cl.tab='uploads';render()}
+  toast((added?added+' file'+(added===1?'':'s')+' added · '+rows+' worker rows':'No files added')+(bad.length?' · Skipped: '+bad.join('; '):''))}
+function clArchive(run){const B=clBuild(run);const up={id:'arch-'+nid(),file:'Consolidated records',clerk:'Archived',at:Date.now(),by:pcrMyName(),archived:true,skipped:[],
+    sheets:B.cats.map(C=>({sheet:C.name,cat:C.name,kind:C.kind,dates:C.dates,clerkTot:null,warn:[],rows:C.rows.map(w=>{const o={n:w.n};if(w.id)o.id=w.id;if(w.ph)o.ph=w.ph;if(w.g)o.g=w.g;if(Object.keys(w.x).length)o.x=w.x;if(Object.keys(w.d).length)o.d=w.d;if(C.kind==='unit'&&w.r)o.r=w.r;if(w.a)o.a=w.a;return o})}))};
+  run.uploads=[up];run.manual=[];run.excl=[];run.archived=Date.now()}
+
+/* ---------- add / edit a worker by hand ---------- */
+function clOpenAdd(mid,preCat){const run=clCur();if(!run){toast('Start a payment run first');return}if(run.status!=='open'){toast('This run is closed. Reopen it to add workers.');return}
+  const B=clBuild(run),c=clCfg(),REG=clReg();const ex=mid?(run.manual||[]).find(m=>m.mid===mid):null;
+  const known=[...new Map([...B.cats.map(C=>[clCatKey(C.name),{name:C.name,kind:C.kind}]),...Object.keys(c.kinds).map(n=>[clCatKey(clCanon(n)),{name:clCanon(n),kind:c.kinds[n]}])]).values()];
+  const f=ex?JSON.parse(JSON.stringify(ex)):{cat:preCat||(known[0]||{}).name||'',kind:(known.find(k=>k.name===preCat)||known[0]||{}).kind||'day',n:'',id:'',ph:'',g:'',r:0,d:{}};
+  let from=B.from,to=B.to;const regL=Object.entries(REG).sort((a,b)=>a[1].n.localeCompare(b[1].n));
+  const catRate=(name,kind)=>{const C=B.cats.find(x=>x.key===clCatKey(name));return C?clMode(C.rows.map(w=>w.r)):0};
+  if(!f.r)f.r=catRate(f.cat,f.kind);
+  pcrModal(`${mdHead(ex?'Edit added worker':'Add a worker to '+esc(clRef(run)))}
+    <p class="small muted" style="margin:0">For anyone missing from the clerks’ files. Saved workers fill in automatically next time. Workers are sorted alphabetically in every report.</p>
+    <div class="field"><label for="claFind">Find a saved worker (name, ID or phone)</label><input id="claFind" list="claList" autocomplete="off" placeholder="Start typing… ${regL.length} saved"><datalist id="claList">${regL.slice(0,1500).map(([k,o])=>`<option value="${esc(o.n+' · '+(o.id||'no ID')+(o.ph?' · '+o.ph:''))}">`).join('')}</datalist></div>
+    <div class="fgrid"><div class="field"><label for="claCat">Category</label><select id="claCat">${known.map(k=>`<option value="${esc(k.name)}" ${k.name===f.cat?'selected':''}>${esc(k.name)}${k.kind==='unit'?' (per bag)':''}</option>`).join('')}<option value="__new" ${known.length?'':'selected'}>+ New category…</option></select></div>
+      <div class="field" id="claNewW" ${known.length?'hidden':''}><label for="claNew">New category name</label><input id="claNew" placeholder="e.g. Irrigation"></div>
+      <div class="field" id="claKindW" ${known.length?'hidden':''}><label for="claKind">Paid by</label><select id="claKind"><option value="day">Daily rate</option><option value="unit">Per bag / unit (offloaders)</option></select></div></div>
+    <div class="fgrid"><div class="field"><label for="claN">Full name</label><input id="claN" value="${esc(f.n)}" autocomplete="off" style="text-transform:uppercase"></div>
+      <div class="field"><label for="claId">ID number</label><input id="claId" value="${esc(f.id||'')}" inputmode="numeric" autocomplete="off"></div></div>
+    <div class="fgrid"><div class="field"><label for="claPh">Phone number</label><input id="claPh" value="${esc(f.ph||'')}" inputmode="tel" placeholder="07XX XXX XXX" autocomplete="off"></div>
+      <div class="field"><label for="claG">Gender</label><select id="claG"><option value=""></option><option ${f.g==='MALE'?'selected':''} value="MALE">Male</option><option ${f.g==='FEMALE'?'selected':''} value="FEMALE">Female</option></select></div>
+      <div class="field"><label for="claR" id="claRL">Daily rate (Ksh)</label><input id="claR" class="numin" inputmode="decimal" value="${fmtIn(f.r)}"></div></div>
+    <div id="claPer" ${from&&to?'hidden':''} class="fgrid"><div class="field"><label for="claFrom">Pay period from</label><input type="date" id="claFrom" value="${esc(from||'')}"></div><div class="field"><label for="claTo">to</label><input type="date" id="claTo" value="${esc(to||'')}"></div></div>
+    <div><div class="card-h" style="margin:4px 0 6px"><b class="small" id="claDL">Days worked</b><span class="inline-actions"><button type="button" class="btn ghost sm" id="claAll">Select all</button><button type="button" class="btn ghost sm" id="claNone">Clear</button></span></div><div id="claDays" class="cl-days"></div></div>
+    <div class="kv big"><span>Amount for this period</span><b id="claTot">Ksh 0</b></div>
+    <div class="inline-actions"><button class="btn" type="submit">${ex?'Save changes':'Add worker'}</button>${ex?'':'<button class="btn ghost" type="button" id="claMore">Add &amp; add another</button>'}</div>`,close=>{
+    const kindNow=()=>{const v=$('#claCat').value;return v==='__new'?$('#claKind').value:(known.find(k=>k.name===v)||{}).kind||'day'};
+    const read=()=>{const k=kindNow();document.querySelectorAll('#claDays [data-d]').forEach(el=>{const d=el.dataset.d;if(k==='unit'){const v=num(el.value);if(v>0)f.d[d]=v;else delete f.d[d]}else{if(el.checked)f.d[d]=1;else delete f.d[d]}})};
+    const days=()=>{const k=kindNow(),L=clPeriodDates({from,to});$('#claRL').textContent=k==='unit'?'Rate per bag (Ksh)':'Daily rate (Ksh)';$('#claDL').textContent=k==='unit'?'Bags offloaded per day':'Days worked';
+      $('#claAll').hidden=$('#claNone').hidden=k==='unit';
+      $('#claDays').innerHTML=L.length?L.map(d=>k==='unit'?`<label class="cl-day u"><span>${esc(clDayLbl(d))}</span><input type="number" min="0" step="any" data-d="${d}" value="${f.d[d]?esc(f.d[d]):''}" placeholder="0"></label>`
+        :`<label class="cl-day"><input type="checkbox" data-d="${d}" ${f.d[d]?'checked':''}><span>${esc(clDayLbl(d))}</span></label>`).join(''):'<p class="small muted">Set the pay period above to choose the days.</p>';live()};
+    const live=()=>{read();const k=kindNow(),r=num($('#claR').value),q=Object.values(f.d);$('#claTot').textContent=fmt(k==='unit'?sum(q,num)*r:q.length*r)+(k==='unit'?' · '+clFmtN(sum(q,num))+' bags':' · '+q.length+' day'+(q.length===1?'':'s'))};
+    const fill=o=>{if(!o)return;$('#claN').value=o.n||'';$('#claId').value=o.id||'';$('#claPh').value=o.ph?('0'+String(o.ph).slice(3)):'';$('#claG').value=o.g||'';const cn=$('#claCat').value;const rt=o.c&&o.c[cn];if(rt)$('#claR').value=fmtIn(rt);live()};
+    $('#claFind').addEventListener('change',e=>{const v=e.target.value;const hit=regL.find(([k,o])=>(o.n+' · '+(o.id||'no ID')+(o.ph?' · '+o.ph:''))===v);if(hit){fill(hit[1]);toast('Details filled in from the saved worker')}
+      else{const q=clNorm(v),qi=clIdNorm(v);const m=regL.find(([k,o])=>(qi&&clIdNorm(o.id)===qi)||clNorm(o.n)===q);if(m)fill(m[1])}});
+    $('#claId').addEventListener('change',e=>{const qi=clIdNorm(e.target.value);if(!qi||$('#claN').value.trim())return;const o=REG['i:'+qi];if(o){fill(o);toast('Found '+o.n)}});
+    $('#claCat').onchange=()=>{const nw=$('#claCat').value==='__new';$('#claNewW').hidden=$('#claKindW').hidden=!nw;read();f.d={};const rt=catRate($('#claCat').value,kindNow());if(rt&&!nw)$('#claR').value=fmtIn(rt);days()};
+    $('#claKind').onchange=()=>{f.d={};days()};$('#claR').addEventListener('input',live);
+    $('#claDays').addEventListener('input',live);$('#claDays').addEventListener('change',live);
+    const per=()=>{from=$('#claFrom').value;to=$('#claTo').value;days()};$('#claFrom').onchange=per;$('#claTo').onchange=per;
+    $('#claAll').onclick=()=>{document.querySelectorAll('#claDays input[type=checkbox]').forEach(x=>x.checked=true);live()};$('#claNone').onclick=()=>{document.querySelectorAll('#claDays input[type=checkbox]').forEach(x=>x.checked=false);live()};
+    days();
+    const save=again=>{read();const k=kindNow();let cat=$('#claCat').value;if(cat==='__new'){cat=clTitle($('#claNew').value.trim());if(!cat){toast('Type the new category name');$('#claNew').focus();return}cat=clCanon(cat)}
+      const n=$('#claN').value.replace(/\s+/g,' ').trim().toUpperCase(),id=$('#claId').value.replace(/\s+/g,'').trim(),ph=clPhone($('#claPh').value),g=$('#claG').value,r=num($('#claR').value);
+      if(!n){toast('Type the worker’s full name');$('#claN').focus();return}
+      if(!clIdNorm(id)){toast('Type a valid ID number');$('#claId').focus();return}
+      if(!clPhoneOk(ph)){toast('Type a valid Safaricom/Airtel phone number, e.g. 0712 345 678');$('#claPh').focus();return}
+      if(!(r>0)){toast(k==='unit'?'Type the rate per bag':'Type the daily rate');$('#claR').focus();return}
+      if(!Object.keys(f.d).length){toast(k==='unit'?'Enter the bags offloaded on at least one day':'Tick at least one day worked');return}
+      if(!run.from&&from&&to){run.from=from;run.to=to;run.fixed=true}
+      const d={};Object.keys(f.d).forEach(x=>d[x]=k==='unit'?num(f.d[x]):r);
+      const m={mid:ex?ex.mid:nid(),cat,kind:k,n,id,ph,g,r,d,at:ex?ex.at:Date.now(),by:pcrMyName()};
+      run.manual=(run.manual||[]).filter(x=>x.mid!==m.mid);run.manual.push(m);
+      const key=clWKey(m),ck=clCatKey(cat);run.excl=(run.excl||[]).filter(x=>x!==ck+'|'+key);
+      const inUp=B.cats.find(C=>C.key===ck);const dupe=inUp&&inUp.rows.find(w=>w.key===key&&!w.mids.includes(m.mid));
+      clCfg().kinds[cat]=k;clRegPut(m,cat,k);clSaveRun(run);clSaveReg();clSaveCfg();ui.cl.cat=ck;
+      toast((ex?'Updated ':'Added ')+n+' · '+fmt(k==='unit'?sum(Object.values(d))*r:Object.keys(d).length*r)+(dupe?' · combined with the clerk’s entry (shared days counted once)':''));
+      close();render();if(again)clOpenAdd(null,cat)};
+    $('#mdForm').onsubmit=e=>{e.preventDefault();save(false)};const mo=$('#claMore');if(mo)mo.onclick=()=>save(true);
+    setTimeout(()=>{const x=ex?$('#claN'):$('#claFind');if(x)x.focus()},50)})}
+
+/* ---------- runs: new, close, reopen, delete, free up storage ---------- */
+function clDefPeriod(){const t=todayStr(),[y,m,d]=t.split('-').map(Number);if(d<=15){const pm=addM(t.slice(0,7),-1);return[pm+'-16',pm+'-'+pad(daysIn(pm))]}return[t.slice(0,7)+'-01',t.slice(0,7)+'-15']}
+function clNewRun(){if(clOpenRun()){toast('Close the open run ('+clRef(clOpenRun())+') before starting a new one');return}
+  const c=clCfg(),[df,dt]=clDefPeriod();
+  pcrModal(`${mdHead('Start a new payment run')}
+    <p class="small muted" style="margin:0">Each run is kept separate: its own uploads, added workers, approval file and bank file. Leave the dates blank to take them from the clerks’ files.</p>
+    <div class="fgrid"><div class="field"><label for="nrFrom">Pay period from</label><input type="date" id="nrFrom" placeholder="${df}"></div><div class="field"><label for="nrTo">to</label><input type="date" id="nrTo"></div></div>
+    <div class="inline-actions"><button class="btn ghost sm" type="button" id="nrSug">Use ${esc(fmtD(df))} – ${esc(fmtD(dt))}</button></div>
+    <div class="inline-actions"><button class="btn" type="submit">Start run ${esc('CL/'+String(df).slice(0,4)+'/'+String(c.seq+1).padStart(2,'0'))}</button></div>`,close=>{
+    $('#nrSug').onclick=()=>{$('#nrFrom').value=df;$('#nrTo').value=dt};
+    $('#mdForm').onsubmit=e=>{e.preventDefault();const f=$('#nrFrom').value,t=$('#nrTo').value;if((f&&!t)||(t&&!f)||(f&&t&&t<f)){toast('Choose both dates, with the end after the start');return}
+      c.seq=num(c.seq)+1;const run={id:nid(),no:c.seq,status:'open',created:Date.now(),by:pcrMyName(),from:f||'',to:t||'',fixed:!!f,uploads:[],manual:[],excl:[]};
+      CL.runs[run.id]=run;ui.cl.run=run.id;ui.cl.tab='uploads';clSaveCfg();clSaveRun(run);close();render();toast('Payment run '+clRef(run)+' started. Upload the clerks’ files.')}})}
+function clCloseRun(run){const B=clBuild(run);const bad=B.warn.filter(w=>w.lvl==='bad').length;
+  pcrModal(`${mdHead('Close & finalise '+esc(clRef(run)))}
+    <div class="kv"><span>Pay period</span><b>${B.from?esc(fmtD(B.from)+' – '+fmtD(B.to)):'Not set'}</b></div>
+    <div class="kv"><span>Workers on the bank file</span><b>${B.bank.length}</b></div>
+    <div class="kv big"><span>Grand total</span><b>${fmt(B.total)}</b></div>
+    ${bad?`<div class="pcbal warn">${bad} item${bad===1?' needs':'s need'} attention (missing ID or phone, or no rate). See the dashboard checks.</div>`:''}
+    <p class="small muted">Closing locks the run: no more uploads or changes. Reports stay available to download, and you can then start the next cycle. You can reopen the most recent run if needed.</p>
+    <div class="inline-actions"><button class="btn" type="submit">Close &amp; finalise</button></div>`,close=>{
+    $('#mdForm').onsubmit=e=>{e.preventDefault();run.status='closed';run.closedAt=Date.now();run.closedBy=pcrMyName();run.total=B.total;run.workers=B.bank.length;if(!run.from){run.from=B.from;run.to=B.to}
+      clSaveRun(run);close();render();toastAction(clRef(run)+' closed','Start next run',clNewRun)}})}
+function clAsk(title,body,btn,fn,danger){pcrModal(`${mdHead(title)}<p class="small" style="margin:0">${body}</p><div class="inline-actions"><button class="btn ${danger?'danger':''}" type="submit">${btn}</button></div>`,close=>{$('#mdForm').onsubmit=e=>{e.preventDefault();close();fn()}})}
+function clRename(C){const run=clCur();pcrModal(`${mdHead('Rename category')}<p class="small muted" style="margin:0">Renaming also maps future uploads of “${esc(C.name)}” to the new name. Use an existing name to merge two categories.</p>
+  <div class="field"><label for="rnN">New name</label><input id="rnN" value="${esc(C.name)}"></div><div class="inline-actions"><button class="btn" type="submit">Rename</button></div>`,close=>{
+  $('#mdForm').onsubmit=e=>{e.preventDefault();const v=clTitle($('#rnN').value.trim());if(!v||v===C.name){close();return}const c=clCfg();c.alias[clCatKey(C.name)]=v;if(c.kinds[C.name]){c.kinds[v]=c.kinds[v]||c.kinds[C.name]}
+    if(run)(run.manual||[]).forEach(m=>{if(clCatKey(clCanon(m.cat))===clCatKey(v))m.cat=v});clSaveCfg();if(run)clSaveRun(run);ui.cl.cat=clCatKey(v);close();render();toast('Category renamed to '+v)};setTimeout(()=>$('#rnN').select(),40)})}
+
+/* ---------- screen ---------- */
+function vCL(){if(!ui.cl)ui.cl={tab:'dash'};setTimeout(pcrFontsPreview,0);
+  const c=clCfg(),runs=clRuns(),open=clOpenRun();const run=clCur();if(run)ui.cl.run=run.id;
+  const fileIn='<input type="file" id="clFile" accept=".xlsx,.xlsm" multiple hidden>';
+  const head=`<div class="pageh"><div><h1>Casual Labour${c.org?' · '+esc(c.org):''}</h1><p>Combine the data clerks’ casual labour workbooks into one executive approval file and one de-duplicated bank payment file. Visible to the super admin only.</p></div>
+    <div class="inline-actions">${open?`<label class="btn" for="clFile" style="display:inline-flex;align-items:center">Upload clerk files</label><button class="btn ghost" data-act="clAdd">+ Add worker</button>`:`<button class="btn" data-act="clNewRun">+ New payment run</button>`}</div>${fileIn}</div>`;
+  if(!run)return head+`<section class="grid"><div class="card s12"><div class="empty"><p><b>No payment runs yet.</b></p><p class="small">Start a run, upload the clerks’ Excel workbooks (one sheet per category: Field Operations, Desuckering, Offloaders…), add anyone missing, then download the approval file and the bank file.</p><button class="btn" data-act="clNewRun">Start the first payment run</button></div></div></section>`;
+  const B=clBuild(run),closed=run.status==='closed',tab=ui.cl.tab||'dash';
+  const nBad=B.warn.filter(w=>w.lvl==='bad').length,nWarn=B.warn.filter(w=>w.lvl==='warn').length;
+  const hero=`<div class="card hero s12"><div><div class="eyebrow">${esc(clRef(run))} · ${closed?'Closed '+esc(fmtD(new Date(run.closedAt).toISOString().slice(0,10))):'Open'}</div><div class="nw">${M(B.total)}</div>
+    <div class="nwsplit"><div><span>Pay period</span><br><b>${B.from?esc(fmtD(B.from))+' – '+esc(fmtD(B.to)):'Not set yet'}</b></div><div><span>Workers to pay</span><br><b>${B.bank.length}</b></div><div><span>Uploads</span><br><b>${(run.uploads||[]).filter(u=>!u.archived).length}${(run.manual||[]).length?' + '+run.manual.length+' added':''}</b></div></div></div>
+    <div><div class="eyebrow">Expenditure by category</div><div class="kpis" style="margin-top:8px">${B.cats.map(C=>`<div class="kpi"><small>${esc(C.name)} · ${C.rows.length}</small><b>${M(C.total)}</b></div>`).join('')||'<div class="kpi"><small>Nothing uploaded yet</small><b>–</b></div>'}</div></div></div>`;
+  const tabs=[['dash','Dashboard'],['uploads','Uploads'],['cats','Categories'],['add','Added workers'],['bank','Bank file'],['runs','Runs & settings']];
+  const sel=`<div class="card s12"><div class="setbar"><div class="field" style="min-width:min(320px,100%)"><label for="cl-run">Payment run</label><select id="cl-run">${runs.map(r=>`<option value="${r.id}" ${r.id===run.id?'selected':''}>${esc(clRef(r))} · ${r.from?esc(fmtD(r.from)+' – '+fmtD(r.to)):'dates from uploads'} · ${r.status==='open'?'open':'closed'}</option>`).join('')}</select></div>
+    <div class="inline-actions">${closed?(open?'':`<button class="btn ghost sm" data-act="clReopen">Reopen</button><button class="btn sm" data-act="clNewRun">+ New payment run</button>`):`<button class="btn sm" data-act="clClose">Close &amp; finalise run</button>`}</div></div>
+    <div class="seg pcrtabs" role="tablist">${tabs.map(([k,l])=>`<button type="button" data-act="clTab" data-v="${k}" aria-pressed="${tab===k}">${l}${k==='dash'&&nBad?' ⚠':''}</button>`).join('')}</div></div>`;
+  const dl=k=>`<div class="expgrp"><span class="small muted">Download</span><button class="btn sm" data-act="clExp" data-k="${k}" data-f="xlsx">Excel</button><button class="btn ghost sm" data-act="clExp" data-k="${k}" data-f="pdf">PDF</button><button class="btn ghost sm" data-act="clExp" data-k="${k}" data-f="csv">CSV</button></div>`;
+  const warnCard=L=>L.length?`<div class="card s12"><div class="card-h"><h2>Checks</h2><span class="small muted">${nBad?nBad+' to fix · ':''}${nWarn} to review · ${L.length-nBad-nWarn} for information</span></div>${L.slice(0,ui.cl.allW?400:12).map(w=>`<div class="cl-w ${w.lvl}"><span class="pill ${w.lvl==='bad'?'bad':w.lvl==='warn'?'warn':''}">${w.lvl==='bad'?'Fix':w.lvl==='warn'?'Review':'Info'}</span><span class="small">${esc(w.msg)}</span></div>`).join('')}${L.length>12?`<button class="addrow" data-act="clAllW">${ui.cl.allW?'Show fewer':'Show all '+L.length+' checks'}</button>`:''}</div>`:'';
+  const lock=closed?`<div class="banner"><p><b>${esc(clRef(run))} is closed.</b> It can’t be changed, but every report can still be downloaded.${open?'':' Reopen it to make changes.'}</p></div>`:'';
+  let body='';
+  if(tab==='dash'){
+    body=`<div class="card s6"><div class="card-h"><h2>1 · Executive approval file</h2></div><p class="small muted" style="margin-top:0">Dashboard summary plus one itemised sheet per category, with the Selu logo and Aptos font. Excel keeps live formulas.</p>${dl('appr')}</div>
+      <div class="card s6"><div class="card-h"><h2>2 · Consolidated bank file</h2></div><p class="small muted" style="margin-top:0">${B.bank.length} workers listed once each${B.multi?', '+B.multi+' paid across more than one category':''}. Alphabetical. Total ${fmt(B.total)}.</p>${dl('bank')}</div>
+      ${warnCard(B.warn)}
+      <div class="card s12"><div class="card-h"><h2>Approval summary preview</h2><span class="small muted">The downloads add the itemised category pages</span></div>${B.cats.length?pcrHTML(clModel(run,B,'appr',{summary:true})):'<div class="empty">Upload the clerks’ files to see the summary.</div>'}</div>`}
+  else if(tab==='uploads'){
+    const ups=run.uploads||[];
+    body=`${closed?'':`<div class="card s12"><div class="card-h"><h2>Upload clerk workbooks</h2></div>
+      <label class="cl-drop" for="clFile"><b>Choose one or more .xlsx files</b><span class="small muted">Each sheet is read as a category (Field Operations, Desuckering, Detasseling, Offloaders…). “Bank File” and summary sheets are skipped, because the bank file is rebuilt here. You can upload several clerks’ files into the same run.</span></label>
+      <div class="fgrid" style="margin-top:10px;max-width:520px"><div class="field"><label for="cl-clerk">Data clerk’s name (optional)</label><input id="cl-clerk" value="${esc(ui.cl.clerk||'')}" placeholder="Taken from the file name if blank"></div></div></div>`}
+      ${ups.map(u=>{const tot=r2(sum(u.sheets,clSheetTot));return`<div class="card s12"><div class="card-h"><div><h2>${esc(u.file)}</h2><span class="small muted">${u.archived?'Original clerk files were deleted to free up space; this is the consolidated copy':esc(u.clerk)+' · uploaded '+esc(new Date(u.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+(u.by?' by '+esc(u.by):'')}</span></div>
+        <div class="inline-actions"><b>${M(tot)}</b>${closed?'':`<button class="btn ghost sm danger-t" data-act="clUpDel" data-id="${u.id}">Delete upload</button>`}</div></div>
+        <div class="tw"><table><thead><tr><th>Sheet</th><th>Category</th><th>Paid by</th><th class="n">Workers</th><th>Dates</th><th class="n">Rows add up to</th><th class="n">Clerk’s total</th><th>Check</th></tr></thead><tbody>
+        ${u.sheets.map(s=>{const st=clSheetTot(s),ok=typeof s.clerkTot!=='number'||Math.abs(s.clerkTot-st)<=1;return`<tr><td>${esc(s.sheet)}</td><td>${esc(clCanon(s.cat))}</td><td>${s.kind==='unit'?'Per bag':'Daily rate'}</td><td class="n">${s.rows.length}</td><td class="small">${s.dates.length?esc(fmtD(s.dates[0]).replace(/ \d{4}$/,''))+' – '+esc(fmtD(s.dates[s.dates.length-1]))+' · '+s.dates.length+' cols':'–'}</td><td class="n">${M(st)}</td><td class="n">${typeof s.clerkTot==='number'?M(s.clerkTot):'–'}</td><td>${ok?'<span class="pill good">OK</span>':'<span class="pill warn">Differs</span>'}${(s.warn||[]).length?` <span class="small muted" title="${esc(s.warn.join(' '))}">${s.warn.length} note${s.warn.length===1?'':'s'}</span>`:''}</td></tr>`}).join('')}
+        </tbody></table></div>${(u.skipped||[]).length?`<p class="small muted" style="margin:8px 0 0">Not read: ${esc(u.skipped.join(', '))}</p>`:''}</div>`}).join('')||'<div class="card s12"><div class="empty">No files uploaded to this run yet.</div></div>'}`}
+  else if(tab==='cats'){
+    const C=B.cats.find(x=>x.key===ui.cl.cat)||B.cats[0];if(C)ui.cl.cat=C.key;
+    if(!C)body='<div class="card s12"><div class="empty">No categories yet. Upload the clerks’ files or add a worker.</div></div>';
+    else{const u=C.kind==='unit',grid=!!ui.cl.grid;const exL=(run.excl||[]).filter(x=>x.startsWith(C.key+'|'));
+      const dcols=grid?C.dates:[];
+      body=`<div class="card s12"><div class="ex-opts" style="margin-bottom:10px">${B.cats.map(k=>`<button type="button" class="optchip" data-act="clCat" data-v="${k.key}" aria-pressed="${k.key===C.key}">${esc(k.name)} · ${k.rows.length}</button>`).join('')}</div>
+       <div class="card-h"><div><h2>${esc(C.name)}</h2><span class="small muted">${C.rows.length} workers · ${u?clFmtN(C.units)+' bags':C.days+' worker-days'} · ${esc(u?'paid per bag':'paid per day')} · sorted A–Z</span></div>
+        <div class="inline-actions"><b>${M(C.total)}</b><button class="optchip" data-act="clGrid" aria-pressed="${grid}">${grid?'✓ ':''}Show each day</button>${closed?'':`<button class="btn ghost sm" data-act="clRen">Rename</button><button class="btn sm" data-act="clAdd" data-c="${esc(C.name)}">+ Add worker</button>`}</div></div>
+       <div class="tw"><table class="cl-t"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone</th><th>Gender</th>${C.xk.map(k=>`<th>${esc(k)}</th>`).join('')}${dcols.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}<th class="n">${u?'Bags':'Days'}</th><th class="n">${u?'Rate / bag':'Rate'}</th><th class="n">Amount</th><th></th></tr></thead><tbody>
+       ${C.rows.map((w,i)=>`<tr><td>${i+1}</td><td><b>${esc(w.n)}</b><div class="small muted">${esc(w.src.join(', '))}</div></td><td>${esc(w.id||'')}${clIdNorm(w.id)?'':' <span class="pill bad">ID</span>'}</td><td>${esc(w.ph||'')}${clPhoneOk(w.ph)?'':' <span class="pill bad">Phone</span>'}</td><td>${esc(w.g||'')}</td>${C.xk.map(k=>`<td>${esc(w.x[k]||'')}</td>`).join('')}
+         ${dcols.map(d=>`<td class="n cl-dc">${w.d[d]!=null?(u?clFmtN(w.d[d]):(num(w.d[d])===w.r?'✓':clFmtN(w.d[d]))):''}</td>`).join('')}
+         <td class="n">${clFmtN(u?w.units:w.days)}</td><td class="n">${w.r?clFmtN(w.r)+(w.rv?'*':''):''}</td><td class="n"><b>${M(w.amt)}</b></td>
+         <td>${closed?'':`<div class="inline-actions">${w.mids.length?`<button class="x" data-act="clEdit" data-id="${w.mids[w.mids.length-1]}" aria-label="Edit">✎</button>`:''}<button class="x" data-act="clRm" data-k="${esc(C.key+'|'+w.key)}" data-n="${esc(w.n)}" aria-label="Remove from this run">×</button></div>`}</td></tr>`).join('')}
+       <tr class="tot"><td colspan="${5+C.xk.length+dcols.length}">Total · ${C.rows.length} workers</td><td class="n">${clFmtN(u?C.units:C.days)}</td><td></td><td class="n">${M(C.total)}</td><td></td></tr></tbody></table></div>
+       ${C.rows.some(w=>w.rv)?'<p class="small muted">* The daily rate varies over the period; the amount is the sum of the actual days.</p>':''}
+       ${exL.length?`<div class="cl-rm"><b class="small">Removed from this run (${exL.length})</b>${exL.map(k=>{const nm=(run.exclN||{})[k]||k.split('|')[1];return`<span class="inline-actions"><span class="small">${esc(nm)}</span>${closed?'':`<button class="btn ghost sm" data-act="clUnrm" data-k="${esc(k)}">Restore</button>`}</span>`}).join('')}</div>`:''}</div>`}}
+  else if(tab==='add'){const L=(run.manual||[]).slice().sort((a,b)=>clCanon(a.cat).localeCompare(clCanon(b.cat))||a.n.localeCompare(b.n));
+    body=`<div class="card s12"><div class="card-h"><div><h2>Workers added by the super admin</h2><span class="small muted">People missing from the clerks’ files. They are merged into their category in alphabetical order and into the bank file. ${Object.keys(clReg()).length} workers are saved for auto-fill.</span></div>${closed?'':'<button class="btn sm" data-act="clAdd">+ Add worker</button>'}</div>
+     <div class="tw"><table><thead><tr><th>Category</th><th>Name</th><th>ID No</th><th>Phone</th><th class="n">Days / bags</th><th class="n">Rate</th><th class="n">Amount</th><th></th></tr></thead><tbody>
+     ${L.map(m=>{const q=Object.values(m.d||{}).map(num),amt=m.kind==='unit'?sum(q)*num(m.r):sum(q);return`<tr><td>${esc(clCanon(m.cat))}</td><td><b>${esc(m.n)}</b><div class="small muted">${esc(Object.keys(m.d||{}).sort().map(d=>fmtD(d).replace(/ \d{4}$/,'')).join(', '))}</div></td><td>${esc(m.id)}</td><td>${esc(m.ph)}</td><td class="n">${m.kind==='unit'?clFmtN(sum(q))+' bags':q.length+' days'}</td><td class="n">${clFmtN(m.r)}</td><td class="n"><b>${M(amt)}</b></td>
+       <td>${closed?'':`<div class="inline-actions"><button class="x" data-act="clEdit" data-id="${m.mid}" aria-label="Edit">✎</button><button class="x" data-act="clMDel" data-id="${m.mid}" aria-label="Delete">×</button></div>`}</td></tr>`}).join('')||'<tr><td colspan="8" class="muted">No workers added by hand in this run.</td></tr>'}</tbody></table></div></div>`}
+  else if(tab==='bank'){
+    body=`<div class="card s12"><div class="card-h"><div><h2>Consolidated bank payment file</h2><span class="small muted">${B.bank.length} workers, each listed once · earnings across categories combined · A–Z</span></div><div class="inline-actions"><b>${M(B.total)}</b>${dl('bank')}</div></div>
+     <div class="tw"><table><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th>${B.cats.map(C=>`<th class="n">${esc(C.name)}</th>`).join('')}<th class="n">Days</th><th class="n">Total</th></tr></thead><tbody>
+     ${B.bank.map((b,i)=>`<tr><td>${i+1}</td><td><b>${esc(b.n)}</b></td><td>${esc(b.id||'')}${clIdNorm(b.id)?'':' <span class="pill bad">ID</span>'}</td><td>${esc(b.ph||'')}${clPhoneOk(b.ph)?'':' <span class="pill bad">Phone</span>'}</td><td>${esc(b.g||'')}</td>${B.cats.map(C=>`<td class="n">${b.by[C.key]?M(b.by[C.key]):''}</td>`).join('')}<td class="n">${b.days||''}</td><td class="n"><b>${M(b.amt)}</b></td></tr>`).join('')}
+     <tr class="tot"><td colspan="5">Total · ${B.bank.length} workers</td>${B.cats.map(C=>`<td class="n">${M(C.total)}</td>`).join('')}<td class="n">${sum(B.bank,b=>b.days)}</td><td class="n">${M(B.total)}</td></tr></tbody></table></div></div>`}
+  else{const W=Object.entries(clReg()).sort((a,b)=>a[1].n.localeCompare(b[1].n));const kb=x=>Math.max(1,Math.round(JSON.stringify(x||{}).length/1024));
+    body=`<div class="card s12"><div class="card-h"><h2>Payment runs</h2>${open?'':'<button class="btn sm" data-act="clNewRun">+ New payment run</button>'}</div>
+      <div class="tw"><table><thead><tr><th>Ref</th><th>Pay period</th><th>Status</th><th class="n">Workers</th><th class="n">Total</th><th class="n">Stored</th><th></th></tr></thead><tbody>
+      ${runs.map(r=>{const b=r.id===run.id?B:null;const tot=b?b.total:r.total,wk=b?b.bank.length:r.workers;return`<tr><td><b>${esc(clRef(r))}</b></td><td>${r.from?esc(fmtD(r.from)+' – '+fmtD(r.to)):'<span class="muted">from uploads</span>'}</td><td>${r.status==='open'?'<span class="pill warn">Open</span>':'<span class="pill good">Closed</span>'}${r.archived?' <span class="pill">Compacted</span>':''}</td><td class="n">${wk!=null?wk:'–'}</td><td class="n">${tot!=null?M(tot):'–'}</td><td class="n small">${kb(r)} KB</td>
+        <td><div class="inline-actions"><button class="btn ghost sm" data-act="clGo" data-id="${r.id}">Open</button>${r.status==='closed'&&!r.archived&&(r.uploads||[]).length?`<button class="btn ghost sm" data-act="clCompact" data-id="${r.id}">Free up space</button>`:''}<button class="btn ghost sm danger-t" data-act="clDelRun" data-id="${r.id}">Delete</button></div></td></tr>`}).join('')}</tbody></table></div>
+      <p class="small muted" style="margin-bottom:0">“Free up space” deletes a closed run’s uploaded clerk files and keeps one consolidated copy, so every report still downloads. “Delete” removes the whole run.</p></div>
+     ${closed?'':`<div class="card s6"><div class="card-h"><h2>This run’s pay period</h2></div><p class="small muted" style="margin-top:0">${run.fixed?'Set by you.':'Taken from the dates in the uploaded files.'} Printed on every report.</p>
+      <div class="fgrid"><div class="field"><label for="cl-from">From</label><input type="date" id="cl-from" value="${esc(B.from||'')}"></div><div class="field"><label for="cl-to">To</label><input type="date" id="cl-to" value="${esc(B.to||'')}"></div></div>${run.fixed?'<button class="addrow" data-act="clAuto">Use the dates from the uploads</button>':''}</div>`}
+     <div class="card ${closed?'s12':'s6'}"><div class="card-h"><h2>Report details</h2></div>
+      <div class="logoset"><img src="${pcrLogo()}" alt="Selu logo"><span class="small muted">Same logo as the Petty Cash reports (change it in Petty Cash › Setup).</span></div>
+      <div class="fgrid" style="margin-top:12px"><div class="field"><label for="clc-org">Organisation / farm</label><input id="clc-org" data-clcfg="org" value="${esc(c.org||'')}"></div><div class="field"><label for="clc-title">Approval file title</label><input id="clc-title" data-clcfg="title" value="${esc(c.title||'')}"></div></div>
+      <div class="eyebrow" style="margin:14px 0 6px">Approval signatories</div>
+      ${c.sign.map((s,i)=>`<div class="fgrid" style="margin-bottom:8px"><div class="field"><label for="cls-r${i}">Role</label><input id="cls-r${i}" data-clsign="${i}" data-f="role" value="${esc(s.role)}"></div><div class="field"><label for="cls-n${i}">Name</label><input id="cls-n${i}" data-clsign="${i}" data-f="name" value="${esc(s.name)}"></div><button class="x" style="align-self:end" data-act="clSignDel" data-i="${i}" aria-label="Remove">×</button></div>`).join('')}
+      <button class="addrow" data-act="clSignAdd">+ Add signatory</button></div>
+     <div class="card s12"><div class="card-h"><div><h2>Saved workers</h2><span class="small muted">${W.length} people. Filled in automatically when you add a worker, and used to complete missing phone numbers or IDs in uploads. Use the search box above to find someone.</span></div></div>
+      <div class="tw"><table><thead><tr><th>Name</th><th>ID No</th><th>Phone</th><th>Gender</th><th>Categories &amp; rates</th><th></th></tr></thead><tbody>
+      ${W.slice(0,ui.cl.allReg?5000:150).map(([k,o])=>`<tr><td>${esc(o.n)}</td><td>${esc(o.id||'')}</td><td>${esc(o.ph||'')}</td><td>${esc(o.g||'')}</td><td class="small">${esc(Object.entries(o.c||{}).map(([cn,rt])=>cn+(rt?' @ '+clFmtN(rt):'')).join(', '))}</td><td><button class="x" data-act="clRegDel" data-k="${esc(k)}" aria-label="Forget">×</button></td></tr>`).join('')||'<tr><td colspan="6" class="muted">Workers are saved automatically from uploads and manual additions.</td></tr>'}</tbody></table></div>
+      ${W.length>150?`<button class="addrow" data-act="clAllReg">${ui.cl.allReg?'Show fewer':'Show all '+W.length}</button>`:''}</div>`}
+  return head+`<section class="grid">${hero}${sel}${lock?`<div class="s12">${lock}</div>`:''}${body}</section>`}
+
+function clAction(a,t){const run=clCur(),closed=run&&run.status==='closed';
+  const W=new Set(['clAdd','clEdit','clRm','clUnrm','clMDel','clUpDel','clRen','clAuto']);if(W.has(a)&&closed){toast('This run is closed. Reopen it to make changes.');return true}
+  if(a==='clTab'){ui.cl.tab=t.dataset.v;render()}
+  else if(a==='clNewRun')clNewRun();
+  else if(a==='clAdd')clOpenAdd(null,t.dataset.c);
+  else if(a==='clEdit')clOpenAdd(t.dataset.id);
+  else if(a==='clExp')clExport(t.dataset.k,t.dataset.f);
+  else if(a==='clCat'){ui.cl.cat=t.dataset.v;render()}
+  else if(a==='clGrid'){ui.cl.grid=!ui.cl.grid;render()}
+  else if(a==='clAllW'){ui.cl.allW=!ui.cl.allW;render()}
+  else if(a==='clAllReg'){ui.cl.allReg=!ui.cl.allReg;render()}
+  else if(a==='clGo'){ui.cl.run=t.dataset.id;ui.cl.tab='dash';render();window.scrollTo(0,0)}
+  else if(a==='clClose'){if(run)clCloseRun(run)}
+  else if(a==='clReopen'){if(!run)return true;if(clOpenRun()){toast('Close '+clRef(clOpenRun())+' first');return true}if(clRuns()[0]!==run){toast('Only the most recent run can be reopened');return true}
+    run.status='open';delete run.closedAt;clSaveRun(run);render();toast(clRef(run)+' reopened')}
+  else if(a==='clRm'){const k=t.dataset.k;run.excl=(run.excl||[]).filter(x=>x!==k);run.excl.push(k);(run.exclN=run.exclN||{})[k]=t.dataset.n;
+    clSaveRun(run);render();toastAction(t.dataset.n+' removed from this run','Undo',()=>{run.excl=run.excl.filter(x=>x!==k);clSaveRun(run);render()})}
+  else if(a==='clUnrm'){const k=t.dataset.k;run.excl=(run.excl||[]).filter(x=>x!==k);clSaveRun(run);render()}
+  else if(a==='clMDel'){const m=(run.manual||[]).find(x=>x.mid===t.dataset.id);if(!m)return true;run.manual=run.manual.filter(x=>x!==m);clSaveRun(run);render();toastAction(m.n+' deleted','Undo',()=>{run.manual.push(m);clSaveRun(run);render()})}
+  else if(a==='clUpDel'){const u=(run.uploads||[]).find(x=>x.id===t.dataset.id);if(!u)return true;
+    clAsk('Delete this upload?','“'+esc(u.file)+'” ('+esc(u.clerk)+') and its '+sum(u.sheets,s=>s.rows.length)+' worker rows will be removed from '+esc(clRef(run))+'. Saved worker details are kept.','Delete upload',()=>{const i=run.uploads.indexOf(u);run.uploads.splice(i,1);if(!run.fixed){run.from='';run.to=''}clSaveRun(run);render();
+      toastAction('Upload deleted','Undo',()=>{run.uploads.splice(i,0,u);clSaveRun(run);render()})},true)}
+  else if(a==='clRen'){const B=clBuild(run),C=B.cats.find(x=>x.key===ui.cl.cat)||B.cats[0];if(C)clRename(C)}
+  else if(a==='clAuto'){run.fixed=false;run.from='';run.to='';clSaveRun(run);render()}
+  else if(a==='clDelRun'){const r=CL.runs[t.dataset.id];if(!r)return true;
+    clAsk('Delete '+esc(clRef(r))+'?','The whole payment run, its uploads and added workers will be deleted from the database. Download the approval and bank files first if you need them. Saved worker details are kept.','Delete run',()=>{const keep=JSON.parse(JSON.stringify(r));delete CL.runs[r.id];queue('cl-run-'+r.id);if(ui.cl.run===r.id)ui.cl.run=null;render();
+      toastAction(clRef(keep)+' deleted','Undo',()=>{CL.runs[keep.id]=keep;clSaveRun(keep);render()})},true)}
+  else if(a==='clCompact'){const r=CL.runs[t.dataset.id];if(!r)return true;const before=JSON.stringify(r).length;
+    clAsk('Free up space in '+esc(clRef(r))+'?','The '+(r.uploads||[]).length+' uploaded clerk file'+((r.uploads||[]).length===1?'':'s')+' and the added-worker records are replaced by one consolidated copy. Every report stays exactly the same and can still be downloaded.','Free up space',()=>{clArchive(r);clSaveRun(r);render();{const kb=Math.round((before-JSON.stringify(r).length)/1024);toast(kb>0?'Freed about '+kb+' KB':'Done. This run was already compact')}})}
+  else if(a==='clSignAdd'){clCfg().sign.push({role:'',name:''});clSaveCfg();render()}
+  else if(a==='clSignDel'){clCfg().sign.splice(+t.dataset.i,1);clSaveCfg();render()}
+  else if(a==='clRegDel'){const W=clReg(),k=t.dataset.k,o=W[k];if(!o)return true;delete W[k];clSaveReg();render();toastAction(o.n+' forgotten','Undo',()=>{W[k]=o;clSaveReg();render()})}
+  else return false;
+  return true}
+document.addEventListener('input',ev=>{const el=ev.target;if(el.id==='cl-clerk'&&ui.cl)ui.cl.clerk=el.value});
+document.addEventListener('change',ev=>{const el=ev.target;if(!el.closest||!el.closest('#app')||ui.view!=='casual')return;
+  if(el.id==='cl-run'){ui.cl.run=el.value;render();return}
+  if(el.id==='clFile'){const fs=[...el.files];el.value='';if(fs.length)clUpload(fs);return}
+  const run=clCur();
+  if((el.id==='cl-from'||el.id==='cl-to')&&run&&run.status==='open'){const B=clBuild(run);const f=el.id==='cl-from'?el.value:($('#cl-from').value||B.from),t2=el.id==='cl-to'?el.value:($('#cl-to').value||B.to);
+    if(f&&t2&&t2<f){toast('The end date must be after the start date');render();return}run.from=f||'';run.to=t2||'';run.fixed=true;clSaveRun(run);render();return}
+  if(el.dataset.clcfg){clCfg()[el.dataset.clcfg]=el.value.trim();clSaveCfg();render();return}
+  if(el.dataset.clsign!=null){const s=clCfg().sign[+el.dataset.clsign];if(s){s[el.dataset.f]=el.value.trim();clSaveCfg()}return}
+});
+
 function render(){
   if(!P)return;_bal={};
   const act=document.activeElement&&document.activeElement.id;const sel=act&&document.activeElement.selectionStart;const sy=window.scrollY;
   $('#mLabel').textContent=mLabel(ui.month);
   $('#tabs').innerHTML=views().map(([k,l])=>`<a href="#${k}" ${ui.view===k?'aria-current="page"':''}>${l}</a>`).join('');
-  const f={dashboard:vDashboard,planner:vPlanner,tracker:vTracker,goals:vGoals,debt:vDebt,shopping:vShopping,setup:vSetup,users:vUsers,reports:vReports,pcr:vPCR}[ui.view]||vDashboard;
+  const f={dashboard:vDashboard,planner:vPlanner,tracker:vTracker,goals:vGoals,debt:vDebt,shopping:vShopping,setup:vSetup,users:vUsers,reports:vReports,pcr:vPCR,casual:vCL}[ui.view]||vDashboard;
   $('#app').innerHTML=f();
   if(store.viewing)$('#app').querySelectorAll('input,select').forEach(el=>{el.disabled=true});
   document.body.classList.toggle('private',ui.priv);
@@ -2450,7 +2996,7 @@ function render(){
 }
 /* ---------- faster editing: select several to delete, undo, Enter moves down ---------- */
 ui.sel=new Set();
-const SEARCH_VIEWS={planner:'Search the plan, e.g. airtime',goals:'Search projects and goals',debt:'Search debts, people and assets',shopping:'Search shopping items',setup:'Search accounts and sources',reports:'Search this report',pcr:'Search petty cash entries',dashboard:'Search the dashboard'};
+const SEARCH_VIEWS={planner:'Search the plan, e.g. airtime',goals:'Search projects and goals',debt:'Search debts, people and assets',shopping:'Search shopping items',setup:'Search accounts and sources',reports:'Search this report',pcr:'Search petty cash entries',casual:'Search workers by name, ID or phone',dashboard:'Search the dashboard'};
 function addSearch(){
   const ph=SEARCH_VIEWS[ui.view],head=document.querySelector('#app .pageh');let host=head;
   if(!ph)return;
@@ -2582,6 +3128,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.act==='fDates'){ui.txFilter.from='';ui.txFilter.to='';render();return}
   if(t.dataset.act==='useShop'){const c=P.cats.find(x=>x.id===t.dataset.id);if(c){c.budget=Math.round(shopTotal());saveP();toast(c.name+' budget set to the shopping list total');render()}return}
   if(t.dataset.act&&/^pc[A-Z]/.test(t.dataset.act)){if(store.viewing){toast('Read-only');return}if(pcrAction(t.dataset.act,t))return}
+  if(t.dataset.act&&/^cl[A-Z]/.test(t.dataset.act)){if(store.viewing||!isAdmin()){toast('Read-only');return}if(clAction(t.dataset.act,t))return}
   if(t.dataset.act==='dPer'){ui.dash.preset=t.dataset.v;render();return}
   if(t.dataset.act==='quick'){const v=t.dataset.v;openLog({t:{type:v==='move'?'move':v,date:ui.month===curMK()?todayStr():ui.month+'-01',saves:{}}});return}
   if(t.dataset.act==='selOn'){ui.selMode=true;ui.sel=new Set();render();return}
@@ -2776,7 +3323,7 @@ let toastT;function toast(msg){let el=$('.toast');if(!el){el=document.createElem
 $('#mPrev').onclick=()=>{ui.month=addM(ui.month,-1);render()};
 $('#mNext').onclick=()=>{ui.month=addM(ui.month,1);render()};
 $('#privBtn').onclick=()=>{ui.priv=!ui.priv;lsSet('hz-priv',ui.priv?'1':'0');render()};
-$('#fab').onclick=()=>{if(store.viewing){toast('Read-only: you are viewing another account');return}if(ui.view==='pcr'&&!pcrViewer()){openPcr(null,{k:'ap',s:'paid'});return}openLog()};
+$('#fab').onclick=()=>{if(store.viewing){toast('Read-only: you are viewing another account');return}if(ui.view==='pcr'&&!pcrViewer()){openPcr(null,{k:'ap',s:'paid'});return}if(ui.view==='casual'){const r=clCur();if(r&&r.status==='open')clOpenAdd();else toast(r?'This run is closed. Start a new payment run first.':'Start a payment run first');return}openLog()};
 window.addEventListener('hashchange',route);
 document.body.classList.toggle('private',ui.priv);
 $('#app').innerHTML='<div class="empty">Loading your finances…</div>';
