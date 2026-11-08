@@ -213,6 +213,12 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 .cl-svg{width:100%;height:auto;display:block}.cl-svg .cl-grid{stroke:var(--line);stroke-width:1}.cl-svg .cl-ax{fill:var(--ink-2);font-size:10px}.cl-svg rect:hover,.cl-svg path:hover{opacity:.85}
 .cl-hb{display:grid;grid-template-columns:90px 1fr 40px;gap:10px;align-items:center;padding:4px 0}.cl-hb b{text-align:right}
 td.cl-dual,.cl-dual{background:color-mix(in srgb,var(--cs4) 20%,transparent)}
+.cl-green{background:#1D8A4B;color:#fff}.cl-green:hover{filter:brightness(1.07)}
+.cl-defbox{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:12px}
+.cl-deft td input,.cl-deft td select{min-width:0;border:1px solid var(--line);background:var(--surface)}.cl-deft td:nth-child(5) select{min-width:92px}.cl-deft td:nth-child(6) select{min-width:150px}.cl-deft td:nth-child(7) input{min-width:72px}.cl-deft td:nth-child(2) input.wide{min-width:190px}.cl-deft td input.wide{min-width:180px}.cl-deft td:nth-child(3) input,.cl-deft td:nth-child(4) input{min-width:108px}
+.cl-dbox{padding:2px!important}.cl-dbox input{width:56px!important;min-width:56px!important;text-align:center!important;padding:6px 2px!important;border-radius:4px!important}
+.cl-mini{width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+.ex-opts select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
 /* casual labour */
 .cl-drop{display:flex;flex-direction:column;gap:4px;border:1.5px dashed var(--line);border-radius:12px;padding:18px;cursor:pointer;background:var(--surface-2)}
 .cl-drop:hover{border-color:var(--accent)}.cl-drop b{color:var(--accent)}
@@ -225,6 +231,7 @@ td.cl-dual,.cl-dual{background:color-mix(in srgb,var(--cs4) 20%,transparent)}
 .cl-t td{white-space:nowrap}.cl-t td:nth-child(2){white-space:normal;min-width:170px}
 th.cl-dc{font-size:.66rem;letter-spacing:0;line-height:1.15;text-align:center}td.cl-dc{font-size:.8rem;color:var(--ink);padding:6px 4px;border:1px solid var(--line);text-align:center;min-width:44px}
 .cl-rm{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface-2)}
+td input.trk-name{font-weight:500}
 /* refresh, search, dashboard bar, PCR */
 #refreshBtn.spin span:first-child{display:inline-block;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -835,11 +842,12 @@ const debtPays=d=>allTx().filter(t=>t.type==='expense'&&t.cat==='debt:'+d.id);
 const debtPaid=d=>sum(debtPays(d),t=>num(t.amt));
 const debtLeft=d=>Math.max(0,num(d.owed)-debtPaid(d));
 const projSpent=p=>sum(allTx().filter(t=>t.type==='expense'&&t.cat==='proj:'+p.id),xTot);
+const otherName=()=>(P&&P.settings&&String(P.settings.otherName||'').trim())||'Transactions Fees and others';
 function catInfo(id){
-  if(!id)return{name:'Other',group:'wants',sub:'Other'};
+  if(!id)return{name:otherName(),group:'wants',sub:otherName()};
   if(id.startsWith('debt:')){const d=P.debts.find(x=>'debt:'+x.id===id);return{name:d?d.name:'Old debt',group:'debt',sub:'Loans & instalments',budget:d?num(d.monthly):0}}
   if(id.startsWith('proj:')){const p=P.projects.find(x=>'proj:'+x.id===id);return{name:p?p.name:'Old project',group:'proj',sub:'Projects',budget:p?num(p.budget):0}}
-  const c=P.cats.find(x=>x.id===id);return c?{name:c.name,group:c.group,sub:c.sub,budget:num(c.budget)}:{name:'Other',group:'wants',sub:'Other',budget:0};
+  const c=P.cats.find(x=>x.id===id);return c?{name:c.name,group:c.group,sub:c.sub,budget:num(c.budget)}:{name:otherName(),group:'wants',sub:otherName(),budget:0};
 }
 function plan(mk){
   const inc=planIncome(),save=sum(P.chambers,chTarget),debt=sum(P.debts.filter(d=>debtLeft(d)>0||!d.owed),d=>num(d.monthly));
@@ -1149,6 +1157,7 @@ function vPlanner(){
      <div class="card s6"><div class="card-h"><h2>Savings &amp; investments</h2><b>${M(p.save)}</b></div>${savTable()}</div>
      <div class="card s6"><div class="card-h"><h2>Needs: bills &amp; expenses</h2><b>${M(p.needs)}</b></div>${catTable('needs',needsSubs,true)}</div>
      <div class="card s6"><div class="card-h"><h2>Wants &amp; giving</h2><b>${M(p.wants)}</b></div>${catTable('wants',wantsSubs,wantsSubs.length>1)}
+       <div class="tw" style="margin-top:10px"><table><tbody><tr><td colspan="2">${inp('settings','','otherName',otherName(),{type:'text',cls:'wide'})}<div class="small muted">Spending logged without a category, e.g. transaction fees. Not budgeted; the amount comes from the Daily tracker.</div></td><td class="n">${M(actual(ui.month).byCat['']||0)}</td></tr></tbody></table></div>
        <div class="card-h" style="margin-top:22px"><h2>Planned projects</h2><b>${M(p.proj)}</b></div>${projTable()}</div>
      <div class="card s6"><div class="card-h"><h2>Loans &amp; instalments</h2><a class="small" href="#debt">See payment progress</a></div>${loansTable()}</div>`;
   }
@@ -1231,7 +1240,7 @@ function vTracker(){
   if(L.length>400)list+=`<p class="note">Showing the latest 400 of ${L.length}. Narrow the dates to see older entries.</p>`;
   const catRows=(group,label)=>{const list=group==='debt'?P.debts.map(d=>({id:'debt:'+d.id,name:d.name,budget:num(d.monthly)})):group==='proj'?P.projects.filter(x=>x.month===mk||a.byCat['proj:'+x.id]).map(x=>({id:'proj:'+x.id,name:x.name,budget:num(x.budget)})):P.cats.filter(c=>c.group===group).map(c=>({id:c.id,name:c.name,budget:num(c.budget),sub:c.sub}));
     if(!list.length)return '';const bs=sum(list,c=>c.budget),ss=sum(list,c=>a.byCat[c.id]||0);
-    return `<tr class="sub"><td>${label}</td><td class="n">${M(bs)}</td><td class="n">${M(ss)}</td><td class="n">${M(bs-ss)}</td><td></td></tr>`+list.map(c=>{const s=a.byCat[c.id]||0;return `<tr><td>${esc(c.name)}</td><td class="n">${M(c.budget)}</td><td class="n">${M(s)}</td><td class="n ${c.budget-s<0?'neg':''}">${M(c.budget-s)}</td><td style="min-width:90px">${bar(s,c.budget)}</td></tr>`}).join('')};
+    return `<tr class="sub"><td>${label}</td><td class="n">${M(bs)}</td><td class="n">${M(ss)}</td><td class="n">${M(bs-ss)}</td><td></td></tr>`+list.map(c=>{const s=a.byCat[c.id]||0;const bd=c.id.startsWith('debt:')?['debts',c.id.slice(5)]:c.id.startsWith('proj:')?['projects',c.id.slice(5)]:['cats',c.id];return `<tr><td>${inp(bd[0],bd[1],'name',c.name,{type:'text',cls:'wide trk-name'})}</td><td class="n">${M(c.budget)}</td><td class="n">${M(s)}</td><td class="n ${c.budget-s<0?'neg':''}">${M(c.budget-s)}</td><td style="min-width:90px">${bar(s,c.budget)}</td></tr>`}).join('')};
   const other=a.byCat['']||0;
   const srcList=[...P.sources.map(s=>s.id),...Object.keys(a.bySrc).filter(k=>!P.sources.some(s=>s.id===k))];
   return `${banner()}<div class="pageh"><div><h1>Daily tracker</h1><p>Everything logged for ${esc(mLabel(mk))}: income, savings, spending and money taken from savings.</p></div><button class="btn" data-act="openLog">+ Log transaction</button></div>
@@ -1255,7 +1264,7 @@ function vTracker(){
     ${list||'<div class="empty">No transactions match. Tap <b>Log</b> to record today’s money.</div>'}</div>
    <div class="card s5"><div class="card-h"><h2>Spending by category</h2><b>${M(a.spent)}</b></div>
     <div class="tw"><table><thead><tr><th>Category</th><th class="n">Budget</th><th class="n">Spent</th><th class="n">Left</th><th></th></tr></thead><tbody>
-    ${catRows('needs','Needs')}${catRows('wants','Wants')}${catRows('debt','Loans &amp; instalments')}${catRows('proj','Planned projects')}${other?`<tr><td>Other</td><td class="n">${M(0)}</td><td class="n">${M(other)}</td><td class="n neg">${M(-other)}</td><td>${bar(other,0)}</td></tr>`:''}
+    ${catRows('needs','Needs')}${catRows('wants','Wants')}${catRows('debt','Loans &amp; instalments')}${catRows('proj','Planned projects')}${other?`<tr><td>${inp('settings','','otherName',otherName(),{type:'text',cls:'wide trk-name'})}</td><td class="n">${M(0)}</td><td class="n">${M(other)}</td><td class="n neg">${M(-other)}</td><td>${bar(other,0)}</td></tr>`:''}
     </tbody></table></div></div>
   </section>`;
 }
@@ -1465,7 +1474,7 @@ function catOpts(withAll){
   P.cats.filter(c=>c.group==='wants').forEach(c=>o.push({v:c.id,l:c.name,g:'Wants'}));
   P.debts.forEach(d=>o.push({v:'debt:'+d.id,l:d.name,g:'Loans & instalments'}));
   P.projects.forEach(x=>o.push({v:'proj:'+x.id,l:x.name,g:'Planned projects · '+mLabel(x.month,1)}));
-  o.push({v:'__other',l:'Other',g:'Not in the plan'});return o;
+  o.push({v:'__other',l:otherName(),g:'Not in the plan'});return o;
 }
 const srcOpts=withAll=>[...(withAll?[{v:'',l:'All sources'}]:[]),...P.sources.map(s=>({v:s.id,l:s.name,g:'Income source'}))];
 const chOptsList=(B,withAvail,withAll)=>[...(withAll?[{v:'',l:'All accounts'}]:[]),...(withAvail?[{v:'avail',l:'Available to spend',g:B?fmt(B.avail):''}]:[]),...P.chambers.map(c=>({v:c.id,l:c.name,g:B?'Savings · '+fmt(B.ch[c.id]||0):'Savings account'}))];
@@ -1498,7 +1507,7 @@ function buildReport(){
     L.forEach(t=>{if(t.type==='save'&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:undefined,chAmt:0,_tot:feeOf(t),_kind:'fee',desc:'Fee: saving to '+saveLines(t).map(([k])=>chName(k)).join(', ')+(t.desc?' · '+t.desc:'')})});
     L.forEach(t=>{if((t.type==='withdraw'||t.type==='transfer')&&feeOf(t)>0)E.push({...t,cat:t.feeCat||'',amt:0,fee:feeOf(t),ch:t.ch,chAmt:feeOf(t),_tot:feeOf(t),_kind:'fee',desc:'Fee: '+(t.type==='withdraw'?'move from '+chName(t.ch)+' to Available':chName(t.ch)+' to '+chName(t.to))+(t.desc?' · '+t.desc:'')})});
     E.sort((a,b)=>a.date.localeCompare(b.date));
-    if(r.cat){E=E.filter(t=>r.cat==='__other'?!t.cat:t.cat===r.cat);out.filters.push('Category: '+(r.cat==='__other'?'Other':catInfo(r.cat).name))}
+    if(r.cat){E=E.filter(t=>r.cat==='__other'?!t.cat:t.cat===r.cat);out.filters.push('Category: '+(r.cat==='__other'?otherName():catInfo(r.cat).name))}
     if(r.ch){E=E.filter(t=>{const c=t.ch?Math.min(t._tot,num(t.chAmt)):0;return r.ch==='avail'?t._kind!=='wo'&&t._tot-c>0:t.ch===r.ch&&c>0});out.filters.push('Paid from: '+(r.ch==='avail'?'Available to spend':chName(r.ch)))}
     if(q){E=E.filter(t=>hit(t.desc,catInfo(t.cat).name));out.filters.push('Item: '+r.item)}
     const tot=sum(E,t=>t._tot),fromSav=sum(E,t=>t.ch?Math.min(t._tot,num(t.chAmt)):0),fees=sum(E,t=>feeOf(t));
@@ -2978,7 +2987,7 @@ function clAnalysis(run,B){
   return`<div class="card s12"><div class="card-h"><div><h2>Analysis · ${esc(clRef(run))}</h2><span class="small muted">${B.from?esc(fmtD(B.from)+' – '+fmtD(B.to))+' · '+B.days.length+' days':''}</span></div></div>${tiles}</div>${fl}${dc}${trend}${move}${att}${dual}${tp}`}
 
 /* ---------- screen ---------- */
-function vCL(){if(!ui.cl)ui.cl={tab:'dash'};setTimeout(pcrFontsPreview,0);
+function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};setTimeout(pcrFontsPreview,0);
   const c=clCfg(),R=c.rep,runs=clRuns(),open=clOpenRun();const run=clCur();if(run)ui.cl.run=run.id;
   const fileIn='<input type="file" id="clFile" accept=".xlsx,.xlsm" multiple hidden>';
   const head=`<div class="pageh"><div><h1>Casual Labour${c.org?' · '+esc(c.org):''}</h1><p>Turns the data clerks’ workbooks into an executive approval file and one consolidated bank file. Visible to the super admin only.</p></div>
@@ -3043,7 +3052,9 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash'};setTimeout(pcrFontsPreview,0);
     body=`<div class="card s12"><div class="card-h"><div><h2>Manual worker additions</h2><span class="small muted">People missing from the clerks’ files in ${esc(clRef(run))}. Each joins its category sheet in A–Z order and the bank file.</span></div>${closed?'':'<button class="btn sm" data-act="clAdd">+ Add entry</button>'}</div>
      <div class="tw"><table><thead><tr><th>Category</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th><th>Days worked</th><th class="n">Mandays / bags</th><th class="n">Rate</th><th class="n">Period total</th><th></th></tr></thead><tbody>
      ${L.map(m=>{const q=Object.values(m.d||{}).map(num),amt=m.kind==='unit'?sum(q)*num(m.r):sum(q);return`<tr><td>${esc(clCanon(m.cat))}</td><td><b>${esc(m.n)}</b></td><td>${esc(m.id)}</td><td>${esc(clPh(m.ph))}</td><td>${esc(m.g||'')}</td><td class="small">${esc(Object.keys(m.d||{}).sort().map(clDM).join(', '))}</td><td class="n">${m.kind==='unit'?clFmtN(sum(q))+' bags':q.length}</td><td class="n">${clFmtN(m.r)}</td><td class="n"><b>${M(amt)}</b></td>
-       <td>${closed?'':`<div class="inline-actions"><button class="x" data-act="clEdit" data-id="${m.mid}" aria-label="Edit">✎</button><button class="x" data-act="clMDel" data-id="${m.mid}" aria-label="Delete">×</button></div>`}</td></tr>`}).join('')||'<tr><td colspan="10" class="muted">No manual entries in this run. Use “+ Add entry”.</td></tr>'}</tbody></table></div></div>
+       <td>${closed?'':`<div class="inline-actions"><button class="x" data-act="clEdit" data-id="${m.mid}" aria-label="Edit">✎</button><button class="x" data-act="clMDel" data-id="${m.mid}" aria-label="Delete">×</button></div>`}</td></tr>`}).join('')||'<tr><td colspan="10" class="muted">No manual entries in this run. Use “+ Add entry” or the default list below.</td></tr>'}</tbody></table></div>
+     <label class="pcrswitch" style="margin-top:14px"><input type="checkbox" data-act="clDefShow" ${ui.cl.showDef?'checked':''}> <span><b>Show the default worker list</b> (${clDefs().length} people) <small class="muted" style="display:block">People often missing from the clerks’ files. Key their days and rates for this period, pick a category, then Apply Default.</small></span></label>
+     ${ui.cl.showDef?clDefHTML(run,B,closed):''}</div>
      <div class="card s6"><div class="card-h"><h2>Report options</h2></div><p class="small muted" style="margin-top:0">Apply to the preview, PDF, Excel and CSV. Files are named by the last day of the period, e.g. ${esc(clFile(run,B,'appr'))}.xlsx</p>${opts}</div>
      ${closed?'':`<div class="card s6"><div class="card-h"><h2>Pay period</h2></div><p class="small muted" style="margin-top:0">${run.fixed?'Set by you.':'Taken from the clerks’ main date range.'} Every report shows each day of this period, and only days inside it are paid.</p>
       <div class="fgrid"><div class="field"><label for="cl-from">From</label><input type="date" id="cl-from" value="${esc(B.from||'')}"></div><div class="field"><label for="cl-to">To</label><input type="date" id="cl-to" value="${esc(B.to||'')}"></div></div><p class="small" style="margin:8px 0 0">${B.days.length} days${run.fixed?' · <button class="addrow" style="margin:0" data-act="clAuto">Use the clerks’ dates</button>':''}</p></div>`}
@@ -3064,7 +3075,67 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash'};setTimeout(pcrFontsPreview,0);
       ${W.length>150?`<button class="addrow" data-act="clAllReg">${ui.cl.allReg?'Show fewer':'Show all '+W.length}</button>`:''}</div>`}
   return head+`<section class="grid">${hero}${sel}${lock?`<div class="s12">${lock}</div>`:''}${body}</section>`}
 
-function clAction(a,t){const run=clCur(),closed=run&&run.status==='closed';
+/* ---------- default worker list (people often missing from the clerks' files) ---------- */
+const CL_DEF_SEED=[['GRACE MBEGA','38303707','0182380944','FEMALE'],['MARCY MURIUKI','29812305','0759264315','FEMALE'],['MARY MWAUA','35412578','0717448195','FEMALE'],['ROSE KARISA','21660783','0796960788','FEMALE'],['SOFIA CHARO','31478596','0141290950','FEMALE']];
+function clDefs(){const c=clCfg();if(!Array.isArray(c.defaults))c.defaults=CL_DEF_SEED.map(([n,id,ph,g])=>({wid:nid(),n,id,ph:clPhone(ph),g,cat:'',r:0}));return c.defaults}
+const clDefRun=(run,wid)=>{if(!run.def||typeof run.def!=='object')run.def={};return run.def[wid]||(run.def[wid]={d:{}})};
+function clDefHTML(run,B,closed){const L=clDefs(),D=B.days,cats=B.cats.length?B.cats:Object.keys(clCfg().kinds).map(n=>({name:clCanon(n),kind:clCfg().kinds[n]}));const dis=closed?'disabled':'';
+  const kindOf=n=>(cats.find(C=>C.name===n)||{}).kind||'day';
+  const catSel=(id,val,attr)=>`<select id="${id}" ${attr} ${dis}><option value="">Choose…</option>${cats.map(C=>`<option value="${esc(C.name)}" ${C.name===val?'selected':''}>${esc(C.name)}${C.kind==='unit'?' (per bag)':''}</option>`).join('')}</select>`;
+  let gt=0,gd=0;
+  const rows=L.map((w,i)=>{const R=clDefRun(run,w.wid),u=kindOf(w.cat)==='unit';const q=D.map(d=>num(R.d[d]));const days=q.filter(v=>v>0).length,tot=u?sum(q)*num(w.r):sum(q);gt+=tot;gd+=days;
+    return`<tr><td>${i+1}</td><td><input id="cld-n-${w.wid}" data-cldf="n" data-w="${w.wid}" value="${esc(w.n)}" class="wide" style="text-transform:uppercase" ${dis} aria-label="Name"></td>
+      <td><input id="cld-id-${w.wid}" data-cldf="id" data-w="${w.wid}" value="${esc(w.id)}" inputmode="numeric" ${dis} aria-label="ID number"></td>
+      <td><input id="cld-ph-${w.wid}" data-cldf="ph" data-w="${w.wid}" value="${esc(clPh(w.ph))}" inputmode="tel" ${dis} aria-label="Phone"></td>
+      <td><select id="cld-g-${w.wid}" data-cldf="g" data-w="${w.wid}" ${dis} aria-label="Gender"><option value=""></option><option ${w.g==='MALE'?'selected':''} value="MALE">Male</option><option ${w.g==='FEMALE'?'selected':''} value="FEMALE">Female</option></select></td>
+      <td>${catSel('cld-cat-'+w.wid,w.cat,`data-cldf="cat" data-w="${w.wid}" aria-label="Category"`)}</td>
+      <td><input id="cld-r-${w.wid}" data-cldf="r" data-w="${w.wid}" class="numin" inputmode="decimal" value="${fmtIn(w.r)}" ${dis} aria-label="${u?'Rate per bag':'Daily rate'}"></td>
+      ${D.map(d=>`<td class="cl-dbox"><input id="cld-d-${w.wid}-${d}" data-cldd="${d}" data-w="${w.wid}" class="numin" inputmode="decimal" value="${R.d[d]?fmtIn(R.d[d]):''}" placeholder="–" ${dis} aria-label="${esc(clDayLbl(d))}"></td>`).join('')}
+      <td class="n">${days}</td><td class="n"><b id="cld-t-${w.wid}">${M(tot)}</b></td>
+      <td>${closed?'':`<div class="inline-actions" style="flex-wrap:nowrap"><button class="btn ghost sm" data-act="clDefFill" data-w="${w.wid}" title="Put the rate in every day of the period">Fill</button><button class="x" data-act="clDefDel" data-w="${w.wid}" aria-label="Remove from the default list">×</button></div>`}</td></tr>`}).join('');
+  const applied=(run.manual||[]).filter(m=>m.def).length;
+  return`<div class="cl-defbox">
+    ${closed?'':`<div class="ex-opts" style="margin-bottom:8px"><span class="small muted">Apply to all:</span>${catSel('cld-allcat','',' aria-label="Category for everyone"')}<input id="cld-allr" class="numin cl-mini" inputmode="decimal" placeholder="Rate" aria-label="Rate for everyone"><button class="btn ghost sm" data-act="clDefAll">Apply to all</button><button class="btn ghost sm" data-act="clDefFillAll">Fill every day for all</button><button class="btn ghost sm" data-act="clDefClear">Clear days</button></div>`}
+    <div class="tw"><table class="cl-t cl-deft"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th><th>Category</th><th class="n">Rate</th>${D.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}<th class="n">Days</th><th class="n">Total</th><th></th></tr></thead><tbody>
+    ${rows||`<tr><td colspan="${10+D.length}" class="muted">The default list is empty.</td></tr>`}
+    <tr class="tot"><td colspan="${7+D.length}">Total · ${L.length} people</td><td class="n">${gd}</td><td class="n">${M(gt)}</td><td></td></tr></tbody></table></div>
+    ${D.length?'':'<p class="small muted">Set the pay period (below) to see a box for each day.</p>'}
+    ${closed?'':`<div class="inline-actions" style="margin-top:10px;justify-content:space-between"><button class="addrow" style="margin:0" data-act="clDefAdd">+ Add person to the default list</button>
+      <button class="btn cl-green" data-act="clDefApply">✓ Apply Default to approval file &amp; bank file</button></div>
+      <p class="small muted" style="margin:6px 0 0">Type the daily rate in each day worked (or use Fill), choose each person’s category from the clerks’ upload, then Apply. Only people with at least one day are added; applying again updates them.${applied?' '+applied+' applied in this run.':''}</p>`}</div>`}
+function clDefApply(run){const B=clBuild(run),L=clDefs(),kindOf=n=>(B.cats.find(C=>C.name===n)||{}).kind||clCfg().kinds[n]||'day',errs=[],out=[];
+  L.forEach(w=>{const R=clDefRun(run,w.wid),ds=Object.keys(R.d).filter(d=>num(R.d[d])>0&&(!B.from||(d>=B.from&&d<=B.to)));if(!ds.length)return;
+    const nm=w.n||'Row '+(L.indexOf(w)+1);if(!w.n){errs.push(nm+': name');return}if(!clIdNorm(w.id)){errs.push(nm+': ID');return}if(!clPhoneOk(w.ph)){errs.push(nm+': phone');return}if(!w.cat){errs.push(nm+': category');return}
+    const k=kindOf(w.cat);if(k==='unit'&&!(num(w.r)>0)){errs.push(nm+': rate per bag');return}
+    const d={};ds.forEach(x=>d[x]=num(R.d[x]));out.push({mid:'def-'+w.wid,def:true,cat:w.cat,kind:k,n:w.n,id:w.id,ph:w.ph,g:w.g,r:k==='unit'?num(w.r):(num(w.r)||clMode(Object.values(d))),d,at:Date.now(),by:pcrMyName()})});
+  if(errs.length){toast('Complete these first: '+errs.slice(0,6).join(' · ')+(errs.length>6?'…':''));return}
+  if(!out.length){toast('Nobody on the default list has days in this period yet');return}
+  const before=(run.manual||[]).filter(m=>m.def);run.manual=[...(run.manual||[]).filter(m=>!m.def),...out];
+  out.forEach(m=>{run.excl=(run.excl||[]).filter(x=>x!==clCatKey(m.cat)+'|'+clWKey(m));clRegPut(m,m.cat,m.kind)});
+  clSaveRun(run);clSaveReg();render();const tot=sum(out,m=>m.kind==='unit'?sum(Object.values(m.d))*m.r:sum(Object.values(m.d)));
+  toastAction(out.length+' from the default list applied · '+fmt(tot)+' added to the approval and bank files','Undo',()=>{run.manual=[...run.manual.filter(m=>!m.def),...before];clSaveRun(run);render()})}
+function clDefAction(a,t){const run=clCur();if(!run)return true;if(run.status==='closed'){toast('This run is closed. Reopen it to make changes.');return true}
+  const L=clDefs(),B=clBuild(run),w=L.find(x=>x.wid===t.dataset.w);
+  if(a==='clDefShow'){ui.cl.showDef=!ui.cl.showDef;lsSet('hz-cl-def',ui.cl.showDef?'1':'0');render();return true}
+  if(a==='clDefAdd'){const nw={wid:nid(),n:'',id:'',ph:'',g:'',cat:'',r:0};L.push(nw);clSaveCfg();ui.focusNext='cld-n-'+nw.wid;render();return true}
+  if(a==='clDefDel'&&w){const i=L.indexOf(w);L.splice(i,1);clSaveCfg();render();toastAction((w.n||'Row')+' removed from the default list','Undo',()=>{L.splice(i,0,w);clSaveCfg();render()});return true}
+  if(a==='clDefFill'&&w){if(!(num(w.r)>0)){toast('Type '+(w.n||'this person')+'’s rate first');return true}const R=clDefRun(run,w.wid);B.days.forEach(d=>R.d[d]=num(w.r));clSaveRun(run);render();return true}
+  if(a==='clDefFillAll'){const miss=L.filter(x=>!(num(x.r)>0));L.filter(x=>num(x.r)>0).forEach(x=>{const R=clDefRun(run,x.wid);B.days.forEach(d=>R.d[d]=num(x.r))});clSaveRun(run);render();if(miss.length)toast(miss.length+' without a rate were skipped');return true}
+  if(a==='clDefClear'){const old=JSON.stringify(run.def||{});run.def={};clSaveRun(run);render();toastAction('Days cleared','Undo',()=>{run.def=JSON.parse(old);clSaveRun(run);render()});return true}
+  if(a==='clDefAll'){const cat=$('#cld-allcat').value,r=num($('#cld-allr').value);if(!cat&&!r){toast('Choose a category or type a rate to apply to everyone');return true}
+    L.forEach(x=>{if(cat)x.cat=cat;if(r){x.r=r;const R=clDefRun(run,x.wid);Object.keys(R.d).forEach(d=>{if(num(R.d[d])>0&&kindOf2(cat||x.cat,B)!=='unit')R.d[d]=r})}});clSaveCfg();clSaveRun(run);render();toast('Applied to all '+L.length+' people');return true}
+  if(a==='clDefApply'){clDefApply(run);return true}
+  return false}
+const kindOf2=(n,B)=>(B.cats.find(C=>C.name===n)||{}).kind||clCfg().kinds[n]||'day';
+document.addEventListener('change',ev=>{const el=ev.target;if(ui.view!=='casual'||!el.dataset||(!el.dataset.cldf&&!el.dataset.cldd))return;const run=clCur();if(!run||run.status==='closed')return;
+  const w=clDefs().find(x=>x.wid===el.dataset.w);if(!w)return;
+  if(el.dataset.cldf){const f=el.dataset.cldf;let v=el.value;if(f==='n')v=v.replace(/\s+/g,' ').trim().toUpperCase();else if(f==='ph')v=clPhone(v);else if(f==='r')v=num(v);else if(f==='id')v=v.replace(/\s+/g,'');
+    if(f==='ph'&&v&&!clPhoneOk(v))toast('Check the phone number for '+(w.n||'this person'));
+    if(f==='id'&&!w.n){const o=clReg()['i:'+clIdNorm(v)];if(o){w.n=o.n;w.ph=w.ph||o.ph||'';w.g=w.g||o.g||''}}
+    w[f]=v;clSaveCfg();render();return}
+  const R=clDefRun(run,w.wid),d=el.dataset.cldd,v=num(el.value);if(v>0)R.d[d]=v;else delete R.d[d];if(!(num(w.r)>0)&&v>0&&kindOf2(w.cat,clBuild(run))!=='unit'){w.r=v;clSaveCfg()}clSaveRun(run);render()});
+
+function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clCur(),closed=run&&run.status==='closed';
   const W=new Set(['clAdd','clEdit','clRm','clUnrm','clMDel','clUpDel','clRen','clAuto']);if(W.has(a)&&closed){toast('This run is closed. Reopen it to make changes.');return true}
   if(a==='clTab'){ui.cl.tab=t.dataset.v;render()}
   else if(a==='clNewRun')clNewRun();
