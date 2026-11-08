@@ -614,7 +614,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.5';
-const APP_BUILD='9 Nov 2026 · rollover, tracker & reports';
+const APP_BUILD='9 Nov 2026 · rollover, tracker, reports & soft Excel colours';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -2833,7 +2833,7 @@ const clQ=s=>"'"+String(s).replace(/'/g,"''")+"'";
 async function clWorkbook(wb,run,B,mode){
   const c=clCfg(),R=clRepO(),T=s=>typeof pcrT==='function'?pcrT(s):s,ref=clRef(run),per=B.from?fmtD(B.from)+' – '+fmtD(B.to):'Period not set',prep=fmtD(todayStr()),D=B.days,nD=D.length;
   const INK='FF111827',SLATE='FF646C78',LINE='FFD6DAE0',GRID='FFBFC5CD',FILL='FFF3F4F6',BAND='FFFAFAFB',AMT='#,##0.00;(#,##0.00)',QTY='#,##0.##';
-  const COL=!!R.colour,HEAD=COL?'FFD9E1F2':FILL,VAL='FFFCE4D6',TOTF=COL?'FFFCE4D6':FILL;
+  const COL=!!R.colour,HEAD=COL?'FFE9EEF3':FILL,TOTF=COL?'FFF5F7FA':FILL,TROW=COL?'FFE9EEF3':FILL;
   const thin={style:'thin',color:{argb:LINE}},box={style:'thin',color:{argb:GRID}},med={style:'medium',color:{argb:INK}},dbl={style:'double',color:{argb:INK}};
   const BOX={top:box,left:box,bottom:box,right:box};
   let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
@@ -2856,7 +2856,7 @@ async function clWorkbook(wb,run,B,mode){
   const hd=(ws,r,c1,h,o)=>put(ws,r,c1,c1,h,Object.assign({bold:true,size:9,fill:HEAD,border:{top:med,bottom:med,left:box,right:box},wrap:true},o||{}));
   const dateHd=(ws,r,c1)=>D.forEach((d,i)=>{const [y,m,dd]=d.split('-').map(Number);hd(ws,r,c1+i,new Date(Date.UTC(y,m-1,dd)),{center:true,numFmt:'dd-mmm'})});
   const back=(ws)=>{if(mode==='bank')return;const x=ws.getRow(5).getCell(ws.columnCount>8?ws.columnCount:8);x.value={text:'‹ Summary',hyperlink:"#'Summary'!A1"};x.font={name:'Aptos',size:9,color:{argb:SLATE},underline:true};x.alignment={horizontal:'right',vertical:'middle'}};
-  const dayCell=(ws,r,k,v,fmtq,band)=>put(ws,r,k,k,v,{numFmt:fmtq,center:true,border:BOX,fill:v!=null&&COL?VAL:band});
+  const dayCell=(ws,r,k,v,fmtq,band)=>put(ws,r,k,k,v,{numFmt:fmtq,center:true,border:BOX,fill:band});
   // category sheet plan: S/No, Name, ID No, Phone No, Gender, extras, each period date, [Bags, Rate], [Mandays], Total
   const plans=B.cats.map(C=>{const u=C.kind==='unit',d0=6+C.xk.length,cols={d0,dN:d0+nD-1};let k=d0+nD;
     if(u){cols.units=k++;cols.rate=k++}if(R.mandays)cols.days=k++;cols.amt=k;return{C,u,cols,NC:cols.amt,first:8,tot:8+C.rows.length}});
@@ -2879,7 +2879,7 @@ async function clWorkbook(wb,run,B,mode){
         if(u){put(ws,r,cols.units,cols.units,rng?{formula:'SUM('+rng+')',result:w.units}:w.units,Object.assign({numFmt:QTY},o));put(ws,r,cols.rate,cols.rate,w.r||0,Object.assign({numFmt:AMT},o))}
         if(R.mandays)put(ws,r,cols.days,cols.days,u||!rng?w.days:{formula:'COUNT('+rng+')',result:w.days},Object.assign({numFmt:'0',center:true},o));
         put(ws,r,cols.amt,cols.amt,u?{formula:clColL(cols.units)+r+'*'+clColL(cols.rate)+r+fx,result:w.amt}:(rng?{formula:'SUM('+rng+')',result:w.amt}:w.amt),Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
-      const tr=p.tot,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TOTF};ws.getRow(tr).height=20;
+      const tr=p.tot,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TROW};ws.getRow(tr).height=20;
       put(ws,tr,1,5+C.xk.length,'Total'+(R.workersCol?' · '+C.rows.length+' workers':''),T2);
       const sc=(k,res,f,ex)=>{const L=clColL(k);put(ws,tr,k,k,C.rows.length?{formula:'SUM('+L+p.first+':'+L+last+')',result:res}:0,Object.assign({numFmt:f},T2,ex||{}))};
       D.forEach((d,j)=>sc(cols.d0+j,r2(sum(C.rows,w=>num(u?w.d[d]:w.e[d]))),u?'#,##0.##;-#,##0.##;""':'#,##0;-#,##0;""',{size:8,center:true}));
@@ -2907,7 +2907,7 @@ async function clWorkbook(wb,run,B,mode){
       put(ws,r,cA,cA,{formula:p.totRef,result:C.total},Object.assign({numFmt:AMT,bold:true},o));
       if(cS)put(ws,r,cS,cS,{formula:'IF($'+clColL(cA)+'$'+gtRow+'=0,0,'+clColL(cA)+r+'/$'+clColL(cA)+'$'+gtRow+')',result:B.total?C.total/B.total:0},Object.assign({numFmt:'0.0%'},o));
       const lk=put(ws,r,NC,NC,'',o);lk.value={text:'Open ›',hyperlink:'#'+clQ(p.name)+'!A1'};lk.font={name:'Aptos',size:9,color:{argb:SLATE},underline:true};lk.alignment={horizontal:'center',vertical:'middle'};r++});
-    const T2={border:{top:med,bottom:dbl},bold:true,fill:TOTF};ws.getRow(r).height=22;put(ws,r,1,2,'Grand total',T2);
+    const T2={border:{top:med,bottom:dbl},bold:true,fill:TROW};ws.getRow(r).height=22;put(ws,r,1,2,'Grand total',T2);
     if(cW)put(ws,r,cW,cW,B.bank.length,Object.assign({numFmt:'0 "unique"'},T2));
     if(cM)put(ws,r,cM,cM,{formula:plans.length?'SUM('+clColL(cM)+c0+':'+clColL(cM)+(r-1)+')':'0',result:B.mandays},Object.assign({numFmt:'#,##0'},T2));
     put(ws,r,cA,cA,{formula:plans.length?'SUM('+clColL(cA)+c0+':'+clColL(cA)+(r-1)+')':'0',result:B.total},Object.assign({numFmt:AMT},T2));if(cS)put(ws,r,cS,cS,{formula:'IF('+clColL(cA)+r+'=0,0,1)',result:B.total?1:0},Object.assign({numFmt:'0%'},T2));put(ws,r,NC,NC,'',T2);
@@ -2927,7 +2927,7 @@ async function clWorkbook(wb,run,B,mode){
       D.forEach((d,j)=>dayCell(ws,r,d0+j,b.e[d]||null,'#,##0.##',band));
       if(dc)put(ws,r,dc,dc,nD?{formula:'COUNT('+dL+r+':'+dR+r+')',result:b.days}:b.days,Object.assign({numFmt:'0',center:true},o));
       put(ws,r,BN,BN,nD?{formula:'SUM('+dL+r+':'+dR+r+')',result:b.amt}:b.amt,Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
-    const tr=first+B.bank.length,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TOTF};ws.getRow(tr).height=20;put(ws,tr,1,5,'Total'+(R.workersCol?' · '+B.bank.length+' workers':''),T2);
+    const tr=first+B.bank.length,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TROW};ws.getRow(tr).height=20;put(ws,tr,1,5,'Total'+(R.workersCol?' · '+B.bank.length+' workers':''),T2);
     const sc=(k,res,f,ex)=>{const L=clColL(k);put(ws,tr,k,k,B.bank.length?{formula:'SUM('+L+first+':'+L+last+')',result:res}:0,Object.assign({numFmt:f},T2,ex||{}))};
     D.forEach((d,j)=>sc(d0+j,r2(sum(B.bank,b=>num(b.e[d]))),'#,##0;-#,##0;""',{size:8,center:true}));if(dc)sc(dc,B.pdays,'0',{center:true});sc(BN,B.total,AMT);
     ws.getRow(5).getCell(3).value={formula:clColL(BN)+tr,result:B.total};
@@ -3153,7 +3153,7 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
   const warnCard=L=>L.length?`<div class="card s12"><div class="card-h"><h2>Checks</h2><span class="small muted">${nBad?nBad+' to fix · ':''}${nWarn} to review · ${L.length-nBad-nWarn} for information</span></div>${L.slice(0,ui.cl.allW?400:10).map(w=>`<div class="cl-w ${w.lvl}"><span class="pill ${w.lvl==='bad'?'bad':w.lvl==='warn'?'warn':''}">${w.lvl==='bad'?'Fix':w.lvl==='warn'?'Review':'Info'}</span><span class="small">${esc(w.msg)}</span></div>`).join('')}${L.length>10?`<button class="addrow" data-act="clAllW">${ui.cl.allW?'Show fewer':'Show all '+L.length+' checks'}</button>`:''}</div>`:'';
   const lock=closed?`<div class="banner"><p><b>${esc(clRef(run))} is closed.</b> It can’t be changed, but every report can still be downloaded.${open?'':' Reopen it to make changes.'}</p></div>`:'';
   const chip=(k,l)=>`<button type="button" class="optchip" data-act="clOpt" data-k="${k}" aria-pressed="${!!R[k]}">${R[k]?'✓ ':''}${esc(l)}</button>`;
-  const opts=`<div class="ex-opts">${chip('workersCol','Show workers count')}${chip('workersFig','Show unique workers figure')}${chip('mandays','Show mandays')}${chip('share','Show cost share %')}${chip('agree','Show agreement with bank file')}${chip('approval','Show approval note (email)')}${chip('grid','Show each day in the PDF'+(B.days.length>16?' (up to 16 days)':''))}${chip('colour','Colour Excel like the clerks’ sheet')}</div>`;
+  const opts=`<div class="ex-opts">${chip('workersCol','Show workers count')}${chip('workersFig','Show unique workers figure')}${chip('mandays','Show mandays')}${chip('share','Show cost share %')}${chip('agree','Show agreement with bank file')}${chip('approval','Show approval note (email)')}${chip('grid','Show each day in the PDF'+(B.days.length>16?' (up to 16 days)':''))}${chip('colour','Soft colour accents in Excel')}</div>`;
   const nW=Object.keys(c.words||{}).length;
   const wordBar=`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="clWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing':'✎ Edit report text'}</button><span class="small muted">${ui.pcrWords?'Click any title, heading, label, name or ID below and type. Press Enter to finish. Changes go into the PDF, Excel and CSV.':nW?nW+' text change'+(nW===1?'':'s')+' applied to downloads.':'Review and change any wording, heading or detail before downloading. Amounts come from the data.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="clWordsReset">Undo all text changes</button>':''}</div>`;
   let body='';
