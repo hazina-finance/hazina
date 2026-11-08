@@ -581,8 +581,8 @@ let P=null, TX={};
 const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{type:'',cat:'',q:'',from:'',to:''},pcr:{preset:'set',from:'',to:''},pcrRep:{type:'pcr',ap:'all',rc:'paid',covers:true},dash:{preset:'month',from:'',to:''},q:{},txSort:lsGet('hz-sort')||'added',planGroup:lsGet('hz-pg')||'all',rep:{type:'expense',preset:'month',cat:'',ch:'',src:'',item:'',from:'',to:''},common:'count',confirm:null};
 
 /* ---------- persistence (Supabase) ---------- */
-const APP_VERSION='1.3';
-const APP_BUILD='7 Nov 2026 · casual labour module';
+const APP_VERSION='1.4';
+const APP_BUILD='8 Nov 2026 · default workers & fees label';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
