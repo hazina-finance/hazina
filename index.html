@@ -203,6 +203,38 @@ svg text{fill:var(--ink-2);font-size:11px;font-family:var(--f-body)}
 /* update banner */
 .updbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));z-index:80;background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:calc(100% - 32px)}
 .updbar .btn{background:var(--accent-ink);color:var(--accent)}
+.tx{position:relative;padding-left:12px}.tx::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--fam,transparent)}
+.tx.f-exp{--fam:var(--bad)}.tx.f-inc{--fam:var(--good)}.tx.f-int{--fam:#7b8794}
+.tx.f-exp .ic,.tx.f-inc .ic,.tx.f-int .ic{background:color-mix(in srgb,var(--fam) 14%,transparent);color:var(--fam)}
+.tx.f-exp .amt{color:var(--bad)}.tx.f-inc .amt{color:var(--good)}.tx.f-int .amt{color:var(--ink-2);font-weight:600}
+.txtag{display:inline-block;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--fam);margin-right:6px}
+.famchips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.famchip{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;text-align:left;cursor:pointer;display:grid;grid-template-columns:10px 1fr;gap:2px 8px;align-items:center;font:inherit;color:inherit}
+.famchip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.famchip i{width:10px;height:10px;border-radius:3px;background:var(--fam,var(--ink));grid-row:span 1}.famchip span{font-weight:600;font-size:.84rem}.famchip b{grid-column:2;font-size:.92rem}.famchip small{grid-column:2;color:var(--ink-2);font-size:.72rem}
+.famchip.f-exp{--fam:var(--bad)}.famchip.f-inc{--fam:var(--good)}.famchip.f-int{--fam:#7b8794}
+.famchip[aria-pressed="true"]{border-color:var(--fam,var(--ink));box-shadow:inset 0 0 0 1px var(--fam,var(--ink));background:color-mix(in srgb,var(--fam,var(--ink)) 6%,var(--surface))}
+@media(max-width:640px){.famchips{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.trk-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0;overflow:hidden}
+.trk-kpis .tk{padding:16px 18px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:2px;position:relative}.trk-kpis .tk:first-child{border-left:0}
+.trk-kpis .tk small{font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);font-weight:600}
+.trk-kpis .tk b{font-family:var(--f-display);font-size:1.45rem;letter-spacing:-.01em}.trk-kpis .tk span{font-size:.78rem;color:var(--ink-2)}
+.trk-kpis .tk.f-inc b{color:var(--good)}.trk-kpis .tk.f-exp b{color:var(--bad)}.trk-kpis .tk .prog{margin-top:6px;height:6px}
+@media(max-width:760px){.trk-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.trk-kpis .tk:nth-child(3){border-left:0}.trk-kpis .tk:nth-child(n+3){border-top:1px solid var(--line)}}
+.trk-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.liq{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}.liq>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.liq small{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);font-weight:600}.liq b{font-family:var(--f-display);font-size:1.25rem}.liq>div:last-child{background:var(--surface-2)}
+.rollcard .roll-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;align-items:center;margin-bottom:12px}.roll-sum>div:not(.inline-actions){border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.roll-sum small{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-2);font-weight:600}.roll-sum b{font-family:var(--f-display);font-size:1.15rem}
+@media(max-width:760px){.rollcard .roll-sum{grid-template-columns:1fr 1fr}}
+.rollseg{width:190px}.rollseg button{padding:6px 4px;font-size:.78rem}.rolltab tr.r-adv td{background:color-mix(in srgb,var(--good) 6%,transparent)}
+.rep-svg{width:100%;max-width:640px;height:auto;display:block}
+.rep-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-end;border-top:3px solid var(--accent)}.rep-title{font-size:1.5rem;margin:2px 0}
+.rep-kpis{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:1 1 520px;max-width:760px}
+.rep-kpis>div{padding:10px 12px;border-left:1px solid var(--line)}.rep-kpis>div:first-child{border-left:0}.rep-kpis .key{background:var(--surface-2)}
+.rep-kpis small{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;line-height:1.25}.rep-kpis b{font-family:var(--f-display);font-size:1.1rem}
+@media(max-width:640px){.rep-kpis{grid-template-columns:1fr 1fr}.rep-kpis>div:nth-child(3){border-left:0}.rep-kpis>div:nth-child(n+3){border-top:1px solid var(--line)}}
+.rep-bars{display:flex;flex-direction:column;gap:8px}.rb{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(60px,1fr) auto 38px;gap:10px;align-items:center;font-size:.86rem}
+.rb-l{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rb-t{height:10px;background:var(--surface-2);border-radius:99px;overflow:hidden}.rb-t i{display:block;height:100%;background:var(--cs1);border-radius:0 4px 4px 0}.rb small{color:var(--ink-2);text-align:right}
 /* casual labour analysis */
 :root{--cs1:#2a78d6;--cs2:#eb6834;--cs3:#1baf7a;--cs4:#eda100;--cs5:#e87ba4;--cs6:#008300;--cs7:#6250d6;--cs8:#e34948}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--cs1:#3987e5;--cs2:#d95926;--cs3:#199e70;--cs4:#c98500;--cs5:#d55181;--cs6:#008300;--cs7:#9085e9;--cs8:#e66767}}
@@ -581,8 +613,8 @@ let P=null, TX={};
 const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{type:'',cat:'',q:'',from:'',to:''},pcr:{preset:'set',from:'',to:''},pcrRep:{type:'pcr',ap:'all',rc:'paid',covers:true},dash:{preset:'month',from:'',to:''},q:{},txSort:lsGet('hz-sort')||'added',planGroup:lsGet('hz-pg')||'all',rep:{type:'expense',preset:'month',cat:'',ch:'',src:'',item:'',from:'',to:''},common:'count',confirm:null};
 
 /* ---------- persistence (Supabase) ---------- */
-const APP_VERSION='1.4';
-const APP_BUILD='8 Nov 2026 · default workers & fees label';
+const APP_VERSION='1.5';
+const APP_BUILD='9 Nov 2026 · rollover, tracker & reports';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -849,9 +881,37 @@ function catInfo(id){
   if(id.startsWith('proj:')){const p=P.projects.find(x=>'proj:'+x.id===id);return{name:p?p.name:'Old project',group:'proj',sub:'Projects',budget:p?num(p.budget):0}}
   const c=P.cats.find(x=>x.id===id);return c?{name:c.name,group:c.group,sub:c.sub,budget:num(c.budget)}:{name:otherName(),group:'wants',sub:otherName(),budget:0};
 }
+/* ---------- rollover: advised budgets from the months already lived ---------- */
+const bud=(c,mk)=>{const r=P.roll&&P.roll[mk]&&P.roll[mk][c.id];return r&&r.use==='adv'?num(r.v):num(c.budget)};
+function rollInfo(mk){const hist=[1,2,3].map(k=>addM(mk,-k)).filter(m=>(TX[m]||[]).length);if(!hist.length)return null;
+  const acts=hist.map(m=>actual(m)),W=[0.5,0.3,0.2].slice(0,hist.length),ws=sum(W);const R=(P.roll&&P.roll[mk])||{};
+  const rows=P.cats.map(c=>{const sp=acts.map(a=>a.byCat[c.id]||0),base=num(c.budget),any=sp.some(v=>v>0);
+    const avg=sum(sp.map((v,i)=>v*W[i]))/ws,adv=any?Math.ceil(avg/50)*50:base,last=sp[0],per=hist.length>1?' over '+mLabel(hist[hist.length-1],1)+'–'+mLabel(hist[0],1):' in '+mLabel(hist[0],1);
+    const why=!any?'No spending recorded yet, so the plan stays':adv>base?'Averaging '+fmt(avg)+' a month'+per+', above the plan':adv<base?'Averaging '+fmt(avg)+' a month'+per+', below the plan':'Spending matches the plan';
+    const tr=sp.length>1&&sp[1]?(sp[0]-sp[1])/sp[1]*100:null;const r=R[c.id];
+    return{c,base,last,sp,adv,any,why,tr,use:r?r.use:'',accepted:r&&r.use==='adv'?num(r.v):null}}).filter(x=>x.base||x.any);
+  return{hist,rows}}
+function rollCard(mk){const I=rollInfo(mk);if(!I)return'';const rows=I.rows;if(!rows.length)return'';
+  const und=rows.filter(x=>!x.use&&x.adv!==x.base).length;const open=ui.rollOpen!=null?ui.rollOpen:und>0;
+  const tPlan=sum(rows,x=>x.base),tAdv=sum(rows,x=>x.adv),tNow=sum(rows,x=>bud(x.c,mk));
+  const head=`<div class="card-h"><div><h2>Rollover review · ${esc(mLabel(mk))}</h2><span class="small muted">Advised figures come from what you actually spent in ${esc(I.hist.map(m=>mLabel(m,1)).join(', '))}${I.hist.length>1?' (the latest month counts most)':''}. Choose per item: keep your plan, or use the advised figure for this month.</span></div>
+    <div class="inline-actions">${und?`<span class="pill warn">${und} to review</span>`:'<span class="pill good">Reviewed</span>'}<button class="btn ghost sm" data-act="rollOpen">${open?'Hide':'Review'}</button></div></div>`;
+  if(!open)return`<div class="card s12 rollcard">${head}<div class="roll-sum"><div><small>As planned</small><b>${M(tPlan)}</b></div><div><small>Advised</small><b>${M(tAdv)}</b></div><div><small>Used for ${esc(mLabel(mk,1))}</small><b>${M(tNow)}</b></div></div></div>`;
+  return`<div class="card s12 rollcard">${head}
+    <div class="roll-sum"><div><small>As planned</small><b>${M(tPlan)}</b></div><div><small>Advised</small><b>${M(tAdv)}</b></div><div><small>Used for ${esc(mLabel(mk,1))}</small><b>${M(tNow)}</b></div>
+      <div class="inline-actions" style="justify-content:flex-end"><button class="btn sm" data-act="rollAll" data-v="adv">Use all advised</button><button class="btn ghost sm" data-act="rollAll" data-v="plan">Keep all as planned</button></div></div>
+    <div class="tw"><table class="rolltab"><thead><tr><th>Item</th><th class="n">As planned</th><th class="n">Spent ${esc(mLabel(I.hist[0],1))}</th><th class="n">Trend</th><th class="n">Advised</th><th>For ${esc(mLabel(mk,1))}</th><th>Why</th></tr></thead><tbody>
+    ${rows.map(x=>{const d=x.adv-x.base,on=x.use==='adv';return`<tr class="${on?'r-adv':''}"><td><b>${esc(x.c.name)}</b><div class="small muted">${esc(x.c.group==='wants'?'Wants':x.c.sub)}</div></td><td class="n">${M(x.base)}</td><td class="n">${M(x.last)}</td>
+      <td class="n small">${x.tr==null||Math.abs(x.tr)<0.5?'<span class="muted">steady</span>':`<span class="${x.tr>0?'neg':'pos'}">${x.tr>0?'▲':'▼'} ${Math.abs(x.tr).toFixed(0)}%</span>`}</td>
+      <td class="n"><b>${M(x.adv)}</b>${d?`<div class="small ${d>0?'neg':'pos'}">${d>0?'+':'−'}${fmt(Math.abs(d)).replace('Ksh ','')}</div>`:''}</td>
+      <td>${x.adv===x.base&&!on?'<span class="small muted">Matches the plan</span>':`<div class="seg seg2 rollseg"><button type="button" data-act="rollUse" data-id="${x.c.id}" data-v="plan" aria-pressed="${!on}">As planned</button><button type="button" data-act="rollUse" data-id="${x.c.id}" data-v="adv" aria-pressed="${on}">Advised</button></div>`}${on&&x.accepted!==x.adv?`<div class="small muted">Using ${fmt(x.accepted)} · <button class="addrow" style="margin:0;padding:0 4px;border:0" data-act="rollUse" data-id="${x.c.id}" data-v="adv">update to ${fmt(x.adv)}</button></div>`:''}</td>
+      <td class="small muted">${esc(x.why)}</td></tr>`}).join('')}</tbody></table></div>
+    <p class="note">Your standing plan is not changed. The advised figure only applies to ${esc(mLabel(mk))}, so the first month’s educated guess is refined month by month from real spending. To change the plan itself, edit the amounts below.</p></div>`}
+function rollSet(mk,id,use){if(store.viewing){toast('Read-only: you are viewing another account');return}const I=rollInfo(mk);if(!I)return;P.roll=P.roll||{};const R=P.roll[mk]=P.roll[mk]||{};
+  const ids=id?[id]:I.rows.map(x=>x.c.id);ids.forEach(k=>{const x=I.rows.find(y=>y.c.id===k);if(!x)return;R[k]=use==='adv'?{use:'adv',v:x.adv}:{use:'plan'}});saveP();render()}
 function plan(mk){
   const inc=planIncome(),save=sum(P.chambers,chTarget),debt=sum(P.debts.filter(d=>debtLeft(d)>0||!d.owed),d=>num(d.monthly));
-  const needs=sum(P.cats.filter(c=>c.group==='needs'),c=>num(c.budget)),wants=sum(P.cats.filter(c=>c.group==='wants'),c=>num(c.budget));
+  const needs=sum(P.cats.filter(c=>c.group==='needs'),c=>bud(c,mk)),wants=sum(P.cats.filter(c=>c.group==='wants'),c=>bud(c,mk));
   const proj=sum(P.projects.filter(p=>p.month===mk),p=>num(p.budget));
   const total=save+debt+needs+wants+proj;return{inc,save,debt,needs,wants,proj,total,left:inc-total};
 }
@@ -1008,7 +1068,7 @@ function vDashboard(){
   const nMonths=Math.max(1,(+dTo.slice(0,4)-+dFrom.slice(0,4))*12+(+dTo.slice(5,7)-+dFrom.slice(5,7))+1);
   const p0=plan(mk),p=single?p0:Object.fromEntries(Object.entries(p0).map(([k,v])=>[k,v*nMonths]));
   const perLabel=single?mLabel(mk):fmtD(dFrom)+' – '+fmtD(dTo);
-  const groups={};P.cats.forEach(c=>{const g=c.group==='wants'?'Wants':c.sub;(groups[g]=groups[g]||{b:0,s:0}).b+=num(c.budget)});
+  const groups={};P.cats.forEach(c=>{const g=c.group==='wants'?'Wants':c.sub;(groups[g]=groups[g]||{b:0,s:0}).b+=bud(c,mk)*(single?1:nMonths)});
   for(const k in a.byCat){const ci=catInfo(k);const g=ci.group==='wants'?'Wants':ci.group==='debt'?'Loans & instalments':ci.group==='proj'?'Projects':ci.sub;(groups[g]=groups[g]||{b:0,s:0}).s+=a.byCat[k]}
   groups['Loans & instalments']=groups['Loans & instalments']||{b:0,s:0};groups['Loans & instalments'].b=p.debt;
   if(p.proj||groups.Projects){groups.Projects=groups.Projects||{b:0,s:0};groups.Projects.b=p.proj}
@@ -1095,7 +1155,7 @@ function setGroupVisible(type,sub,show){
 function vPlanner(){
   const mk=ui.month,p=plan(mk),R=P.settings.rule,S=P.settings,inc=p.inc;
   const IG=itemGroups(),needsSubs=IG.filter(x=>x.type==='needs').map(x=>x.sub),wantsSubs=IG.filter(x=>x.type==='wants').map(x=>x.sub);
-  const G=[{k:'inc',name:'Income',kind:'inc',total:inc,count:P.sources.length,band:'var(--good)'},...IG.map(({type,sub})=>{const l=P.cats.filter(c=>c.group===type&&c.sub===sub);return{k:gKey(type,sub),name:gLabel(type,sub),kind:'cats',group:type,sub,total:sum(l,c=>num(c.budget)),count:l.length,band:type==='wants'?'var(--c5)':'var(--c1)'}}),
+  const G=[{k:'inc',name:'Income',kind:'inc',total:inc,count:P.sources.length,band:'var(--good)'},...IG.map(({type,sub})=>{const l=P.cats.filter(c=>c.group===type&&c.sub===sub);return{k:gKey(type,sub),name:gLabel(type,sub),kind:'cats',group:type,sub,total:sum(l,c=>bud(c,mk)),count:l.length,band:type==='wants'?'var(--c5)':'var(--c1)'}}),
     {k:'loans',name:'Loans & instalments',kind:'loans',total:p.debt,count:P.debts.length,band:'var(--gold)'},
     {k:'proj',name:'Planned projects',kind:'proj',total:p.proj,count:P.projects.filter(x=>x.month===mk).length,band:'var(--c1)'},
     {k:'sav',name:'Savings & investments',kind:'sav',total:p.save,count:P.chambers.length,band:'var(--gold)'}];
@@ -1103,9 +1163,9 @@ function vPlanner(){
   const g=G.find(x=>x.k===sel);
   const pctCell=(coll,id,amt,locked)=>`<td class="n pctin">${locked?pct(amt,inc).toFixed(1)+'%':inp(coll,id,'pctOfInc',+pct(amt,inc).toFixed(2))}</td>`;
   const st=Math.round(shopTotal()),sc=shopCatId();
-  const catRow=c=>`<tr><td colspan="2">${inp('cats',c.id,'name',c.name,{type:'text',cls:'wide'})}</td><td class="n">${c.id===P.shopLink?M(num(c.budget))+'<div><a class="pill" href="#shopping">from Shopping</a></div>':inp('cats',c.id,'budget',c.budget)+(c.id===sc&&st&&Math.round(num(c.budget))!==st?`<div><button class="addrow" style="margin:4px 0 0" data-act="useShop" data-id="${c.id}">Use shopping list: ${fmt(st)}</button></div>`:'')}</td>${pctCell('cats',c.id,num(c.budget),c.id===P.shopLink)}<td><button class="x" data-del="cats|${c.id}" aria-label="Remove ${esc(c.name)}">×</button></td></tr>`;
+  const catRow=c=>`<tr><td colspan="2">${inp('cats',c.id,'name',c.name,{type:'text',cls:'wide'})}</td><td class="n">${c.id===P.shopLink?M(num(c.budget))+'<div><a class="pill" href="#shopping">from Shopping</a></div>':inp('cats',c.id,'budget',c.budget)+(c.id===sc&&st&&Math.round(num(c.budget))!==st?`<div><button class="addrow" style="margin:4px 0 0" data-act="useShop" data-id="${c.id}">Use shopping list: ${fmt(st)}</button></div>`:'')}${(()=>{const b=bud(c,mk);return b!==num(c.budget)?`<div class="small" style="margin-top:4px"><span class="pill good">Advised ${fmt(b)} used for ${esc(mLabel(mk,1))}</span></div>`:''})()}</td>${pctCell('cats',c.id,num(c.budget),c.id===P.shopLink)}<td><button class="x" data-del="cats|${c.id}" aria-label="Remove ${esc(c.name)}">×</button></td></tr>`;
   const catTable=(group,subs,showSub)=>`<div class="tw"><table><thead><tr><th colspan="2">Item</th><th class="n">Budget (Ksh)</th><th class="n">% of income</th><th></th></tr></thead><tbody>
-    ${subs.map(sb=>{const l=P.cats.filter(c=>c.group===group&&c.sub===sb),t=sum(l,c=>num(c.budget));
+    ${subs.map(sb=>{const l=P.cats.filter(c=>c.group===group&&c.sub===sb),t=sum(l,c=>bud(c,mk));
       return (showSub?`<tr class="sub"><td colspan="2">${esc(sb)}</td><td class="n">${M(t)}</td><td class="n">${pct(t,inc).toFixed(1)}%</td><td></td></tr>`:'')+(l.map(catRow).join('')||`<tr><td colspan="5" class="muted">No items yet.</td></tr>`)+
       `<tr><td colspan="5"><button class="addrow" data-add="cats|${group}|${esc(sb)}">+ Add item to ${esc(sb)}</button></td></tr>`}).join('')}</tbody></table></div>`;
   const loansTable=()=>`<div class="tw"><table><thead><tr><th>Loan / item</th><th class="n">Total owed</th><th class="n">Monthly instalment</th><th class="n">% of income</th><th class="n">Remaining</th><th></th></tr></thead><tbody>
@@ -1163,6 +1223,7 @@ function vPlanner(){
   }
   return `${banner()}<div class="pageh"><div><h1>Monthly Budget Planner</h1><p>Your standing plan for every month. Tap a group below to work on just those items. Planned projects apply to ${esc(mLabel(mk))}.</p></div></div>
   <section class="grid">
+   ${rollCard(mk)}
    ${splitCard}
    <div class="card s5"><div class="card-h"><h2>Summary</h2><span class="small muted">${esc(mLabel(mk))}</span></div>
     ${[['Total income',inc],['Savings & investments',-p.save],['Loans & instalments',-p.debt],['Needs: bills & expenses',-p.needs],['Wants & giving',-p.wants],['Planned projects',-p.proj]].map(([l,v])=>`<div class="kv"><span>${l}</span><b>${M(v)}</b></div>`).join('')}
@@ -1208,6 +1269,9 @@ function deleteGroup(k){
   render();
 }
 
+const txFam=t=>['expense','writeoff'].includes(t.type)?'exp':['income','repay'].includes(t.type)?'inc':'int';
+const txVal=t=>t.type==='expense'?xTot(t):t.type==='save'?sum(saveLines(t),e=>e[1]):num(t.amt);
+const FAM_L={exp:'Expense',inc:'Income',int:'Transfer'};
 function txRow(t,withDate){
   let v=num(t.amt);let title,meta,sign='−',ic,cls=t.type;
   if(t.type==='income'){const sv=Object.entries(t.saves||{}).filter(([k,x])=>num(x)>0);const s=sum(sv,([k,x])=>num(x));
@@ -1222,7 +1286,8 @@ function txRow(t,withDate){
   else if(t.type==='writeoff'){title=t.desc||'Written off: '+bName(t.who);meta='Loan to '+bName(t.who)+' written off · counted as spending';ic='WO';cls='expense sav'}
   else {title=t.desc||'Moved between accounts';meta=chName(t.ch)+' → '+chName(t.to)+(feeOf(t)?' · fee '+fmt(feeOf(t)):'');sign='';ic='MV';cls='transfer'}
   const conf=ui.confirm===t.id;
-  return `<div class="tx"><div class="ic ${cls}">${ic}</div><div class="t"><b>${esc(title)}</b><small>${withDate?esc(new Date(t.date+'T00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'}))+' · ':''}${esc(meta)}</small></div><div class="amt ${t.type==='income'?'pos':''}"><span class="m">${sign} ${fmt(v)}</span></div>
+  const fam=txFam(t),tag=t.type==='save'?'Saving':t.type==='lend'?'Lending':t.type==='repay'?'Repayment':FAM_L[fam];
+  return `<div class="tx f-${fam}"><div class="ic ${cls}">${ic}</div><div class="t"><b>${esc(title)}</b><small><span class="txtag">${tag}</span>${withDate?esc(new Date(t.date+'T00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short'}))+' · ':''}${esc(meta)}</small></div><div class="amt ${t.type==='income'?'pos':''}"><span class="m">${sign} ${fmt(v)}</span></div>
    <div class="acts">${conf?`<button class="btn danger" style="min-height:32px;padding:4px 10px" data-act="delTx" data-id="${t.id}">Delete</button><button class="x" data-act="cancelDel" aria-label="Cancel">↩</button>`:`<button class="x" data-act="editTx" data-id="${t.id}" aria-label="Edit" title="Edit (change category, amount, date…)">✎</button><button class="x" data-act="askDel" data-id="${t.id}" aria-label="Delete" title="Delete">×</button>`}</div></div>`;
 }
 function vTracker(){
@@ -1231,41 +1296,53 @@ function vTracker(){
   let L=(ranged?allTx().filter(t=>t.date>=rf&&t.date<=rt):a.items.slice());
   const bySort=ui.txSort==='date'?(x,y)=>y.date.localeCompare(x.date)||(num(y.ts)-num(x.ts)):(x,y)=>(num(y.ts)-num(x.ts))||y.date.localeCompare(x.date);
   L.sort(bySort);
-  if(F.type)L=L.filter(t=>F.type==='move'?(t.type==='withdraw'||t.type==='transfer'):F.type==='lend'?['lend','repay','writeoff'].includes(t.type):t.type===F.type);
+  const famL=k=>(ranged?allTx().filter(t=>t.date>=rf&&t.date<=rt):a.items).filter(t=>txFam(t)===k);
+  if(F.type)L=L.filter(t=>['exp','inc','int'].includes(F.type)?txFam(t)===F.type:F.type==='move'?(t.type==='withdraw'||t.type==='transfer'):F.type==='lend'?['lend','repay','writeoff'].includes(t.type):t.type===F.type);
   if(F.cat)L=L.filter(t=>F.cat==='__other'?!t.cat:t.cat===F.cat);
   if(F.q){const q=F.q.toLowerCase();L=L.filter(t=>((t.desc||'')+' '+(t.type==='expense'?catInfo(t.cat).name:'')+' '+(t.type==='income'?srcName(t.src):'')+' '+(t.who?bName(t.who):'')).toLowerCase().includes(q))}
   let lastD='',list='';const shown=L.slice(0,400);
   if(ui.txSort==='date')shown.forEach(t=>{if(t.date!==lastD){lastD=t.date;list+=`<div class="txday">${new Date(t.date+'T00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</div>`}list+=txRow(t)});
   else list=shown.map(t=>txRow(t,true)).join('');
   if(L.length>400)list+=`<p class="note">Showing the latest 400 of ${L.length}. Narrow the dates to see older entries.</p>`;
-  const catRows=(group,label)=>{const list=group==='debt'?P.debts.map(d=>({id:'debt:'+d.id,name:d.name,budget:num(d.monthly)})):group==='proj'?P.projects.filter(x=>x.month===mk||a.byCat['proj:'+x.id]).map(x=>({id:'proj:'+x.id,name:x.name,budget:num(x.budget)})):P.cats.filter(c=>c.group===group).map(c=>({id:c.id,name:c.name,budget:num(c.budget),sub:c.sub}));
+  const catRows=(group,label)=>{const list=group==='debt'?P.debts.map(d=>({id:'debt:'+d.id,name:d.name,budget:num(d.monthly)})):group==='proj'?P.projects.filter(x=>x.month===mk||a.byCat['proj:'+x.id]).map(x=>({id:'proj:'+x.id,name:x.name,budget:num(x.budget)})):P.cats.filter(c=>c.group===group).map(c=>({id:c.id,name:c.name,budget:bud(c,mk),sub:c.sub}));
     if(!list.length)return '';const bs=sum(list,c=>c.budget),ss=sum(list,c=>a.byCat[c.id]||0);
     return `<tr class="sub"><td>${label}</td><td class="n">${M(bs)}</td><td class="n">${M(ss)}</td><td class="n">${M(bs-ss)}</td><td></td></tr>`+list.map(c=>{const s=a.byCat[c.id]||0;const bd=c.id.startsWith('debt:')?['debts',c.id.slice(5)]:c.id.startsWith('proj:')?['projects',c.id.slice(5)]:['cats',c.id];return `<tr><td>${inp(bd[0],bd[1],'name',c.name,{type:'text',cls:'wide trk-name'})}</td><td class="n">${M(c.budget)}</td><td class="n">${M(s)}</td><td class="n ${c.budget-s<0?'neg':''}">${M(c.budget-s)}</td><td style="min-width:90px">${bar(s,c.budget)}</td></tr>`}).join('')};
   const other=a.byCat['']||0;
   const srcList=[...P.sources.map(s=>s.id),...Object.keys(a.bySrc).filter(k=>!P.sources.some(s=>s.id===k))];
-  return `${banner()}<div class="pageh"><div><h1>Daily tracker</h1><p>Everything logged for ${esc(mLabel(mk))}: income, savings, spending and money taken from savings.</p></div><button class="btn" data-act="openLog">+ Log transaction</button></div>
+  const up=mk>=curMK()?todayStr():monthEnd(mk),B=bal(up),planSp=p.total-p.save,pc=Math.round(pct(a.spent,planSp));
+  const fE=famL('exp'),fI=famL('inc'),fN=famL('int');
+  const chip=(k,l,n,v)=>`<button type="button" class="famchip ${k?'f-'+k:''}" data-act="trkType" data-v="${k}" aria-pressed="${(F.type||'')===k}"><i></i><span>${l}</span>${v!=null?`<b class="m">${fmt(v)}</b>`:''}<small>${n}</small></button>`;
+  return `${banner()}<div class="pageh"><div><h1>Daily tracker</h1><p>${esc(mLabel(mk))} at a glance: what came in, what went out and what moved between your accounts.</p></div><button class="btn" data-act="openLog">+ Log transaction</button></div>
   <section class="grid">
+   <div class="card s12 trk-kpis">
+    <div class="tk"><small>Available to spend</small><b class="m ${B.avail<0?'neg':''}">${fmt(B.avail)}</b><span>Ready to spend ${mk>=curMK()?'today':'at '+esc(fmtD(up))}</span></div>
+    <div class="tk"><small>Actual balance</small><b class="m">${fmt(B.avail+B.total)}</b><span>Available ${fmt(B.avail)} + savings ${fmt(B.total)}</span></div>
+    <div class="tk f-inc"><small>Income received</small><b class="m">${fmt(a.income)}</b><span>${fI.length} entr${fI.length===1?'y':'ies'} this month</span></div>
+    <div class="tk f-exp"><small>Spent</small><b class="m">${fmt(a.spent)}</b><span>${pc}% of ${fmt(planSp)} planned</span><div class="prog ${pc>=100?'bad':pc>=num(P.settings.warnAt)?'warn':''}"><i style="width:${Math.min(100,pc)}%"></i></div></div>
+   </div>
+   <div class="card s7 trk-list"><div class="card-h"><h2>Transactions</h2><span class="small muted">${ranged?L.length+' between '+(F.from?fmtD(F.from):'the start')+' and '+(F.to?fmtD(F.to):'today'):L.length+' in '+esc(mLabel(mk))}</span></div>
+    <div class="famchips">${chip('','All',(ranged?allTx().filter(t=>t.date>=rf&&t.date<=rt):a.items).length,null)}${chip('exp','Expenses',fE.length,sum(fE,txVal))}${chip('inc','Income',fI.length,sum(fI,txVal))}${chip('int','Transfers',fN.length,sum(fN,txVal))}</div>
+    <div class="filters"><label class="small muted" for="fFrom">From</label><input type="date" id="fFrom" value="${esc(F.from||'')}"><label class="small muted" for="fTo">To</label><input type="date" id="fTo" value="${esc(F.to||'')}">${ranged?'<button class="addrow" style="margin:0" data-act="fDates">Back to this month</button>':''}
+     <select id="fSort" aria-label="Order"><option value="added" ${ui.txSort!=='date'?'selected':''}>Latest added first</option><option value="date" ${ui.txSort==='date'?'selected':''}>By date, newest first</option></select></div>
+    <div class="filters"><div style="flex:1 1 200px;min-width:0">${combo('fCat',catOpts(true),F.cat||'',{ph:'All categories',label:'Category'})}</div><input id="fQ" type="search" placeholder="Search description" value="${esc(F.q)}"></div>
+    ${list||'<div class="empty">No transactions match. Tap <b>Log</b> to record today’s money.</div>'}</div>
+   <div class="s5 trk-side">
+    <div class="card"><div class="card-h"><h2>Spending &amp; liquidity</h2><span class="small muted">${esc(mLabel(mk))}</span></div>
+     <div class="liq"><div><small>Available to spend</small><b class="m ${B.avail<0?'neg':''}">${fmt(B.avail)}</b></div><div><small>Actual balance</small><b class="m">${fmt(B.avail+B.total)}</b></div></div>
+     <div class="kv"><span>From Available to spend</span><b>${M(a.spentAvail)}</b></div>
+     ${P.chambers.map(c=>{const u=a.usedCh[c.id]||0;return u?`<div class="kv"><span>From ${esc(c.name)}</span><b class="neg">${M(u)}</b></div>`:''}).join('')}
+     <div class="total-line"><span class="eyebrow">Total spent</span><b>${M(a.spent)}</b></div>
+     <p class="note">Amounts from savings include money moved to Available and expenses paid straight from an account. Actual balance is Available to spend plus all savings accounts${mk>=curMK()?' today':' at '+esc(fmtD(up))}.</p>
+     <p class="note">Planned spending (needs, wants, debt, projects): ${M(planSp)}. Spent so far: ${pc}%.</p></div>
+    <div class="card"><div class="card-h"><h2>Spending by category</h2><b>${M(a.spent)}</b></div>
+     <div class="tw"><table><thead><tr><th>Category</th><th class="n">Budget</th><th class="n">Spent</th><th class="n">Left</th><th></th></tr></thead><tbody>
+     ${catRows('needs','Needs')}${catRows('wants','Wants')}${catRows('debt','Loans &amp; instalments')}${catRows('proj','Planned projects')}${other?`<tr><td>${inp('settings','','otherName',otherName(),{type:'text',cls:'wide trk-name'})}</td><td class="n">${M(0)}</td><td class="n">${M(other)}</td><td class="n neg">${M(-other)}</td><td>${bar(other,0)}</td></tr>`:''}
+     </tbody></table></div></div></div>
    <div class="card s4"><div class="card-h"><h2>Income: plan vs actual</h2></div>
     ${srcList.map(k=>{const pl=planSrc(k),ac=a.bySrc[k]||0;if(!pl&&!ac)return '';return `<div class="row"><div>${esc(srcName(k))}</div><div class="small">${M(ac)} <span class="muted">/ ${M(pl)}</span></div>${bar(ac,pl,ac>=pl?'good':'acc')}</div>`}).join('')||'<p class="muted small">No income planned or received yet.</p>'}
     <div class="total-line"><span class="eyebrow">Total received</span><b>${M(a.income)}</b></div></div>
-   <div class="card s4"><div class="card-h"><h2>Spending: where it came from</h2></div>
-    <div class="kv"><span>From Available to spend</span><b>${M(a.spentAvail)}</b></div>
-    ${P.chambers.map(c=>{const u=a.usedCh[c.id]||0;return u?`<div class="kv"><span>From ${esc(c.name)}</span><b class="neg">${M(u)}</b></div>`:''}).join('')}
-    <div class="total-line"><span class="eyebrow">Total spent</span><b>${M(a.spent)}</b></div>
-    <p class="note">Amounts from savings include money moved to Available and expenses paid straight from an account.</p>
-    <p class="note">Planned spending (needs, wants, debt, projects): ${M(p.total-p.save)}. Spent so far: ${Math.round(pct(a.spent,p.total-p.save))}%.</p></div>
-   <div class="card s4"><div class="card-h"><h2>Money statement</h2></div>${statement(mk,a)}</div>
+   <div class="card s8"><div class="card-h"><h2>Money statement</h2></div>${statement(mk,a)}</div>
    <div class="card s12">${chamberCard(mk,a,'Savings accounts this month')}</div>
-   <div class="card s7"><div class="card-h"><h2>Transactions</h2><span class="small muted">${ranged?L.length+' between '+(F.from?fmtD(F.from):'the start')+' and '+(F.to?fmtD(F.to):'today'):L.length+' in '+esc(mLabel(mk))}</span></div>
-    <div class="filters"><label class="small muted" for="fFrom">From</label><input type="date" id="fFrom" value="${esc(F.from||'')}"><label class="small muted" for="fTo">To</label><input type="date" id="fTo" value="${esc(F.to||'')}">${ranged?'<button class="addrow" style="margin:0" data-act="fDates">Back to this month</button>':''}
-     <select id="fSort" aria-label="Order"><option value="added" ${ui.txSort!=='date'?'selected':''}>Latest added first</option><option value="date" ${ui.txSort==='date'?'selected':''}>By date, newest first</option></select></div>
-    <div class="filters"><select id="fType" aria-label="Type"><option value="">All types</option>${[['expense','Expenses'],['income','Income'],['save','Savings'],['move','Moves'],['lend','Lending']].map(([v,l])=>`<option value="${v}" ${F.type===v?'selected':''}>${l}</option>`).join('')}</select>
-     <div style="flex:1 1 200px;min-width:0">${combo('fCat',catOpts(true),F.cat||'',{ph:'All categories',label:'Category'})}</div><input id="fQ" type="search" placeholder="Search description" value="${esc(F.q)}"></div>
-    ${list||'<div class="empty">No transactions match. Tap <b>Log</b> to record today’s money.</div>'}</div>
-   <div class="card s5"><div class="card-h"><h2>Spending by category</h2><b>${M(a.spent)}</b></div>
-    <div class="tw"><table><thead><tr><th>Category</th><th class="n">Budget</th><th class="n">Spent</th><th class="n">Left</th><th></th></tr></thead><tbody>
-    ${catRows('needs','Needs')}${catRows('wants','Wants')}${catRows('debt','Loans &amp; instalments')}${catRows('proj','Planned projects')}${other?`<tr><td>${inp('settings','','otherName',otherName(),{type:'text',cls:'wide trk-name'})}</td><td class="n">${M(0)}</td><td class="n">${M(other)}</td><td class="n neg">${M(-other)}</td><td>${bar(other,0)}</td></tr>`:''}
-    </tbody></table></div></div>
   </section>`;
 }
 function allCatOptions(sel){
@@ -1575,8 +1652,27 @@ function repTable(head,rows,limit){
   ${shown.map(r=>`<tr>${r.map(c=>typeof c==='number'?`<td class="n">${M(c)}</td>`:`<td>${esc(c)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${head.length}" class="muted">Nothing found for these filters.</td></tr>`}
   </tbody></table></div>${limit&&rows.length>limit?`<p class="note">Showing the first ${limit} of ${rows.length} rows. The PDF and CSV include all of them.</p>`:''}`;
 }
+function loadScript(src){return new Promise((res,rej)=>{const ex=document.querySelector(`script[data-src="${src}"]`);if(ex){if(ex.dataset.ok)res();else{ex.addEventListener('load',res);ex.addEventListener('error',rej)}return}const s=document.createElement('script');s.src=src;s.dataset.src=src;s.onload=()=>{s.dataset.ok='1';res()};s.onerror=rej;document.head.appendChild(s)})}
+const fmtP=n=>(n<0?'-':'')+'Ksh '+Math.round(Math.abs(n)).toLocaleString('en-KE');
+const pdfTxt=s=>String(s).replace(/[−–—]/g,'-').replace(/→/g,'->').replace(/[^\x20-\x7E -ÿ‘’“”•…]/g,'');
+/* ---------- executive reports: trend + breakdown charts, PDF and Excel ---------- */
+const REP_SER=[['inc','Income','var(--cs1)'],['sp','Spent','var(--cs2)'],['sv','Saved','var(--cs3)']];
+function repTrend(endMk,n){n=n||6;return Array.from({length:n},(_,i)=>addM(endMk,i-n+1)).map(m=>{const a=actual(m);return{m,inc:a.income,sp:a.spent,sv:a.saved}})}
+function repLine(T){const W=640,H=210,L=56,Rm=14,Tm=12,Bm=28;const max=Math.max(1,...T.flatMap(x=>[x.inc,x.sp,x.sv]));
+  const nice=v=>{const p=Math.pow(10,Math.floor(Math.log10(v)));const m=v/p;return(m<=1?1:m<=2?2:m<=5?5:10)*p};const top=nice(max);
+  const X=i=>L+(W-L-Rm)*(T.length===1?0.5:i/(T.length-1)),Y=v=>H-Bm-(H-Bm-Tm)*v/top;
+  let s=`<svg class="rep-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income, spending and saving by month">`;
+  [0,0.5,1].forEach(f=>{s+=`<line x1="${L}" x2="${W-Rm}" y1="${Y(top*f)}" y2="${Y(top*f)}" class="cl-grid"/><text x="${L-8}" y="${Y(top*f)+3}" text-anchor="end" class="cl-ax">${fmtS(top*f)}</text>`});
+  T.forEach((x,i)=>s+=`<text x="${X(i)}" y="${H-8}" text-anchor="middle" class="cl-ax">${mLabel(x.m,1)}</text>`);
+  REP_SER.forEach(([k,l,c])=>{s+=`<polyline fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${T.map((x,i)=>X(i)+','+Y(x[k])).join(' ')}"/>`;
+    T.forEach((x,i)=>s+=`<circle cx="${X(i)}" cy="${Y(x[k])}" r="4" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`)});
+  T.forEach((x,i)=>{const w=(W-L-Rm)/Math.max(1,T.length-1);s+=`<rect x="${X(i)-w/2}" y="${Tm}" width="${w}" height="${H-Bm-Tm}" fill="transparent"><title>${mLabel(x.m)}\nIncome ${fmt(x.inc)}\nSpent ${fmt(x.sp)}\nSaved ${fmt(x.sv)}</title></rect>`});
+  return s+'</svg>'}
+function repBreak(rows,total){/* rows: [label, count, amount, share] */const top=rows.slice(0,7),rest=rows.slice(7);if(rest.length)top.push(['Others ('+rest.length+')','',sum(rest,r=>num(r[2])),'',1]);
+  const max=Math.max(1,...top.filter(r=>!r[4]).map(r=>num(r[2])));
+  return`<div class="rep-bars">${top.map(r=>`<div class="rb"><span class="rb-l">${esc(r[0])}</span><span class="rb-t"><i style="width:${Math.min(100,num(r[2])/max*100)}%${r[4]?';background:var(--ink-2);opacity:.45':''}"></i></span><b class="m">${fmt(num(r[2]))}</b><small>${total?Math.round(num(r[2])/total*100)+'%':''}</small></div>`).join('')||'<p class="muted small">Nothing in this period.</p>'}</div>`}
 function vReports(){
-  const r=ui.rep,R=buildReport(),B=bal();
+  const r=ui.rep,R=buildReport();
   const descs=[...new Set(allTx().map(t=>(t.desc||'').trim()).filter(Boolean))].sort().map(d=>({v:d,l:d,g:'Description'}));
   const itemOpts=r.type==='lent'?(P.borrowers||[]).map(b=>({v:b.name,l:b.name,g:'Person'})):r.type==='expense'?[...P.cats.map(c=>({v:c.name,l:c.name,g:'Category'})),...descs]:descs;
   const f=[];
@@ -1584,8 +1680,11 @@ function vReports(){
   if(r.type==='income'||r.type==='savings')f.push(`<div class="field"><label for="rp-src-q">${r.type==='income'?'Source':'Saved from'}</label>${combo('rp-src',[...srcOpts(true),...(r.type==='savings'?[{v:'avail',l:'Available to spend (general)',g:'Saved after income'}]:[])],r.src||'',{ph:'All sources'})}</div>`);
   if(r.type==='savings'||r.type==='used')f.push(`<div class="field"><label for="rp-ch-q">Account</label>${combo('rp-ch',chOptsList(null,false,true),r.ch||'',{ph:'All accounts'})}</div>`);
   if(r.type!=='summary')f.push(`<div class="field"><label for="rp-item-q">${r.type==='lent'?'Person or item':'Specific item'}</label>${combo('rp-item',itemOpts,r.item||'',{ph:'Type what it is, e.g. fuel',free:true})}</div>`);
-  return `${banner()}<div class="pageh"><div><h1>Reports</h1><p>Pick a report, a period and filters, then download it as a PDF or CSV.</p></div>
-    <div class="inline-actions"><button class="btn" data-act="repPdf">Download PDF</button><button class="btn ghost" data-act="repCsv">Download CSV</button></div></div>
+  const T=repTrend(R.to.slice(0,7)),k=R.summary.filter(x=>typeof x[1]==='number').slice(0,4),g0=R.groups[0];
+  const tot=num((R.summary[0]||[])[1]);
+  const trendNote=(()=>{const a=T[T.length-1],b=T[T.length-2];if(!b||!b.sp)return'';const c=(a.sp-b.sp)/b.sp*100;return`Spending ${c>=0?'up':'down'} ${Math.abs(c).toFixed(0)}% on ${mLabel(b.m,1)}`})();
+  return `${banner()}<div class="pageh"><div><h1>Reports</h1><p>Choose a report, period and filters. Download an executive PDF or Excel file, or a CSV.</p></div>
+    <div class="inline-actions"><button class="btn" data-act="repPdf">PDF</button><button class="btn ghost" data-act="repXlsx">Excel</button><button class="btn ghost" data-act="repCsv">CSV</button></div></div>
   <section class="grid">
    <div class="card s12">
     <div class="seg repseg" role="group" aria-label="Report">${REP_TYPES.map(([k,l])=>`<button type="button" data-act="repType" data-v="${k}" aria-pressed="${r.type===k}">${l}</button>`).join('')}</div>
@@ -1596,36 +1695,84 @@ function vReports(){
     </div>
     ${R.filters.length?`<div class="inline-actions" style="margin-top:10px">${R.filters.map(x=>`<span class="pill">${esc(x)}</span>`).join('')}<button class="addrow" style="margin:0" data-act="repClear">Clear filters</button></div>`:''}
    </div>
-   <div class="card s5"><div class="card-h"><h2>${esc(R.title)}</h2><span class="small muted">${fmtD(R.from)} – ${fmtD(R.to)}</span></div>
+   <div class="card s12 rep-head"><div><div class="eyebrow">Hazina · ${esc(R.title)}</div><h2 class="rep-title">${esc(R.title)}</h2><span class="small muted">${fmtD(R.from)} – ${fmtD(R.to)}${R.filters.length?' · '+esc(R.filters.join(' · ')):''}</span></div>
+    <div class="rep-kpis">${k.map(([l,v],i)=>`<div class="${i===0?'key':''}"><small>${esc(l)}</small><b class="m">${fmt(v)}</b></div>`).join('')}</div></div>
+   <div class="card s7"><div class="card-h"><div><h2>Six-month trend</h2><span class="small muted">${esc(mLabel(T[0].m,1))} – ${esc(mLabel(T[T.length-1].m,1))}${trendNote?' · '+esc(trendNote):''}</span></div></div>
+    <div class="cl-leg">${REP_SER.map(([k,l,c])=>`<span><i style="background:${c}"></i>${l}</span>`).join('')}</div><div class="tw">${repLine(T)}</div></div>
+   <div class="card s5"><div class="card-h"><h2>${g0?esc(g0.title):'Breakdown'}</h2>${tot?`<b>${M(tot)}</b>`:''}</div>${g0&&typeof (g0.rows[0]||[])[2]==='number'?repBreak(g0.rows,tot):`<div class="rep-sum">${R.summary.map(([k,v])=>`<div class="kv"><span>${esc(k)}</span><b>${typeof v==='number'?M(v):esc(v)}</b></div>`).join('')}</div>`}</div>
+   <div class="card s5" style="align-self:start"><div class="card-h"><h2>Summary</h2></div>
     ${R.summary.map(([k,v],i)=>`<div class="kv${i===0?' big':''}"><span>${esc(k)}</span><b>${typeof v==='number'?M(v):esc(v)}</b></div>`).join('')}</div>
    <div class="card s7">${R.groups.map(g=>`<div class="card-h" style="margin-top:4px"><h2>${esc(g.title)}</h2></div>${repTable(g.head,g.rows)}`).join('<div style="height:14px"></div>')}</div>
    ${R.head.length?`<div class="card s12"><div class="card-h"><h2>Details</h2><span class="small muted">${R.rows.length} entr${R.rows.length===1?'y':'ies'}</span></div>${repTable(R.head,R.rows,300)}</div>`:''}
   </section>`;
 }
-function loadScript(src){return new Promise((res,rej)=>{const ex=document.querySelector(`script[data-src="${src}"]`);if(ex){if(ex.dataset.ok)res();else{ex.addEventListener('load',res);ex.addEventListener('error',rej)}return}const s=document.createElement('script');s.src=src;s.dataset.src=src;s.onload=()=>{s.dataset.ok='1';res()};s.onerror=rej;document.head.appendChild(s)})}
-const fmtP=n=>(n<0?'-':'')+'Ksh '+Math.round(Math.abs(n)).toLocaleString('en-KE');
-const pdfTxt=s=>String(s).replace(/[−–—]/g,'-').replace(/→/g,'->').replace(/[^\x20-\x7E -ÿ‘’“”•…]/g,'');
+const repWho=()=>store.viewing?store.viewing.name:(store.me&&(store.me.full_name||store.me.email))||'';
+const repFile=R=>'hazina-'+R.title.toLowerCase().replace(/[^a-z]+/g,'-')+'-'+R.from+'-to-'+R.to;
 async function repPdf(){
-  const R=buildReport();
-  toast('Preparing PDF…');
+  const R=buildReport(),T=repTrend(R.to.slice(0,7));toast('Preparing PDF…');
   try{await loadScript(JSPDF_URL);await loadScript(AUTOTABLE_URL)}catch(e){toast('Couldn’t load the PDF tool. Check your internet connection and try again.');return}
-  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'pt',format:'a4'});
-  const who=store.viewing?store.viewing.name:(store.me&&(store.me.full_name||store.me.email))||'';
-  const green=[14,107,87],W=doc.internal.pageSize.getWidth();
-  doc.setFillColor(...green);doc.rect(0,0,W,64,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text(pdfTxt('Hazina · '+R.title),40,40);
-  doc.setTextColor(30,40,36);doc.setFont('helvetica','normal');doc.setFontSize(10);
-  let y=88;[who?'Prepared for: '+who:'','Period: '+fmtD(R.from)+' to '+fmtD(R.to),R.filters.length?'Filters: '+R.filters.join(' · '):'','Generated: '+new Date().toLocaleString('en-GB')].filter(Boolean).forEach(l=>{doc.text(pdfTxt(l),40,y);y+=14});
-  const cell=c=>typeof c==='number'?fmtP(c):pdfTxt(c);
-  const tbl=(title,head,rows)=>{y+=10;doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text(pdfTxt(title),40,y);y+=6;
-    const numCols={};head.forEach((h,i)=>{if(rows.some(r=>typeof r[i]==='number'))numCols[i]={halign:'right'}});
-    doc.autoTable({startY:y,head:[head.map(pdfTxt)],body:rows.length?rows.map(r=>r.map(cell)):[[{content:'Nothing found for these filters.',colSpan:head.length}]],theme:'grid',styles:{fontSize:9,cellPadding:4},headStyles:{fillColor:green,textColor:255},columnStyles:numCols,margin:{left:40,right:40}});
-    y=doc.lastAutoTable.finalY+14};
-  tbl('Summary',['Item','Amount'],R.summary);
-  R.groups.forEach(g=>tbl(g.title,g.head,g.rows));
+  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'pt',format:'a4'});const FN=await pcrPdfFonts(doc);const tx=s=>FN.custom?String(s==null?'':s).replace(/[\u{10000}-\u{10FFFF}]/gu,''):pdfTxt(s==null?'':s);
+  const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),L0=48,R0=W-48,INK=[17,24,39],SLATE=[100,108,120],LINE=[214,218,224],FILL=[243,244,246],ACC=[14,107,87];
+  const cell=c=>typeof c==='number'?pcrA(c):tx(c);
+  doc.setFillColor(...ACC);doc.rect(0,0,W,6,'F');
+  doc.setFont(FN.body,'normal');doc.setFontSize(7.8);doc.setTextColor(...SLATE);doc.text(tx('HAZINA  ·  PERSONAL FINANCE'),L0,40,{charSpace:1.4});
+  doc.setFont(FN.head,'bold');doc.setFontSize(22);doc.setTextColor(...INK);doc.text(tx(R.title),L0,66);
+  doc.setFont(FN.body,'normal');doc.setFontSize(8.6);doc.setTextColor(...SLATE);doc.text(tx(['Period '+fmtD(R.from)+' – '+fmtD(R.to),repWho()?'Prepared for '+repWho():'','Generated '+fmtD(todayStr())].filter(Boolean).join('  ·  ')),L0,82);
+  if(R.filters.length)doc.text(tx('Filters: '+R.filters.join(' · ')),L0,94);
+  doc.setDrawColor(...INK);doc.setLineWidth(1.3);doc.line(L0,102,R0,102);doc.setLineWidth(.4);doc.line(L0,104.6,R0,104.6);
+  let y=122;const K=R.summary.filter(x=>typeof x[1]==='number').slice(0,4);
+  if(K.length){const bw=(R0-L0)/K.length,bh=48;doc.setFillColor(...FILL);doc.rect(L0,y,bw,bh,'F');
+    K.forEach(([l,v],i)=>{const x=L0+i*bw;doc.setDrawColor(...LINE);doc.setLineWidth(.5);if(i)doc.line(x,y+8,x,y+bh-8);doc.setFont(FN.body,'normal');doc.setFontSize(6.6);doc.setTextColor(...SLATE);doc.text(doc.splitTextToSize(tx(l.toUpperCase()),bw-22)[0],x+9,y+16);
+      doc.setFont(FN.body,'bold');doc.setFontSize(12.5);doc.setTextColor(...INK);doc.text(tx('KES '+pcrA(v)),x+9,y+35)});
+    doc.setDrawColor(...INK);doc.setLineWidth(.6);doc.line(L0,y,R0,y);doc.line(L0,y+bh,R0,y+bh);y+=bh+26}
+  const lab=t=>{doc.setFont(FN.body,'bold');doc.setFontSize(7.6);doc.setTextColor(...SLATE);doc.text(tx(t.toUpperCase()),L0,y,{charSpace:1.1});y+=10};
+  // trend chart (grouped bars) and breakdown bars, side by side
+  const cw=(R0-L0-24)*0.56,cx=L0,ch=150;lab('Six-month trend');const y0=y;
+  {const max=Math.max(1,...T.flatMap(x=>[x.inc,x.sp,x.sv])),gy=y0+ch-18,gh=ch-34,SER=[['inc',INK,'Income'],['sp',[160,166,176],'Spent'],['sv',ACC,'Saved']];
+    doc.setDrawColor(...LINE);doc.setLineWidth(.4);[0,.5,1].forEach(f=>{const yy=gy-gh*f;doc.line(cx+36,yy,cx+cw,yy);doc.setFont(FN.body,'normal');doc.setFontSize(6.5);doc.setTextColor(...SLATE);doc.text(tx(fmtS(max*f)),cx+32,yy+2,{align:'right'})});
+    const step=(cw-40)/T.length,bw=Math.min(9,step/4);T.forEach((m,i)=>{const x0=cx+40+step*i+step/2-bw*1.5-1;SER.forEach(([k,c],j)=>{const h=gh*m[k]/max;doc.setFillColor(...c);if(h>0)doc.rect(x0+j*(bw+1),gy-h,bw,h,'F')});doc.setFontSize(6.5);doc.setTextColor(...SLATE);doc.text(tx(mLabel(m.m,1)),cx+40+step*i+step/2,gy+10,{align:'center'})});
+    SER.forEach(([k,c,l],j)=>{doc.setFillColor(...c);doc.rect(cx+40+j*62,y0+ch-4,7,7,'F');doc.setFontSize(7);doc.setTextColor(...INK);doc.text(tx(l),cx+50+j*62,y0+ch+2)})}
+  {const g0=R.groups[0];if(g0&&typeof (g0.rows[0]||[])[2]==='number'){const bx=L0+cw+24,bwid=R0-bx,tot=sum(g0.rows,r=>num(r[2]));const rows=g0.rows.slice(0,7);if(g0.rows.length>7)rows.push(['Others','',sum(g0.rows.slice(7),r=>num(r[2])),'',1]);const max=Math.max(1,...rows.filter(r=>!r[4]).map(r=>num(r[2])));
+    doc.setFont(FN.body,'bold');doc.setFontSize(7.6);doc.setTextColor(...SLATE);doc.text(tx(g0.title.toUpperCase()),bx,y0-10,{charSpace:1.1});
+    rows.forEach((r,i)=>{const yy=y0+6+i*18;doc.setFont(FN.body,'normal');doc.setFontSize(7.2);doc.setTextColor(...INK);doc.text(doc.splitTextToSize(tx(r[0]),bwid*0.42)[0],bx,yy+6);
+      const tx0=bx+bwid*0.44,tw=bwid*0.3;doc.setFillColor(...FILL);doc.rect(tx0,yy,tw,7,'F');doc.setFillColor(...(r[4]?[176,182,190]:ACC));doc.rect(tx0,yy,tw*Math.min(1,num(r[2])/max),7,'F');
+      doc.setTextColor(...SLATE);doc.text(tx(fmtS(num(r[2]))+(tot?'  '+Math.round(num(r[2])/tot*100)+'%':'')),R0,yy+6,{align:'right'})})}}
+  y=y0+ch+22;
+  const tbl=(title,head,rows)=>{if(y>H-120){doc.addPage();y=60}lab(title);const cs={};head.forEach((h,i)=>{if(rows.some(r=>typeof r[i]==='number'))cs[i]={halign:'right'}});
+    doc.autoTable({startY:y,head:[head.map(tx)],body:rows.length?rows.map(r=>r.map(cell)):[[{content:'Nothing found for these filters.',colSpan:head.length}]],theme:'plain',rowPageBreak:'avoid',
+      styles:{font:FN.body,fontSize:8.4,textColor:INK,cellPadding:{top:4,bottom:4,left:5,right:5}},headStyles:{font:FN.body,fontStyle:'bold',fillColor:FILL,fontSize:7.6},columnStyles:cs,margin:{left:L0,right:W-R0,top:56,bottom:50},
+      didParseCell:d=>{if(d.section==='head'&&cs[d.column.index])d.cell.styles.halign='right'},
+      didDrawCell:d=>{const {x,y:yy,width:w,height:h}=d.cell;doc.setLineWidth(d.section==='head'?.9:.4);doc.setDrawColor(...(d.section==='head'?INK:LINE));doc.line(x,yy+h,x+w,yy+h)}});
+    y=doc.lastAutoTable.finalY+22};
+  tbl('Summary',['Item','Amount (KES)'],R.summary);R.groups.forEach(g=>tbl(g.title,g.head,g.rows));
+  tbl('Six-month trend',['Month','Income','Spent','Saved','Net (income − spent)'],T.map(m=>[mLabel(m.m),m.inc,m.sp,m.sv,m.inc-m.sp]));
   if(R.head.length)tbl('Details',R.head,R.rows);
-  const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(120);doc.text('Page '+i+' of '+n,W-40,doc.internal.pageSize.getHeight()-20,{align:'right'})}
-  doc.save('hazina-'+R.title.toLowerCase().replace(/[^a-z]+/g,'-')+'-'+R.from+'-to-'+R.to+'.pdf');
-}
+  const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setDrawColor(...LINE);doc.setLineWidth(.4);doc.line(L0,H-36,R0,H-36);doc.setFont(FN.body,'normal');doc.setFontSize(7.4);doc.setTextColor(...SLATE);
+    doc.text(tx('Hazina · '+R.title+' · '+fmtD(R.from)+' – '+fmtD(R.to)),L0,H-24);doc.text(tx('Page '+i+' of '+n),R0,H-24,{align:'right'});if(i>1){doc.setFillColor(...ACC);doc.rect(0,0,W,4,'F')}}
+  doc.save(repFile(R)+'.pdf')}
+async function repXlsx(){const R=buildReport(),T=repTrend(R.to.slice(0,7));toast('Preparing Excel file…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel tool. Check your connection.');return}
+  const wb=new ExcelJS.Workbook();wb.creator='Hazina';const INK='FF111827',SLATE='FF646C78',LINE='FFD6DAE0',FILL='FFF3F4F6',ACC='FF0E6B57',AMT='#,##0.00;(#,##0.00)';
+  const thin={style:'thin',color:{argb:LINE}},med={style:'medium',color:{argb:INK}};
+  const ws=wb.addWorksheet('Report',{properties:{tabColor:{argb:ACC}},views:[{showGridLines:false}],pageSetup:{paperSize:9,orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true},headerFooter:{oddFooter:'&L&"Aptos"&8Hazina · '+R.title.replace(/&/g,'&&')+'&R&"Aptos"&8Page &P of &N'}});
+  ws.columns=[{width:34},{width:16},{width:16},{width:16},{width:18},{width:14}];
+  const put=(r,c,v,o={})=>{const x=ws.getRow(r).getCell(c);x.value=v;x.font={name:o.head?'Aptos Display':'Aptos',size:o.size||10,bold:!!o.bold,color:{argb:o.color||INK}};if(typeof v==='number'){x.numFmt=o.fmt||AMT;x.alignment={horizontal:'right'}}if(o.fill)x.fill={type:'pattern',pattern:'solid',fgColor:{argb:o.fill}};if(o.border)x.border=o.border;return x};
+  for(let c=1;c<=6;c++)ws.getRow(1).getCell(c).fill={type:'pattern',pattern:'solid',fgColor:{argb:ACC}};ws.getRow(1).height=5;
+  put(2,1,'HAZINA  ·  PERSONAL FINANCE',{size:8,color:SLATE});put(3,1,R.title,{head:true,size:20,bold:true});ws.getRow(3).height=30;
+  put(4,1,['Period '+fmtD(R.from)+' – '+fmtD(R.to),repWho()?'Prepared for '+repWho():'','Generated '+fmtD(todayStr())].filter(Boolean).join('  ·  '),{size:9,color:SLATE});
+  if(R.filters.length)put(5,1,'Filters: '+R.filters.join(' · '),{size:9,color:SLATE});
+  for(let c=1;c<=6;c++)ws.getRow(6).getCell(c).border={bottom:{style:'double',color:{argb:INK}}};
+  let r=8;const K=R.summary.filter(x=>typeof x[1]==='number').slice(0,4);
+  K.forEach(([l,v],i)=>{put(r,1+i,l.toUpperCase(),{size:7.5,color:SLATE,fill:i===0?FILL:undefined,border:{top:med}}).alignment={wrapText:true,vertical:'top'};put(r+1,1+i,v,{size:13,bold:true,fill:i===0?FILL:undefined,border:{bottom:med}})});ws.getRow(r).height=28;ws.getRow(r+1).height=24;r+=3;
+  const table=(title,head,rows,fmtCol)=>{put(r,1,title.toUpperCase(),{size:8,bold:true,color:SLATE});r++;head.forEach((h,i)=>{const x=put(r,1+i,h,{bold:true,size:9,fill:FILL,border:{bottom:med}});if(rows.some(q=>typeof q[i]==='number'))x.alignment={horizontal:'right'}});r++;
+    rows.forEach(q=>{q.forEach((v,i)=>put(r,1+i,v,{border:{bottom:thin},fmt:fmtCol&&fmtCol[i]}));r++});if(!rows.length){put(r,1,'Nothing found for these filters.',{color:SLATE});r++}r++};
+  table('Summary',['Item','Amount (KES)'],R.summary);
+  R.groups.forEach(g=>table(g.title,g.head,g.rows.map(q=>q.map(v=>typeof v==='string'&&/^\d+%$/.test(v)?num(v)/100:typeof v==='string'&&/^\d+$/.test(v)?num(v):v)),g.head.map(h=>h==='Share'?'0%':h==='Entries'?'0':undefined)));
+  table('Six-month trend',['Month','Income','Spent','Saved','Net (income − spent)'],T.map(m=>[mLabel(m.m),m.inc,m.sp,m.sv,m.inc-m.sp]));
+  if(R.head.length){const d=wb.addWorksheet('Details',{properties:{tabColor:{argb:INK}},views:[{state:'frozen',ySplit:1,showGridLines:false}],pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}});
+    d.columns=R.head.map(h=>({width:/desc|item|used|paid/i.test(h)?36:14}));R.head.forEach((h,i)=>{const x=d.getRow(1).getCell(i+1);x.value=h;x.font={name:'Aptos',bold:true,size:9};x.fill={type:'pattern',pattern:'solid',fgColor:{argb:FILL}};x.border={bottom:med}});
+    R.rows.forEach((q,ri)=>q.forEach((v,i)=>{const x=d.getRow(ri+2).getCell(i+1);x.value=v;x.font={name:'Aptos',size:10};x.border={bottom:thin};if(typeof v==='number'){x.numFmt=AMT;x.alignment={horizontal:'right'}}}));d.autoFilter={from:{row:1,column:1},to:{row:1,column:R.head.length}}}
+  const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=repFile(R)+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
+
 function repCsv(){
   const R=buildReport();const q=c=>{const s=typeof c==='number'?Math.round(c):String(c);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
   const lines=[[R.title],['Period',R.from,R.to],...R.filters.map(f=>[f]),[],['Summary'],...R.summary,[]];
@@ -3352,7 +3499,12 @@ document.addEventListener('click',e=>{
   else if(a==='mat'){ui.matCum=t.dataset.v==='1';render()}
   else if(a==='repType'){Object.assign(ui.rep,{type:t.dataset.v,cat:'',ch:'',src:'',item:''});render()}
   else if(a==='repClear'){Object.assign(ui.rep,{cat:'',ch:'',src:'',item:''});render()}
+  else if(a==='rollUse')rollSet(ui.month,t.dataset.id,t.dataset.v);
+  else if(a==='rollAll')rollSet(ui.month,null,t.dataset.v);
+  else if(a==='rollOpen'){const I=rollInfo(ui.month);const und=I?I.rows.filter(x=>!x.use&&x.adv!==x.base).length:0;ui.rollOpen=!(ui.rollOpen!=null?ui.rollOpen:und>0);render()}
   else if(a==='repPdf')repPdf();
+  else if(a==='repXlsx')repXlsx();
+  else if(a==='trkType'){ui.txFilter.type=t.dataset.v;render()}
   else if(a==='repCsv')repCsv();
   else if(a==='startTrack'){P.settings.started=todayStr();ui.editOpen=false;saveP();toast('Opening balances saved. Each month now starts from the last one’s closing balances.');render()}
   else if(a==='editOpen'){ui.editOpen=!ui.editOpen;render()}
