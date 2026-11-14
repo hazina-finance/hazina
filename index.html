@@ -251,6 +251,8 @@ td.cl-dual,.cl-dual{background:color-mix(in srgb,var(--cs4) 20%,transparent)}
 .cl-dbox{padding:2px!important}.cl-dbox input{width:56px!important;min-width:56px!important;text-align:center!important;padding:6px 2px!important;border-radius:4px!important}
 .cl-mini{width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
 .ex-opts select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+.offbar{display:flex;gap:10px;align-items:flex-start;padding:8px max(16px,env(safe-area-inset-left,0px));background:var(--gold-soft);color:var(--ink);border-top:1px solid color-mix(in srgb,var(--gold) 40%,transparent);font-size:.84rem;line-height:1.4}
+.offbar .ob-ic{color:var(--gold);font-size:1rem;line-height:1.2}.offbar.old{background:color-mix(in srgb,var(--bad) 12%,var(--surface));border-top-color:color-mix(in srgb,var(--bad) 40%,transparent)}.offbar.old .ob-ic{color:var(--bad)}
 /* sidebar */
 :root{--sbw:272px}
 body.sb-min{--sbw:68px}
@@ -536,6 +538,7 @@ body.viewing #app input:disabled,body.viewing #app select:disabled{color:var(--i
     <button class="iconbtn acct" id="acct" hidden aria-label="Account"><span id="acctName"></span></button>
   </div>
   <div id="tabs" hidden></div>
+  <div class="offbar" id="offbar" role="status" aria-live="polite" hidden></div>
 </header>
 <main class="wrap" id="app" aria-live="polite"></main>
 <button class="fab" id="fab" aria-label="Log a transaction"><span>+</span> Log</button>
@@ -668,7 +671,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='14 Nov 2026 · cross-device sync, offline mode, Excel logo placement';
+const APP_BUILD='14 Nov 2026 · cross-device sync, offline mode with last-sync warning, Excel logo placement';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -678,13 +681,23 @@ const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAno
 const store={uid:null,me:null,pending:new Set(),pendAt:{},ver:{},flushing:false,retry:null};
 const parse=s=>{try{return s?JSON.parse(s):null}catch(e){return null}};
 const isAdmin=()=>!!(store.me&&store.me.role==='admin'&&store.me.active);
-function setSync(cls,txt){const el=$('#sync');el.className='sync '+cls;el.querySelector('span').textContent=txt;el.title=txt}
+function setSync(cls,txt){const el=$('#sync');el.className='sync '+cls;el.querySelector('span').textContent=txt;el.title=txt;store.syncCls=cls;if(cls==='')markSynced();offBar()}
+/* last time this device was fully in step with the server; shown as a warning whenever the app is offline */
+const syncKey=()=>'hz-sync-'+store.uid;
+function markSynced(){if(!store.uid||store.viewing||store.pending.size)return;store.lastSync=Date.now();lsSet(syncKey(),String(store.lastSync))}
+function agoTxt(t){const m=Math.round((Date.now()-t)/60000);if(m<1)return'just now';if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<48)return h+' hour'+(h===1?'':'s')+' ago';const d=Math.round(h/24);return d+' days ago'}
+function offBar(){const bar=$('#offbar');if(!bar)return;const off=!!store.uid&&!store.viewing&&(store.syncCls==='local'||!navigator.onLine);if(!off){bar.hidden=true;return}
+  const t=store.lastSync||num(lsGet(syncKey()))||0,n=store.pending.size,old=t&&Date.now()-t>24*3600e3;
+  const when=t?new Date(t).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+  bar.className='offbar'+(old||!t?' old':'');bar.hidden=false;
+  bar.innerHTML=`<span class="ob-ic" aria-hidden="true">⚠</span><span><b>${navigator.onLine?'Not connected to the server.':'You are offline.'}</b> ${t?`Figures last synced <b>${esc(when)}</b> (${agoTxt(t)}).`:'These figures have not been synced on this device yet.'}${old?' They may be out of date: changes made on your other devices since then are not shown.':' Changes from your other devices since then are not shown yet.'}${n?` <b>${n} change${n===1?'':'s'}</b> made here will upload when you are back online.`:''}</span>`}
+setInterval(offBar,60000);
 const cacheKey=()=>'hz-cache-'+store.uid, pendKey=()=>'hz-pend-'+store.uid;
 function cacheSave(){if(!store.uid||!P||store.viewing)return;lsSet(cacheKey(),JSON.stringify({P,TX,PCR,CL,FL,ver:store.ver,at:Date.now()}));const ids={};store.pending.forEach(id=>{ids[id]=store.pendAt[id]||{t:Date.now()}});lsSet(pendKey(),JSON.stringify({v:2,ids}))}
 /* every saved document carries the time it was last written. A device only uploads its own change when nothing newer was saved from another device, so a run deleted on the PC can't come back from a phone that still had it. */
 const tOf=x=>{const n=Date.parse(x||'');return isFinite(n)?n:0};
 const MERGED=/^pcr-\d{4}$/;
-const cacheSoon=debounce(cacheSave,300);
+const cacheSoon=debounce(()=>{cacheSave();offBar()},300);
 async function loadData(){
   if(store.viewing)return loadViewed();
   if(store.uid&&P&&store.pending.size)cacheSave();
@@ -697,7 +710,7 @@ async function loadData(){
     PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;
     data.forEach(r=>{ver[r.doc_id]=r.updated_at;if(r.doc_id==='fl'){FL=r.body&&!r.body.gone?r.body:null;return}if(r.doc_id.startsWith('cl-')){clAbsorb(r);return}if(r.body&&r.body.gone)return;if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
     if(pcrClerk()){const {data:pd,error:pe}=await sb.from('hz_docs').select('doc_id,body,updated_at').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(pe)throw pe;(pd||[]).forEach(r=>{ver[r.doc_id]=r.updated_at;pcrAbsorb(r)})}
-    P=migrate(prof);TX=tx;store.ver=ver;ok=true;
+    P=migrate(prof);TX=tx;store.ver=ver;ok=true;store.lastSync=Date.now();lsSet(syncKey(),String(store.lastSync));
   }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}if(cached.CL)CL=Object.assign({cfg:null,reg:null,runs:{}},cached.CL);if(cached.FL)FL=cached.FL;store.ver=cached.ver||{}}}
   // put back changes made on this device that had not reached the server yet, unless another device has saved something newer since
   store.pending=new Set();store.pendAt={};let lost=0;
@@ -811,7 +824,7 @@ async function afterLogin(u,offline){
   await loadData();
 }
 function showLogin(msg){
-  P=null;TX={};PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;ui.cl=null;ui.fl=null;store.uid=null;store.me=null;store.fresh=false;store.ver={};store.pendAt={};store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
+  P=null;TX={};PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;ui.cl=null;ui.fl=null;store.uid=null;store.me=null;store.fresh=false;store.ver={};store.pendAt={};store.lastSync=0;store.syncCls='';store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
   $('#acct').hidden=true;$('#fab').hidden=true;$('#refreshBtn').hidden=true;$('#app').innerHTML='';$('#modalRoot').innerHTML='';$('#tabs').innerHTML='';$('#side').hidden=true;$('#sbOpen').hidden=true;document.body.classList.remove('has-side','sb-open');
   $('#auth').hidden=false;const m=$('#authMsg');m.textContent=msg||'';m.hidden=!msg;setSync('local','Signed out');
 }
