@@ -289,6 +289,7 @@ body.sb-min .sb-top{flex-direction:column;padding:12px 8px}
 .fl-sup .tw{margin:0}.fl-t td input{min-width:110px;border-color:var(--line);background:var(--surface)}.fl-t td.n input{max-width:150px;margin-left:auto}
 .fl-t tr.fl-paid td{background:color-mix(in srgb,var(--good) 5%,transparent)}
 .fl-pb{border:0;cursor:pointer;font:inherit;font-size:.72rem}
+.fl-lock{white-space:nowrap;font-weight:600}.fi-modal{width:min(1180px,100%)}.fi-t td{vertical-align:top}.fi-t td:nth-last-child(2){min-width:170px}.fi-t .fi-in{min-width:120px;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:6px 7px;width:100%}.fi-t select.fi-in{font-size:.78rem}.fi-t tr.fi-skip td{opacity:.45}
 /* red flags (casuals) */
 .fl-g{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}
 .fl-gh{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}
@@ -667,7 +668,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='14 Nov 2026 · sidebar, fleet invoicing & casuals red flags';
+const APP_BUILD='14 Nov 2026 · sidebar, fleet invoicing (with record upload) & casuals red flags';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
@@ -3490,29 +3491,33 @@ const flLine=(v,mk)=>(flData().inv[mk]||{})[v.id]||null;
 const flDue=(v,mk)=>{const L=flLine(v,mk);return L&&L.amt!==''&&L.amt!=null?num(L.amt):num(v.rate)};
 const flPaid=(v,mk)=>{const L=flLine(v,mk);return !!(L&&L.paid)};
 const flUnpaid=v=>sum(flMonths(v.start||curMK(),curMK()).filter(m=>flActive(v,m)&&!flPaid(v,m)),m=>flDue(v,m));
-const flVName=v=>(v.type||'Vehicle')+' · '+(v.plate||'no plate');
+const flVName=v=>(v.type||'Vehicle')+' · '+(v.plate||'Plate TBC');const flPl=v=>v.plate||'Plate TBC';
 const flMk=mk=>mLabel(mk,true)+' '+mk.slice(0,4);
 const flPer=(f,t)=>f===t?mLabel(f):flMk(f)+' – '+flMk(t);
 function flStatus(v,from,to){const L=[];if(v.removed)L.push((v.removed<=to?'Removed from fleet':'To be removed')+' effective '+mLabel(v.removed)+(v.why?' ('+v.why+')':''));
-  if(v.start&&v.start>=from&&v.start<=to)L.push('Added '+mLabel(v.start));if(v.note)L.push(v.note);return L.join(' · ')||'Active'}
+  if(v.start&&v.start>from&&v.start<=to)L.push('Added '+mLabel(v.start));if(v.note)L.push(v.note);return L.join(' · ')||'Active'}
+/* invoice period a vehicle covers within the report period, e.g. 21 Sep – 31 Oct 2026 (part months come from the invoice dates) */
+function flPerLbl(v,per){const ms=per.filter(m=>flActive(v,m));if(!ms.length)return'';const a=ms[0],b=ms[ms.length-1],La=flLine(v,a),Lb=flLine(v,b);
+  const f=La&&La.per?La.per.f:a+'-01',t=Lb&&Lb.per?Lb.per.t:monthEnd(b);const d=x=>new Date(x+'T00:00');const sameY=f.slice(0,4)===t.slice(0,4);
+  return d(f).toLocaleDateString('en-GB',sameY?{day:'numeric',month:'short'}:{day:'numeric',month:'short',year:'numeric'})+' – '+fmtD(t)}
 /* one set of figures feeds the screen, the Excel workbook, the PDF and the CSV */
 function flReport(from,to,dfrom){const F=flData(),per=flMonths(from,to),e0=F.v.map(v=>v.start).filter(Boolean).sort()[0]||from;let d0=dfrom&&dfrom<=from?dfrom:from;if(e0>d0)d0=e0<=from?e0:from;const det=flMonths(d0,to);
-  const V=F.v.filter(v=>per.some(m=>flActive(v,m))).sort((a,b)=>String(a.dept).localeCompare(String(b.dept))||String(a.type).localeCompare(String(b.type))||String(a.plate).localeCompare(String(b.plate)));
-  const rows=V.map(v=>{let due=0,paid=0;per.forEach(m=>{if(!flActive(v,m))return;const d=flDue(v,m);due+=d;if(flPaid(v,m))paid+=d});return{v,due:r2(due),paid:r2(paid),out:r2(due-paid),sup:flSup(v.sup).name,dept:v.dept||'General'}});
+  const V=F.v.filter(v=>per.some(m=>flActive(v,m))).sort((a,b)=>String(a.dept||'~').localeCompare(String(b.dept||'~'))||String(a.type).localeCompare(String(b.type))||String(a.plate).localeCompare(String(b.plate)));
+  const rows=V.map(v=>{let due=0,paid=0;per.forEach(m=>{if(!flActive(v,m))return;const d=flDue(v,m);due+=d;if(flPaid(v,m))paid+=d});return{v,due:r2(due),paid:r2(paid),out:r2(due-paid),sup:v.sup?flSup(v.sup).name:'Supplier TBC',dept:v.dept||'Unassigned',per:flPerLbl(v,per)}});
   const grp=k=>{const m=new Map();rows.forEach(r=>{const key=k(r);const g=m.get(key)||{k:key,n:0,due:0,paid:0,out:0,rows:[]};g.n++;g.due=r2(g.due+r.due);g.paid=r2(g.paid+r.paid);g.out=r2(g.out+r.out);g.rows.push(r);m.set(key,g)});return[...m.values()].sort((a,b)=>b.due-a.due)};
-  const DV=F.v.filter(v=>det.some(m=>flActive(v,m))||(v.removed&&v.removed>=det[0]&&v.removed<=to)).sort((a,b)=>String(a.dept).localeCompare(String(b.dept))||String(a.type).localeCompare(String(b.type))||String(a.plate).localeCompare(String(b.plate)));
-  const drows=DV.map(v=>{const mm=det.map(m=>flActive(v,m)?flDue(v,m):null);return{v,mm,tot:r2(sum(mm,x=>num(x))),sup:flSup(v.sup).name,dept:v.dept||'General',status:flStatus(v,det[0],to)}});
+  const DV=F.v.filter(v=>det.some(m=>flActive(v,m))||(v.removed&&v.removed>=det[0]&&v.removed<=to)).sort((a,b)=>String(a.dept||'~').localeCompare(String(b.dept||'~'))||String(a.type).localeCompare(String(b.type))||String(a.plate).localeCompare(String(b.plate)));
+  const drows=DV.map(v=>{const mm=det.map(m=>flActive(v,m)?flDue(v,m):null);return{v,mm,tot:r2(sum(mm,x=>num(x))),sup:v.sup?flSup(v.sup).name:'Supplier TBC',dept:v.dept||'Unassigned',status:flStatus(v,det[0],to)}});
   const tot={due:r2(sum(rows,r=>r.due)),paid:r2(sum(rows,r=>r.paid))};tot.out=r2(tot.due-tot.paid);
   return{from,to,per,det,rows,byDept:grp(r=>r.dept),bySup:grp(r=>r.sup),drows,dmonth:det.map(m=>r2(sum(drows,r=>num(r.mm[det.indexOf(m)])))),dtot:r2(sum(drows,r=>r.tot)),tot,nSup:new Set(rows.map(r=>r.sup)).size}}
-const flSupPay=name=>{const s=flData().sup.find(x=>x.name===name);if(!s)return'';return[s.bank&&(s.bank+(s.branch?' '+s.branch:'')),s.acc&&('A/C '+s.acc),s.paybill&&('Paybill/Till '+s.paybill)].filter(Boolean).join(' · ')};
+const flSupPay=name=>{const s=flData().sup.find(x=>x.name===name);if(!s)return'';if(!(s.bank||s.acc||s.paybill))return'Payment details to be confirmed';return[s.bank&&(s.bank+(s.branch?' '+s.branch:'')),s.acc&&('A/C '+s.acc),s.paybill&&('Paybill/Till '+s.paybill)].filter(Boolean).join(' · ')};
 function flModel(from,to,dfrom,o){o=o||{};const F=flData(),c=F.cfg,R=flReport(from,to,dfrom),ML=R.det.map(flMk);
   const M={kick:[c.org,'Fleet invoicing'].filter(Boolean).join(' · '),title:c.title,sub:'Invoice period '+flPer(from,to)+'  ·  '+R.rows.length+' vehicles  ·  Prepared '+fmtD(todayStr()),
     from:from+'-01',to:monthEnd(to),ref:'',org:c.org,orient:'l',fs:R.det.length>8?7:undefined,blocks:[],noApprove:true,approve:[],
     L:{approval:'Approval',name:'Name',signature:'Signature',date:'Date',page:'Page',supp:'',coverNote:''},foot:[c.org,'Fleet invoicing',flPer(from,to)].filter(Boolean).join(' · ')};
   M.figs=[['Vehicles',String(R.rows.length)],['Suppliers',String(R.nSup)],['Paid (KES)',R.tot.paid],['Outstanding (KES)',R.tot.out],['Amount due (KES)',R.tot.due]];
   M.blocks.push({t:'h',x:'Amounts due by vehicle'});
-  M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Vehicle type'},{h:'Plate No',w:70},{h:'Use / Department',w:90},{h:'Supplier',w:120},{h:'Amount due (KES)',n:1,w:84},{h:'Paid (KES)',n:1,w:74},{h:'Outstanding (KES)',n:1,w:84},{h:'Status',w:66}],
-    rows:[...R.rows.map((r,i)=>({c:[String(i+1),r.v.type||'',r.v.plate||'',r.dept,r.sup,r.due,r.paid,r.out,r.out<=0?'Paid':r.paid>0?'Part paid':'Unpaid']})),{k:'tot',c:['','Total · '+R.rows.length+' vehicles','','','',R.tot.due,R.tot.paid,R.tot.out,'']}]});
+  M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Vehicle type'},{h:'Plate No',w:62},{h:'Use / Dept',w:72},{h:'Supplier',w:110},{h:'Invoice period',w:104},{h:'Amount due (KES)',n:1,w:80},{h:'Paid (KES)',n:1,w:70},{h:'Outstanding (KES)',n:1,w:80},{h:'Status',w:56}],
+    rows:[...R.rows.map((r,i)=>({c:[String(i+1),r.v.type||'Type TBC',flPl(r.v),r.dept,r.sup,r.per,r.due,r.paid,r.out,r.out<=0&&r.due>0?'Paid':r.due<=0?'Nil':r.paid>0?'Part paid':'Unpaid']})),{k:'tot',c:['','Total · '+R.rows.length+' vehicles','','','','',R.tot.due,R.tot.paid,R.tot.out,'']}]});
   M.blocks.push({t:'h',x:'By department'});
   M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Use / Department'},{h:'Vehicles',n:1,w:56},{h:'Amount due (KES)',n:1,w:90},{h:'Paid (KES)',n:1,w:80},{h:'Outstanding (KES)',n:1,w:90},{h:'Share',n:1,w:50}],
     rows:[...R.byDept.map((g,i)=>({c:[String(i+1),g.k,String(g.n),g.due,g.paid,g.out,(R.tot.due?g.due/R.tot.due*100:0).toFixed(1)+'%']})),{k:'tot',c:['','Total',String(R.rows.length),R.tot.due,R.tot.paid,R.tot.out,'100%']}]});
@@ -3521,7 +3526,7 @@ function flModel(from,to,dfrom,o){o=o||{};const F=flData(),c=F.cfg,R=flReport(fr
     rows:[...R.bySup.map((g,i)=>({c:[String(i+1),g.k,String(g.n),g.due,g.paid,g.out,flSupPay(g.k)]})),{k:'tot',c:['','Total',String(R.rows.length),R.tot.due,R.tot.paid,R.tot.out,'']}]});
   if(!o.summary){M.blocks.push({t:'h',x:'Detailed breakdown · month by month ('+flPer(R.det[0],to)+')'});
     M.blocks.push({t:'table',cols:[{h:'No',w:20},{h:'Vehicle type'},{h:'Plate No',w:58},{h:'Use / Dept',w:62},{h:'Supplier',w:80},{h:'Rate / month',n:1,w:58},...ML.map(l=>({h:l,n:1,w:R.det.length>8?44:54})),{h:'Total (KES)',n:1,w:66},{h:'Fleet status / comments',w:110}],
-      rows:[...R.drows.map((r,i)=>({c:[String(i+1),r.v.type||'',r.v.plate||'',r.dept,r.sup,num(r.v.rate),...r.mm.map(x=>x==null?'–':x),r.tot,r.status]})),{k:'tot',c:['','Total','','','','',...R.dmonth,R.dtot,'']}]});
+      rows:[...R.drows.map((r,i)=>({c:[String(i+1),r.v.type||'Type TBC',flPl(r.v),r.dept,r.sup,num(r.v.rate),...r.mm.map(x=>x==null?'–':x),r.tot,r.status]})),{k:'tot',c:['','Total','','','','',...R.dmonth,R.dtot,'']}]});
     M.blocks.push({t:'note',x:'“–” means the vehicle was not on the fleet that month. Amounts are the invoiced amount for the month, or the monthly rate where no different amount was entered.'})}
   return M}
 const flFile=(from,to)=>'Fleet invoice summary '+(from===to?from:from+' to '+to);
@@ -3543,23 +3548,25 @@ async function flXLSX(from,to,dfrom){toast('Preparing Excel file…');try{await 
   const hd=(ws,r,c1,h,o)=>put(ws,r,c1,(o&&o.to)||c1,h,Object.assign({bold:true,size:9,fill:FILL,border:{top:med,bottom:med},wrap:true},o||{}));
   const sub=['Invoice period '+flPer(from,to),'Prepared '+fmtD(todayStr())].join('  ·  ');
   /* Sheet 1: dashboard / summary */
-  const ws=mk('Summary','FF111827'),NC=9;ws.columns=[{width:6},{width:28},{width:13},{width:18},{width:26},{width:17},{width:16},{width:17},{width:12}];
+  const ws=mk('Summary','FF111827'),NC=10;ws.columns=[{width:5},{width:24},{width:12},{width:14},{width:24},{width:21},{width:16},{width:15},{width:16},{width:22}];
   header(ws,NC,c.title,sub);let r=6;label(ws,r,NC,'Key figures');r++;
-  const figs=[['Vehicles',R.rows.length,'0',[1,2]],['Suppliers',R.nSup,'0',[3,3]],['Amount due (KES)',null,AMT,[4,5]],['Paid (KES)',null,AMT,[6,7]],['Outstanding (KES)',null,AMT,[8,9]]];const fc={};
+  const figs=[['Vehicles',R.rows.length,'0',[1,2]],['Suppliers',R.nSup,'0',[3,4]],['Paid (KES)',null,AMT,[5,6]],['Outstanding (KES)',null,AMT,[7,8]],['Amount due (KES)',null,AMT,[9,10]]];const fc={};
   figs.forEach(([l,v,f,[a,b]],i)=>{const key=i===4;put(ws,r,a,b,l.toUpperCase(),{size:7.5,color:SLATE,fill:key?FILL:undefined,border:{top:med,left:i?thin:undefined}});const x=put(ws,r+1,a,b,v,{size:14,bold:true,numFmt:f,fill:key?FILL:undefined,border:{bottom:med,left:i?thin:undefined}});x.alignment={horizontal:'left',vertical:'middle'};fc[l]=x});
   ws.getRow(r).height=20;ws.getRow(r+1).height=28;r+=3;
-  label(ws,r,NC,'Amounts due by vehicle');r++;['No','Vehicle type','Plate No','Use / Department','Supplier','Amount due (KES)','Paid (KES)','Outstanding (KES)','Status'].forEach((h,i)=>hd(ws,r,i+1,h,{right:i>=5&&i<=7,center:i===0||i===8}));ws.getRow(r).height=22;r++;
-  const v0=r;R.rows.forEach((x,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined};put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,x.v.type||'',o);put(ws,r,3,3,x.v.plate||'',Object.assign({bold:true},o));put(ws,r,4,4,x.dept,o);put(ws,r,5,5,x.sup,o);
-    put(ws,r,6,6,x.due,Object.assign({numFmt:AMT},o));put(ws,r,7,7,x.paid,Object.assign({numFmt:AMT},o));put(ws,r,8,8,{formula:'F'+r+'-G'+r,result:x.out},Object.assign({numFmt:AMT,bold:true},o));put(ws,r,9,9,x.out<=0?'Paid':x.paid>0?'Part paid':'Unpaid',Object.assign({center:true,size:9},o));ws.getRow(r).height=18;r++});
-  const T2={border:{top:med,bottom:dbl},bold:true,fill:FILL},vT=r;put(ws,r,1,5,'Total · '+R.rows.length+' vehicles',T2);['F','G','H'].forEach((L,i)=>put(ws,r,6+i,6+i,{formula:R.rows.length?'SUM('+L+v0+':'+L+(r-1)+')':'0',result:[R.tot.due,R.tot.paid,R.tot.out][i]},Object.assign({numFmt:AMT},T2)));put(ws,r,9,9,'',T2);ws.getRow(r).height=20;r+=2;
-  fc['Amount due (KES)'].value={formula:'F'+vT,result:R.tot.due};fc['Paid (KES)'].value={formula:'G'+vT,result:R.tot.paid};fc['Outstanding (KES)'].value={formula:'H'+vT,result:R.tot.out};
-  const grpT=(t,first,G,extra)=>{label(ws,r,NC,t);r++;[first,'Vehicles','Amount due (KES)','Paid (KES)','Outstanding (KES)',extra].forEach((h,i)=>hd(ws,r,[2,4,6,7,8,9][i],h,{to:[3,5,6,7,8,9][i],right:i>=1&&i<=4,center:i===5&&extra==='Share'}));hd(ws,r,1,'No',{center:true});ws.getRow(r).height=22;r++;const g0=r;
-    G.forEach((g,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined};put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,3,g.k,Object.assign({bold:true},o));put(ws,r,4,5,g.n,Object.assign({numFmt:'0'},o));
-      put(ws,r,6,6,g.due,Object.assign({numFmt:AMT},o));put(ws,r,7,7,g.paid,Object.assign({numFmt:AMT},o));put(ws,r,8,8,{formula:'F'+r+'-G'+r,result:g.out},Object.assign({numFmt:AMT,bold:true},o));
-      if(extra==='Share')put(ws,r,9,9,{formula:'IF($F$'+(g0+G.length)+'=0,0,F'+r+'/$F$'+(g0+G.length)+')',result:R.tot.due?g.due/R.tot.due:0},Object.assign({numFmt:'0.0%'},o));else put(ws,r,9,9,flSupPay(g.k),Object.assign({size:8.5,wrap:true,color:SLATE},o));ws.getRow(r).height=extra==='Share'?18:Math.max(18,Math.ceil(flSupPay(g.k).length/16)*12);r++});
-    put(ws,r,1,3,'Total',T2);put(ws,r,4,5,{formula:G.length?'SUM(D'+g0+':D'+(r-1)+')':'0',result:R.rows.length},Object.assign({numFmt:'0'},T2));['F','G','H'].forEach((L,i)=>put(ws,r,6+i,6+i,{formula:G.length?'SUM('+L+g0+':'+L+(r-1)+')':'0',result:[R.tot.due,R.tot.paid,R.tot.out][i]},Object.assign({numFmt:AMT},T2)));put(ws,r,9,9,extra==='Share'?{formula:'IF(F'+r+'=0,0,1)',result:R.tot.due?1:0}:'',Object.assign({numFmt:'0%'},T2));ws.getRow(r).height=20;r+=2};
-  grpT('By use / department','Use / Department',R.byDept,'Share');grpT('By supplier','Supplier',R.bySup,'Payment details');
-  put(ws,r,1,NC,'Amount due is the invoiced amount for each month in the period, or the monthly rate where no different amount was entered. Outstanding = amount due less paid.',{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(r).height=26;
+  label(ws,r,NC,'Amounts due by vehicle');r++;['No','Vehicle type','Plate No','Use / Dept','Supplier','Invoice period','Amount due (KES)','Paid (KES)','Outstanding (KES)','Status'].forEach((h,i)=>hd(ws,r,i+1,h,{right:i>=6&&i<=8,center:i===0||i===9}));ws.getRow(r).height=22;r++;
+  const v0=r;R.rows.forEach((x,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined},tbc={italic:true,color:SLATE};put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,x.v.type||'Type TBC',Object.assign({},o,x.v.type?{}:tbc));put(ws,r,3,3,flPl(x.v),Object.assign({bold:!!x.v.plate},o,x.v.plate?{}:tbc));put(ws,r,4,4,x.dept,o);put(ws,r,5,5,x.sup,o);put(ws,r,6,6,x.per,Object.assign({size:9},o));
+    put(ws,r,7,7,x.due,Object.assign({numFmt:AMT},o));put(ws,r,8,8,x.paid,Object.assign({numFmt:AMT},o));put(ws,r,9,9,{formula:'G'+r+'-H'+r,result:x.out},Object.assign({numFmt:AMT,bold:true},o));put(ws,r,10,10,x.out<=0&&x.due>0?'Paid':x.due<=0?'Nil':x.paid>0?'Part paid':'Unpaid',Object.assign({center:true,size:9},o));ws.getRow(r).height=18;r++});
+  const T2={border:{top:med,bottom:dbl},bold:true,fill:FILL},vT=r;put(ws,r,1,6,'Total · '+R.rows.length+' vehicles',T2);['G','H','I'].forEach((L,i)=>put(ws,r,7+i,7+i,{formula:R.rows.length?'SUM('+L+v0+':'+L+(r-1)+')':'0',result:[R.tot.due,R.tot.paid,R.tot.out][i]},Object.assign({numFmt:AMT},T2)));put(ws,r,10,10,'',T2);ws.getRow(r).height=20;r+=2;
+  fc['Amount due (KES)'].value={formula:'G'+vT,result:R.tot.due};fc['Paid (KES)'].value={formula:'H'+vT,result:R.tot.paid};fc['Outstanding (KES)'].value={formula:'I'+vT,result:R.tot.out};
+  const grpT=(t,first,G,extra)=>{label(ws,r,NC,t);r++;hd(ws,r,1,'No',{center:true});[[first,2,4],['Vehicles',5,5],['Share of amount due',6,6],['Amount due (KES)',7,7],['Paid (KES)',8,8],['Outstanding (KES)',9,9],[extra||'',10,10]].forEach(([h,a,b],i)=>hd(ws,r,a,h,{to:b,right:i>=1&&i<=5}));ws.getRow(r).height=22;r++;const g0=r;
+    G.forEach((g,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined};put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,4,g.k,Object.assign({bold:true},o));put(ws,r,5,5,g.n,Object.assign({numFmt:'0'},o));
+      put(ws,r,6,6,{formula:'IF($G$'+(g0+G.length)+'=0,0,G'+r+'/$G$'+(g0+G.length)+')',result:R.tot.due?g.due/R.tot.due:0},Object.assign({numFmt:'0.0%'},o));
+      put(ws,r,7,7,g.due,Object.assign({numFmt:AMT},o));put(ws,r,8,8,g.paid,Object.assign({numFmt:AMT},o));put(ws,r,9,9,{formula:'G'+r+'-H'+r,result:g.out},Object.assign({numFmt:AMT,bold:true},o));
+      put(ws,r,10,10,extra==='Payment details'?flSupPay(g.k):'',Object.assign({size:8.5,wrap:true,color:SLATE},o));ws.getRow(r).height=extra==='Payment details'?Math.max(18,Math.ceil(flSupPay(g.k).length/14)*12):18;r++});
+    put(ws,r,1,4,'Total',T2);put(ws,r,5,5,{formula:G.length?'SUM(E'+g0+':E'+(r-1)+')':'0',result:R.rows.length},Object.assign({numFmt:'0'},T2));put(ws,r,6,6,{formula:'IF(G'+r+'=0,0,1)',result:R.tot.due?1:0},Object.assign({numFmt:'0%'},T2));
+    ['G','H','I'].forEach((L,i)=>put(ws,r,7+i,7+i,{formula:G.length?'SUM('+L+g0+':'+L+(r-1)+')':'0',result:[R.tot.due,R.tot.paid,R.tot.out][i]},Object.assign({numFmt:AMT},T2)));put(ws,r,10,10,'',T2);ws.getRow(r).height=20;r+=2};
+  grpT('By use / department','Use / Department',R.byDept,'');grpT('By supplier','Supplier',R.bySup,'Payment details');
+  put(ws,r,1,NC,'Amount due is the invoiced amount for each month in the period, or the monthly rate where no different amount was entered. Part months show the invoice dates. Outstanding = amount due less paid.',{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(r).height=26;
   ws.pageSetup.fitToHeight=1;
   /* Sheet 2: detailed month-by-month breakdown */
   const D=R.det,ws2=mk('Detailed Breakdown','FF365628'),m0=7,mN=m0+D.length-1,cT=mN+1,cS=mN+2,N2=cS;
@@ -3567,7 +3574,7 @@ async function flXLSX(from,to,dfrom){toast('Preparing Excel file…');try{await 
   header(ws2,N2,'Fleet invoicing · month by month','Breakdown '+flPer(D[0],to)+'  ·  '+R.drows.length+' vehicles  ·  Prepared '+fmtD(todayStr()));
   r=6;['No','Vehicle type','Plate No','Use / Department','Supplier','Rate / month (KES)'].forEach((h,i)=>hd(ws2,r,i+1,h,{right:i===5,center:i===0}));
   D.forEach((m,j)=>{const [y,mm]=m.split('-').map(Number);hd(ws2,r,m0+j,new Date(Date.UTC(y,mm-1,1)),{numFmt:'mmm yyyy',right:true})});hd(ws2,r,cT,'Total (KES)',{right:true});hd(ws2,r,cS,'Fleet status / comments');ws2.getRow(r).height=30;r++;
-  const d0=r;R.drows.forEach((x,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined},gone=x.v.removed&&x.v.removed<=to;put(ws2,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws2,r,2,2,x.v.type||'',o);put(ws2,r,3,3,x.v.plate||'',Object.assign({bold:true},o));put(ws2,r,4,4,x.dept,o);put(ws2,r,5,5,x.sup,o);put(ws2,r,6,6,num(x.v.rate),Object.assign({numFmt:AMT},o));
+  const d0=r;R.drows.forEach((x,i)=>{const o={border:{bottom:thin},fill:i%2?BAND:undefined},gone=x.v.removed&&x.v.removed<=to;put(ws2,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws2,r,2,2,x.v.type||'Type TBC',o);put(ws2,r,3,3,flPl(x.v),Object.assign({bold:!!x.v.plate},o));put(ws2,r,4,4,x.dept,o);put(ws2,r,5,5,x.sup,o);put(ws2,r,6,6,num(x.v.rate),Object.assign({numFmt:AMT},o));
     x.mm.forEach((v,j)=>put(ws2,r,m0+j,m0+j,v==null?'–':v,Object.assign({numFmt:AMT,right:true},o,v==null?{color:SLATE}:{})));
     put(ws2,r,cT,cT,D.length?{formula:'SUM('+clColL(m0)+r+':'+clColL(mN)+r+')',result:x.tot}:0,Object.assign({numFmt:AMT,bold:true},o));put(ws2,r,cS,cS,x.status,Object.assign({size:9,wrap:true,italic:!!gone,color:gone?SLATE:INK},o));ws2.getRow(r).height=Math.max(18,Math.ceil(x.status.length/44)*13);r++});
   put(ws2,r,1,6,'Total · '+R.drows.length+' vehicles',T2);for(let k=m0;k<=cT;k++){const L=clColL(k);put(ws2,r,k,k,{formula:R.drows.length?'SUM('+L+d0+':'+L+(r-1)+')':'0',result:k===cT?R.dtot:R.dmonth[k-m0]},Object.assign({numFmt:AMT},T2))}put(ws2,r,cS,cS,'',T2);ws2.getRow(r).height=20;
@@ -3580,28 +3587,131 @@ async function flExport(f){const o=ui.fl,from=o.rf||o.mk,to=o.rt||o.mk,df=o.rd||
   if(!flReport(from,to,df).rows.length){toast('No vehicles on the fleet in '+flPer(from,to));return}
   if(f==='xlsx')return flXLSX(from,to,df);const M=flModel(from,to,df);if(f==='csv')pcrCSV(M,flFile(from,to));else await pcrPDF(M,flFile(from,to))}
 
+/* ---------- import an existing fleet record (monthly tracker sheet and/or invoice list) ---------- */
+const FL_MON={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+const flMonNo=s=>{const m=/^\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{2,4})?\s*$/i.exec(String(s||''));if(!m)return null;return{m:FL_MON[m[1].toLowerCase()],y:m[2]?(m[2].length===2?2000+ +m[2]:+m[2]):null}};
+const flPlateKey=p=>String(p||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const flSupKey=s=>String(s||'').toLowerCase().replace(/\b(limited|ltd|co|company|enterprises?|the)\b/g,'').replace(/[^a-z0-9]/g,'');
+const flBlank=s=>!String(s||'').trim()||/^(tbd|tbc|n\/?a|-+|none|unknown)$/i.test(String(s).trim());
+function flVal(v){if(v==null)return null;if(v instanceof Date)return v;if(typeof v==='object'){if(v.richText)return v.richText.map(t=>t.text).join('');if('result' in v&&v.result!=null&&!(typeof v.result==='object'&&v.result.error))return flVal(v.result);
+  if(v.formula||v.sharedFormula){const f=String(v.formula||'').trim();return /^[\d.,\s]+$/.test(f)?num(f):null}if(v.text!=null)return flVal(v.text);return null}return v}
+/* "Sept 21st - Oct 31st" → {f:'2026-09-21',t:'2026-10-31'} */
+function flPeriodOf(txt,yr){const s=String(txt||'');if(s instanceof Date)return null;const re=/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*/ig;const P=[];let m;
+  while((m=re.exec(s))&&P.length<2){const mo=FL_MON[(m[1]||m[4]).slice(0,3).toLowerCase()],d=+(m[2]||m[3]);P.push({mo,d})}
+  if(!P.length)return null;const a=P[0],b=P[1]||{mo:a.mo,d:daysIn(yr+'-'+pad(a.mo))};let yb=yr;if(b.mo<a.mo)yb=yr+1;
+  const f=yr+'-'+pad(a.mo)+'-'+pad(Math.min(a.d,31)),t=yb+'-'+pad(b.mo)+'-'+pad(Math.min(b.d,daysIn(yb+'-'+pad(b.mo))));return{f,t}}
+function flParseWB(wb,yr){const out={rows:[],inv:[],notes:[]};
+  wb.eachSheet(ws=>{if(ws.state&&ws.state!=='visible')return;const maxR=Math.min(ws.rowCount||0,800),maxC=Math.min(Math.max(ws.columnCount||0,ws.actualColumnCount||0),60);let hr=0,H=null;
+    for(let r=1;r<=Math.min(maxR,25)&&!hr;r++){const row=ws.getRow(r),txt=[];for(let c=1;c<=maxC;c++){const v=flVal(row.getCell(c).value);txt.push(typeof v==='string'?v.trim():v)}
+      const has=re=>txt.some(t=>typeof t==='string'&&re.test(t));if((has(/plate|vehicle|reg(istration)?\b/i)&&has(/supplier|vendor/i))||(has(/^type$/i)&&has(/supplier/i))){hr=r;H=txt}}
+    if(!hr)return;const col={m:[]};
+    H.forEach((t,i)=>{const c=i+1;if(t instanceof Date){col.m.push({c,mk:t.getUTCFullYear()+'-'+pad(t.getUTCMonth()+1)});return}if(typeof t!=='string'||!t)return;const mm=flMonNo(t);
+      if(mm){col.m.push({c,mk:(mm.y||yr)+'-'+pad(mm.m)});return}
+      if(/plate|vehicle fleet|^vehicle$|reg/i.test(t)&&!col.plate)col.plate=c;else if(/^type$|vehicle type|make|model/i.test(t)&&!col.type)col.type=c;
+      else if(/use|department|dept/i.test(t)&&!col.dept)col.dept=c;else if(/supplier|vendor/i.test(t)&&!col.sup)col.sup=c;
+      else if(/period/i.test(t)&&!col.per)col.per=c;else if(/amount|due|kes|ksh/i.test(t)&&!col.amt)col.amt=c;else if(/comment|note|remark/i.test(t)&&!col.note)col.note=c});
+    const kind=col.m.length?'track':col.per&&col.amt?'list':null;if(!kind){out.notes.push('“'+ws.name+'” was skipped: no month columns or invoice period column found.');return}
+    for(let r=hr+1;r<=maxR;r++){const R=ws.getRow(r),g=c=>c?flVal(R.getCell(c).value):null,str=c=>{const v=g(c);return v==null?'':String(v).replace(/\s+/g,' ').trim()};
+      const plate=str(col.plate).toUpperCase(),type=str(col.type),dept=str(col.dept),sup=str(col.sup),note=str(col.note).replace(/^\*+\s*/,'');
+      if(!plate&&!type&&!sup)continue;if(/^(grand\s*)?totals?$/i.test(plate||type||sup))continue;
+      if(kind==='track'){const months={};col.m.forEach(({c,mk})=>{const v=g(c);months[mk]=typeof v==='number'?v:num(v)});out.rows.push({sheet:ws.name,row:r,type,plate,dept,sup,note,months})}
+      else{const pv=g(col.per),per=pv instanceof Date?{f:clIso(pv),t:monthEnd(clIso(pv).slice(0,7))}:flPeriodOf(pv,yr),amt=num(g(col.amt));if(!per){out.notes.push('“'+ws.name+'” row '+r+': the invoice period “'+str(col.per)+'” could not be read.');continue}
+        out.inv.push({sheet:ws.name,row:r,plate,dept,sup,type,per,amt,perTxt:str(col.per)})}}});
+  return out}
+/* one record per vehicle: the monthly tracker gives the months; the invoice list adds plates, periods and vehicles the tracker lacks */
+function flMerge(P){const V=[],byPlate=new Map(),warn=[];
+  P.rows.forEach(r=>{const mk=Object.keys(r.months).filter(m=>r.months[m]>0).sort();const v={key:'t'+r.sheet+r.row,type:r.type,plate:r.plate,dept:r.dept,sup:r.sup,note:r.note,lines:{},src:'Monthly tracker'};
+    const first=mk[0],last=mk[mk.length-1];Object.keys(r.months).sort().forEach(m=>{if(first&&m>=first&&m<=last)v.lines[m]={amt:r.months[m]}});
+    const rm=/remov\w*\s+(?:from|effective|in|wef)?\s*([a-z]+\.?\s*\d{0,4})/i.exec(r.note),ad=/add\w*\s+(?:from|effective|in)?\s*([a-z]+\.?\s*\d{0,4})/i.exec(r.note);
+    const cols=Object.keys(r.months).sort(),yr=(cols[0]||curMK()).slice(0,4);
+    if(rm){const mm=flMonNo(rm[1]);if(mm){v.removed=(mm.y||yr)+'-'+pad(mm.m);v.note=v.note.replace(/[^.]*remov[^.]*\.?/i,'').trim()}}if(ad){const mm=flMonNo(ad[1]);if(mm){if(!first)v.start=(mm.y||yr)+'-'+pad(mm.m);v.note=v.note.replace(/[^.]*add[^.]*\.?/i,'').trim()}}
+    v.start=v.start||first||'';if(!v.start)warn.push((r.plate||r.type||'A row')+' on “'+r.sheet+'” has no month with an amount.');
+    V.push(v);if(r.plate)byPlate.set(flPlateKey(r.plate),v)});
+  P.inv.forEach(x=>{const k=flPlateKey(x.plate);let v=k&&byPlate.get(k);if(!v){v={key:'i'+(k||x.sheet+x.row),type:x.type,plate:x.plate,dept:x.dept,sup:x.sup,note:'',lines:{},src:'Invoice list'};V.push(v);if(k)byPlate.set(k,v)}
+    ['dept','sup','type'].forEach(f=>{if(flBlank(v[f])&&!flBlank(x[f]))v[f]=x[f]});if(v.src!=='Invoice list'&&v.src.indexOf('+')<0)v.src+=' + invoice list';
+    const mk=x.per.t.slice(0,7),L=v.lines[mk];
+    if(L&&L.amt>0&&Math.abs(L.amt-x.amt)>1&&x.per.f.slice(0,7)===mk)warn.push((v.plate||v.type)+' '+mLabel(mk)+': the invoice list shows '+fmt(x.amt)+' but the tracker shows '+fmt(L.amt)+'. The tracker amount is used.');
+    else if(!L||x.per.f.slice(0,7)!==mk){const months=flMonths(x.per.f.slice(0,7),mk);months.forEach((m,i)=>{if(!v.lines[m]||!(v.lines[m].amt>0))v.lines[m]={amt:i===months.length-1?x.amt:0}})}
+    flMonths(x.per.f.slice(0,7),mk).forEach(m=>{const l=v.lines[m];if(!l)return;const f=m===x.per.f.slice(0,7)?x.per.f:m+'-01',t=m===mk?x.per.t:monthEnd(m);if(f!==m+'-01'||t!==monthEnd(m))l.per={f,t};l.txt=x.perTxt});
+    if(!v.start||x.per.f.slice(0,7)<v.start)v.start=x.per.f.slice(0,7)});
+  V.forEach(v=>{const ms=Object.keys(v.lines).sort();v.rate=ms.length?num((v.lines[ms.filter(m=>v.lines[m].amt>0).pop()||ms[ms.length-1]].amt)):0;v.tot=r2(sum(Object.values(v.lines),l=>num(l.amt)))});
+  return{V,warn}}
+const flIssues=v=>[flBlank(v.plate)&&'Plate missing',flBlank(v.type)&&'Type missing',flBlank(v.dept)&&'Department missing',flBlank(v.sup)&&'Supplier missing'].filter(Boolean);
+async function flImportFile(file){toast('Reading '+file.name+'…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel reader. Check your connection.');return}
+  if(!/\.(xlsx|xlsm)$/i.test(file.name)){toast('Save the file as .xlsx and try again');return}
+  let wb;try{wb=await clLoadWB(await file.arrayBuffer())}catch(e){console.error(e);toast('That file could not be read');return}
+  const y0=(/(20\d{2})[01]\d[0-3]\d/.exec(file.name)||[])[1]||curMK().slice(0,4);
+  const st={yr:+y0,file:file.name,wb,edits:{},skip:new Set(),same:{}};flImportPreview(st)}
+function flImportPreview(st){const F=flData(),P=flParseWB(st.wb,st.yr),{V,warn}=flMerge(P);
+  if(!V.length){toast('No vehicles found. The sheet needs a plate or type column, a supplier column and month or invoice period columns.');return}
+  V.forEach(v=>Object.assign(v,st.edits[v.key]||{}));
+  const months=[...new Set(V.flatMap(v=>Object.keys(v.lines)))].sort(),noPlate=V.filter(v=>flBlank(v.plate)),withPlate=V.filter(v=>!flBlank(v.plate));
+  const exist=v=>!flBlank(v.plate)&&F.v.find(x=>flPlateKey(x.plate)===flPlateKey(v.plate));
+  const inp=(v,f,ph)=>`<input class="fi-in" data-fi="${esc(v.key)}|${f}" value="${esc(flBlank(v[f])?'':v[f])}" placeholder="${esc(ph)}" ${f==='plate'?'style="text-transform:uppercase"':''}>`;
+  const rows=V.map(v=>{const iss=flIssues(v),ex=exist(v),sk=st.skip.has(v.key);return`<tr class="${sk?'fi-skip':''}"><td><input type="checkbox" data-fis="${esc(v.key)}" ${sk?'':'checked'} aria-label="Import this vehicle"></td>
+    <td>${inp(v,'type','Type')}</td><td>${inp(v,'plate','Plate')}${flBlank(v.plate)&&withPlate.length?`<select class="fi-in" data-fisame="${esc(v.key)}" style="margin-top:4px"><option value="">Not one of the listed plates</option>${withPlate.map(w=>`<option value="${esc(w.key)}" ${st.same[v.key]===w.key?'selected':''}>Same vehicle as ${esc(w.plate)}</option>`).join('')}</select>`:''}</td>
+    <td>${inp(v,'dept','Department')}</td><td>${inp(v,'sup','Supplier')}</td>
+    ${months.map(m=>{const l=v.lines[m];return`<td class="n">${l?`<span class="m">${clFmtN(l.amt)}</span>${l.per?`<div class="small muted">${esc(clDM(l.per.f)+'–'+clDM(l.per.t))}</div>`:''}`:'<span class="muted">–</span>'}</td>`}).join('')}
+    <td class="n"><b class="m">${clFmtN(v.tot)}</b></td><td class="small">${esc([v.removed&&'Removed from '+mLabel(v.removed),v.note].filter(Boolean).join(' · '))}<div class="muted">${esc(v.src)}</div></td>
+    <td>${ex?'<span class="pill">Updates '+esc(ex.plate)+'</span> ':''}${iss.map(i=>`<span class="pill warn">${i}</span>`).join(' ')}</td></tr>`}).join('');
+  const inc=V.filter(v=>!st.skip.has(v.key)),tot=r2(sum(inc,v=>v.tot));
+  $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal fi-modal" id="mdForm" role="dialog" aria-modal="true" aria-labelledby="mdT" novalidate>${mdHead('Upload fleet record · '+esc(st.file))}
+    <p class="small muted" style="margin:0">Check the vehicles found. Amounts come from the file and are locked once imported; completing a missing plate, type, department or supplier here or later never changes them.</p>
+    <div class="fgrid" style="max-width:520px"><div class="field"><label for="fiY">Year of the months in the file</label><input id="fiY" inputmode="numeric" value="${st.yr}"></div><div class="kv big" style="align-self:end"><span>${inc.length} vehicles · ${months.length} months</span><b>${fmt(tot)}</b></div></div>
+    ${warn.length||P.notes.length?`<div class="pcbal warn">${[...warn,...P.notes].map(esc).join('<br>')}</div>`:''}
+    ${noPlate.length?`<div class="tip">${noPlate.length} vehicle${noPlate.length===1?' has':'s have'} no plate. Type it, mark it as the same vehicle as a listed plate, or import it as “Plate TBC” and complete it later under Fleet › Vehicles.</div>`:''}
+    <div class="tw"><table class="fi-t"><thead><tr><th></th><th>Type</th><th>Plate No</th><th>Use / Dept</th><th>Supplier</th>${months.map(m=>`<th class="n">${esc(flMk(m))}</th>`).join('')}<th class="n">Total</th><th>Comments</th><th>Check</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="inline-actions"><button class="btn" type="submit">Import ${inc.length} vehicle${inc.length===1?'':'s'}</button><span class="small muted">You can undo straight after.</span></div></form></div>`;
+  const close=()=>{$('#modalRoot').innerHTML=''};$('#scrim').onclick=e=>{if(e.target.id==='scrim')close()};$('#mdX').onclick=close;
+  $('#mdForm').addEventListener('change',e=>{const t=e.target;if(t.id==='fiY'){const y=Math.round(num(t.value));if(y>2000&&y<2100){st.yr=y;flImportPreview(st)}return}
+    if(t.dataset.fis){t.checked?st.skip.delete(t.dataset.fis):st.skip.add(t.dataset.fis);flImportPreview(st);return}
+    if(t.dataset.fisame!=null){if(t.value)st.same[t.dataset.fisame]=t.value;else delete st.same[t.dataset.fisame];return}
+    if(t.dataset.fi){const [k,f]=t.dataset.fi.split('|');(st.edits[k]=st.edits[k]||{})[f]=f==='plate'?t.value.replace(/\s+/g,' ').trim().toUpperCase():t.value.replace(/\s+/g,' ').trim()}});
+  $('#mdForm').onsubmit=e=>{e.preventDefault();
+    /* fold plate-less rows into the vehicle chosen as the same one */
+    const map=new Map(V.map(v=>[v.key,v]));Object.entries(st.same).forEach(([a,b])=>{const x=map.get(a),y=map.get(b);if(!x||!y||st.skip.has(a))return;
+      Object.entries(x.lines).forEach(([m,l])=>{if(!y.lines[m]||(!(y.lines[m].amt>0)&&l.amt>0))y.lines[m]=l});['type','dept','sup'].forEach(f=>{if(flBlank(y[f])&&!flBlank(x[f]))y[f]=x[f]});
+      if(x.note)y.note=[y.note,x.note].filter(Boolean).join(' · ');if(x.start&&(!y.start||x.start<y.start))y.start=x.start;y.rate=x.rate||y.rate;st.skip.add(a)});
+    const snap=JSON.stringify(F),c=F.cfg;let nV=0,nU=0;
+    V.filter(v=>!st.skip.has(v.key)).forEach(v=>{let sid='';if(!flBlank(v.sup)){const s=F.sup.find(x=>flSupKey(x.name)===flSupKey(v.sup));if(s)sid=s.id;else{const s2={id:nid(),name:v.sup,imp:1};F.sup.push(s2);sid=s2.id}}
+      if(!flBlank(v.dept)&&!c.depts.some(d=>d.toLowerCase()===v.dept.toLowerCase()))c.depts.push(clTitle(v.dept));if(!flBlank(v.type)&&!c.types.some(t=>t.toLowerCase()===v.type.toLowerCase()))c.types.push(v.type);
+      const dept=flBlank(v.dept)?'':(c.depts.find(d=>d.toLowerCase()===v.dept.toLowerCase())||v.dept);
+      let x=!flBlank(v.plate)&&F.v.find(z=>flPlateKey(z.plate)===flPlateKey(v.plate));
+      if(x){nU++;['type','dept'].forEach(f=>{if(flBlank(x[f])&&!flBlank(v[f]))x[f]=f==='dept'?dept:v[f]});if(!x.sup&&sid)x.sup=sid;if(v.start&&(!x.start||v.start<x.start))x.start=v.start;if(v.removed&&!x.removed)x.removed=v.removed;if(v.note&&!x.note)x.note=v.note}
+      else{nV++;x={id:nid(),added:Date.now(),imp:st.file,type:flBlank(v.type)?'':v.type,plate:flBlank(v.plate)?'':v.plate.toUpperCase(),dept,sup:sid,start:v.start||Object.keys(v.lines).sort()[0]||curMK(),rate:num(v.rate),note:v.note||''};if(v.removed)x.removed=v.removed;F.v.push(x)}
+      Object.entries(v.lines).forEach(([m,l])=>{const inv=F.inv[m]=F.inv[m]||{},L=inv[x.id]=inv[x.id]||{};L.amt=num(l.amt);L.imp=st.file;if(l.per)L.per=l.per;else delete L.per})});
+    flSave();close();ui.fl.tab='veh';render();toastAction((nV?nV+' vehicle'+(nV===1?'':'s')+' imported':'')+(nU?(nV?' · ':'')+nU+' updated':'')+' from '+st.file,'Undo',()=>{FL=JSON.parse(snap);flSave();render()})};}
+/* what still needs completing; completing it never changes an amount owed */
+function flGaps(){const F=flData(),now=curMK(),V=F.v.filter(v=>!v.removed||v.removed>addM(now,-6));
+  const veh=V.map(v=>({v,iss:[!v.plate&&'Plate missing',!v.type&&'Type missing',!v.dept&&'Department missing',(!v.sup||flBlank(flSup(v.sup).name))&&'Supplier missing'].filter(Boolean)})).filter(x=>x.iss.length);
+  const sup=F.sup.filter(s=>!flBlank(s.name)&&F.v.some(v=>v.sup===s.id)&&!(s.bank&&s.acc)&&!s.paybill);return{veh,sup}}
+
 /* ---------- modals ---------- */
 function flVehModal(id){const F=flData(),c=F.cfg,v=id?F.v.find(x=>x.id===id):null,f=v?Object.assign({},v):{type:'',plate:'',dept:c.depts[0]||'',sup:(F.sup[0]||{}).id||'',start:ui.fl.mk,rate:'',note:''};
   pcrModal(`${mdHead(v?'Edit vehicle':'Add a vehicle')}
     <div class="fgrid"><div class="field"><label for="fvT">Vehicle type</label><input id="fvT" list="fvTL" value="${esc(f.type)}" placeholder="e.g. Toyota Hilux Double Cab" autocomplete="off"><datalist id="fvTL">${c.types.map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div>
       <div class="field"><label for="fvP">Plate number</label><input id="fvP" value="${esc(f.plate)}" placeholder="KDA 123A" style="text-transform:uppercase" autocomplete="off"></div></div>
-    <div class="fgrid"><div class="field"><label for="fvD">Use / department assigned</label><select id="fvD">${c.depts.map(d=>`<option ${d===f.dept?'selected':''}>${esc(d)}</option>`).join('')}<option value="__new">+ New department…</option></select></div>
+    <div class="fgrid"><div class="field"><label for="fvD">Use / department assigned</label><select id="fvD">${f.dept?'':'<option value="" selected>— Choose —</option>'}${c.depts.map(d=>`<option ${d===f.dept?'selected':''}>${esc(d)}</option>`).join('')}<option value="__new">+ New department…</option></select></div>
       <div class="field" id="fvDNw" hidden><label for="fvDN">New department</label><input id="fvDN" placeholder="e.g. Agronomy"></div>
-      <div class="field"><label for="fvS">Supplier</label><select id="fvS">${F.sup.map(s=>`<option value="${s.id}" ${s.id===f.sup?'selected':''}>${esc(s.name)}</option>`).join('')}<option value="__new" ${F.sup.length?'':'selected'}>+ New supplier…</option></select></div>
+      <div class="field"><label for="fvS">Supplier</label><select id="fvS">${f.sup||!F.sup.length?'':'<option value="" selected>— Choose —</option>'}${F.sup.map(s=>`<option value="${s.id}" ${s.id===f.sup?'selected':''}>${esc(s.name)}</option>`).join('')}<option value="__new" ${F.sup.length?'':'selected'}>+ New supplier…</option></select></div>
       <div class="field" id="fvSNw" ${F.sup.length?'hidden':''}><label for="fvSN">New supplier name</label><input id="fvSN" placeholder="Payment details can be added under Suppliers"></div></div>
     <div class="fgrid"><div class="field"><label for="fvM">Invoicing from (month)</label><input id="fvM" type="month" value="${esc(f.start||'')}"></div>
       <div class="field"><label for="fvR">Amount due per month (KES)</label><input id="fvR" class="numin" inputmode="decimal" value="${fmtIn(f.rate)}" placeholder="0"></div></div>
+    ${v?'<p class="small muted" style="margin:0">Changes apply to this vehicle’s details and to months not yet invoiced. Amounts already owed (imported or past months) stay as they are.</p>':''}
     <div class="field"><label for="fvN">Comments / notes</label><input id="fvN" value="${esc(f.note||'')}" placeholder="Optional"></div>
     <div class="inline-actions"><button class="btn" type="submit">${v?'Save changes':'Add vehicle'}</button>${v?'':'<button class="btn ghost" type="button" id="fvMore">Add &amp; add another</button>'}</div>`,close=>{
     $('#fvD').onchange=()=>{$('#fvDNw').hidden=$('#fvD').value!=='__new'};$('#fvS').onchange=()=>{$('#fvSNw').hidden=$('#fvS').value!=='__new'};$('#fvR').addEventListener('input',e=>liveFmt(e.target));
     const save=again=>{const type=$('#fvT').value.replace(/\s+/g,' ').trim(),plate=$('#fvP').value.replace(/\s+/g,' ').trim().toUpperCase(),rate=num($('#fvR').value),start=$('#fvM').value;
       let dept=$('#fvD').value,sup=$('#fvS').value;
-      if(!type){toast('Type the vehicle type');$('#fvT').focus();return}if(!plate){toast('Type the plate number');$('#fvP').focus();return}
-      if(F.v.some(x=>x!==v&&x.plate.replace(/\s/g,'')===plate.replace(/\s/g,'')&&!x.removed)){toast(plate+' is already on the active fleet');return}
+      if(!type&&!(v&&v.imp)){toast('Type the vehicle type');$('#fvT').focus();return}if(!plate&&!(v&&v.imp)){toast('Type the plate number');$('#fvP').focus();return}
+      if(plate&&F.v.some(x=>x!==v&&flPlateKey(x.plate)===flPlateKey(plate)&&!x.removed)){toast(plate+' is already on the active fleet');return}
+      if(!dept&&!(v&&v.imp)){toast('Choose the department');return}if(!sup&&!(v&&v.imp)){toast('Choose the supplier');return}
       if(dept==='__new'){dept=clTitle($('#fvDN').value.trim());if(!dept){toast('Type the new department');return}if(!c.depts.includes(dept))c.depts.push(dept)}
       if(sup==='__new'){const n=$('#fvSN').value.replace(/\s+/g,' ').trim();if(!n){toast('Type the supplier name');return}const ex=F.sup.find(s=>s.name.toLowerCase()===n.toLowerCase());if(ex)sup=ex.id;else{const s={id:nid(),name:n};F.sup.push(s);sup=s.id}}
       if(!/^\d{4}-\d{2}$/.test(start)){toast('Choose the month invoicing starts');return}
       if(!c.types.some(t=>t.toLowerCase()===type.toLowerCase()))c.types.push(type);
+      /* months already invoiced keep the amount owed when the monthly rate changes */
+      if(v&&num(v.rate)!==rate)flMonths(v.start||curMK(),curMK()).forEach(m=>{if(!flActive(v,m))return;const inv=F.inv[m]=F.inv[m]||{},L=inv[v.id]=inv[v.id]||{};if(L.amt==null||L.amt==='')L.amt=num(v.rate)});
       const rec=v||{id:nid(),added:Date.now()};Object.assign(rec,{type,plate,dept,sup,start,rate,note:$('#fvN').value.trim()});if(!v)F.v.push(rec);
       flSave();close();render();toast((v?'Updated ':'Added ')+plate);if(again)flVehModal()};
     $('#mdForm').onsubmit=e=>{e.preventDefault();save(false)};const mo=$('#fvMore');if(mo)mo.onclick=()=>save(true);setTimeout(()=>$('#fvT').focus(),50)})}
@@ -3634,7 +3744,7 @@ function vFL(){if(!ui.fl)ui.fl={tab:'inv',mk:curMK(),vf:'active'};const F=flData
   const act=F.v.filter(v=>flActive(v,mk)),due=r2(sum(act,v=>flDue(v,mk))),paid=r2(sum(act.filter(v=>flPaid(v,mk)),v=>flDue(v,mk))),outAll=r2(sum(F.v,flUnpaid));
   const byD={};act.forEach(v=>{const k=v.dept||'General';byD[k]=r2((byD[k]||0)+flDue(v,mk))});
   const head=`<div class="pageh"><div><h1>Fleet Invoicing${c.org?' · '+esc(c.org):''}</h1><p>One place to enter and track invoices for every hired vehicle, mark payments and download the CFO report. Visible to the super admin only.</p></div>
-    <div class="inline-actions"><button class="btn" data-act="flVeh">+ Add vehicle</button><button class="btn ghost" data-act="flSupNew">+ Supplier</button></div></div>`;
+    <div class="inline-actions"><button class="btn" data-act="flVeh">+ Add vehicle</button><label class="btn ghost" for="flFile" style="display:inline-flex;align-items:center">Upload fleet record</label><button class="btn ghost" data-act="flSupNew">+ Supplier</button></div><input type="file" id="flFile" accept=".xlsx,.xlsm" hidden></div>`;
   const hero=`<div class="card hero s12"><div><div class="eyebrow">Invoice period · ${esc(mLabel(mk))}</div><div class="nw">${M(due)}</div>
     <div class="nwsplit"><div><span>Paid</span><br><b>${M(paid)}</b></div><div><span>Outstanding this month</span><br><b>${M(due-paid)}</b></div><div><span>Vehicles invoiced</span><br><b>${act.length}</b></div></div>
     <div class="small" style="opacity:.75;margin-top:8px">Unpaid across all months to date: ${fmt(outAll)}</div></div>
@@ -3644,28 +3754,30 @@ function vFL(){if(!ui.fl)ui.fl={tab:'inv',mk:curMK(),vf:'active'};const F=flData
     <span class="small muted">${F.v.filter(v=>!v.removed||v.removed>curMK()).length} vehicles on the active fleet · ${F.sup.length} supplier${F.sup.length===1?'':'s'}</span></div>
     <div class="seg pcrtabs" role="tablist" style="grid-template-columns:repeat(5,minmax(0,1fr))">${tabs.map(([k,l])=>`<button type="button" data-act="flTab" data-v="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}</div></div>`;
   let body='';
-  if(!F.v.length&&tab!=='sup'&&tab!=='set')body=`<div class="card s12"><div class="empty"><p><b>No vehicles yet.</b></p><p class="small">Add each hired vehicle with its type, plate number, department, supplier, the month invoicing starts and the monthly amount due. Each month’s invoices then fill in automatically.</p><button class="btn" data-act="flVeh">Add the first vehicle</button></div></div>`;
+  if(!F.v.length&&tab!=='sup'&&tab!=='set')body=`<div class="card s12"><div class="empty"><p><b>No vehicles yet.</b></p><p class="small">Upload your existing fleet record (Excel), or add each hired vehicle with its type, plate number, department, supplier, the month invoicing starts and the monthly amount due. Each month’s invoices then fill in automatically.</p><div class="inline-actions" style="justify-content:center"><label class="btn" for="flFile" style="display:inline-flex;align-items:center">Upload fleet record</label><button class="btn ghost" data-act="flVeh">Add a vehicle</button></div></div></div>`;
   else if(tab==='inv'){const G=new Map();act.forEach(v=>{const k=v.sup;(G.get(k)||G.set(k,[]).get(k)).push(v)});
     const gone=F.v.filter(v=>v.removed&&v.removed===mk),later=F.v.filter(v=>v.start&&v.start>mk&&(!v.removed||v.removed>v.start));
     body=`<div class="card s12"><div class="card-h"><div><h2>Invoices · ${esc(mLabel(mk))}</h2><span class="small muted">Amounts start at each vehicle’s monthly rate. Type the invoiced amount if it differs, add the invoice number and mark payments.</span></div><div class="inline-actions"><button class="btn ghost sm" data-act="flRepNow">Report for ${esc(mLabel(mk,true))}</button></div></div>
       ${act.length?[...G.entries()].sort((a,b)=>flSup(a[0]).name.localeCompare(flSup(b[0]).name)).map(([sid,L])=>{L.sort((a,b)=>String(a.dept).localeCompare(String(b.dept))||String(a.plate).localeCompare(String(b.plate)));const st=r2(sum(L,v=>flDue(v,mk))),sp=r2(sum(L.filter(v=>flPaid(v,mk)),v=>flDue(v,mk))),un=L.filter(v=>!flPaid(v,mk));
         return`<div class="fl-sup"><div class="fl-sh"><div><b>${esc(flSup(sid).name)}</b><span class="small muted"> · ${L.length} vehicle${L.length===1?'':'s'}${flSupPay(flSup(sid).name)?' · '+esc(flSupPay(flSup(sid).name)):''}</span></div><div class="inline-actions"><span class="small">Due <b>${M(st)}</b> · Outstanding <b>${M(st-sp)}</b></span>${un.length>1?`<button class="btn ghost sm" data-act="flPayAll" data-id="${esc(un.map(v=>v.id).join(','))}">Mark all ${un.length} paid</button>`:''}</div></div>
         <div class="tw"><table class="fl-t"><thead><tr><th>Vehicle</th><th>Use / Dept</th><th class="n">Monthly rate</th><th class="n">Amount due (KES)</th><th>Invoice no.</th><th>Payment</th><th>Comments</th></tr></thead><tbody>
-        ${L.map(v=>{const Ln=flLine(v,mk)||{},pd=!!Ln.paid;return`<tr class="${pd?'fl-paid':''}"><td><b>${esc(v.plate)}</b><div class="small muted">${esc(v.type)}</div></td><td>${esc(v.dept||'')}</td><td class="n small muted">${fmt(num(v.rate))}</td>
-          <td class="n"><input class="numin m" id="fli-${v.id}-amt" data-fli="${v.id}|amt" inputmode="decimal" value="${fmtIn(flDue(v,mk))}" aria-label="Amount due for ${esc(v.plate)}"></td>
+        ${L.map(v=>{const Ln=flLine(v,mk)||{},pd=!!Ln.paid;return`<tr class="${pd?'fl-paid':''}"><td><b>${esc(flPl(v))}</b><div class="small muted">${esc(v.type||'Type TBC')}</div></td><td>${esc(v.dept||'—')}</td><td class="n small muted">${fmt(num(v.rate))}</td>
+          <td class="n">${Ln.imp?`<span class="fl-lock m" title="Imported from ${esc(Ln.imp)}. Locked: updating details does not change the amount owed.">🔒 ${fmt(flDue(v,mk))}</span><button type="button" class="addrow" style="margin:2px 0 0" data-act="flUnlock" data-id="${v.id}">Correct</button>`:`<input class="numin m" id="fli-${v.id}-amt" data-fli="${v.id}|amt" inputmode="decimal" value="${fmtIn(flDue(v,mk))}" aria-label="Amount due for ${esc(v.plate)}">`}${Ln.per?`<div class="small muted">${esc(clDM(Ln.per.f)+' – '+clDM(Ln.per.t))}</div>`:''}</td>
           <td><input id="fli-${v.id}-no" data-fli="${v.id}|no" value="${esc(Ln.no||'')}" placeholder="—" aria-label="Invoice number"></td>
           <td>${pd?`<button class="pill good fl-pb" data-act="flUnpay" data-id="${v.id}" title="Click to mark unpaid">✓ Paid ${Ln.pdate?esc(fmtD(Ln.pdate)):''}</button>${Ln.pref?`<div class="small muted">${esc(Ln.pref)}</div>`:''}`:`<button class="btn sm" data-act="flPay" data-id="${v.id}">Mark paid</button>`}</td>
           <td><input id="fli-${v.id}-note" data-fli="${v.id}|note" value="${esc(Ln.note||'')}" placeholder="Optional" aria-label="Comment"></td></tr>`}).join('')}</tbody></table></div></div>`}).join('')
         +`<div class="total-line"><span>Total for ${esc(mLabel(mk))} · ${act.length} vehicles</span><b>${M(due)}</b></div><div class="kv"><span>Paid</span><b>${M(paid)}</b></div><div class="kv"><span>Outstanding</span><b>${M(due-paid)}</b></div>`:'<div class="empty">No vehicles are on the fleet in '+esc(mLabel(mk))+'.</div>'}
       ${gone.length?`<p class="small muted" style="margin:12px 0 0">Removed from this month: ${esc(gone.map(v=>v.plate).join(', '))}.</p>`:''}${later.length?`<p class="small muted" style="margin:6px 0 0">Starting later: ${esc(later.map(v=>v.plate+' ('+mLabel(v.start,true)+' '+v.start.slice(0,4)+')').join(', '))}.</p>`:''}</div>`}
-  else if(tab==='veh'){const vf=o.vf||'active',now=curMK(),L=F.v.filter(v=>vf==='all'||(vf==='active'?!v.removed||v.removed>now:v.removed&&v.removed<=now)).sort((a,b)=>String(a.dept).localeCompare(String(b.dept))||String(a.plate).localeCompare(String(b.plate)));
+  else if(tab==='veh'){const G=flGaps(),gapCard=G.veh.length||G.sup.length?`<div class="card s12"><div class="card-h"><div><h2>Details to complete</h2><span class="small muted">Missing from the uploaded record. Completing them updates the report only; amounts owed do not change.</span></div><span class="pill warn">${G.veh.length+G.sup.length}</span></div>
+      ${G.veh.map(x=>`<div class="kv"><span><b>${esc(flPl(x.v))}</b> · ${esc(x.v.type||'Type TBC')} <span class="small muted">${esc(x.iss.join(', '))}</span></span><button class="btn ghost sm" data-act="flVeh" data-id="${x.v.id}">Complete</button></div>`).join('')}
+      ${G.sup.map(s=>`<div class="kv"><span><b>${esc(s.name)}</b> <span class="small muted">Payment details missing</span></span><button class="btn ghost sm" data-act="flSupEd" data-id="${s.id}">Add payment details</button></div>`).join('')}</div>`:'';const vf=o.vf||'active',now=curMK(),L=F.v.filter(v=>vf==='all'||(vf==='active'?!v.removed||v.removed>now:v.removed&&v.removed<=now)).sort((a,b)=>String(a.dept).localeCompare(String(b.dept))||String(a.plate).localeCompare(String(b.plate)));
     body=`<div class="card s12"><div class="card-h"><div><h2>Vehicle fleet</h2><span class="small muted">${L.length} shown · monthly total of the active fleet ${fmt(sum(F.v.filter(v=>flActive(v,now)),v=>num(v.rate)))}</span></div>
       <div class="ex-opts" style="margin:0">${[['active','Active'],['removed','Removed'],['all','All']].map(([k,l])=>`<button type="button" class="optchip" data-act="flVf" data-v="${k}" aria-pressed="${vf===k}">${l}</button>`).join('')}<button class="btn sm" data-act="flVeh">+ Add vehicle</button></div></div>
       <div class="tw"><table><thead><tr><th>Vehicle type</th><th>Plate No</th><th>Use / Dept</th><th>Supplier</th><th>Invoicing from</th><th class="n">Amount due / month</th><th>Status</th><th>Comments</th><th></th></tr></thead><tbody>
-      ${L.map(v=>{const gone=v.removed&&v.removed<=now;return`<tr><td>${esc(v.type)}</td><td><b>${esc(v.plate)}</b></td><td>${esc(v.dept||'')}</td><td>${esc(flSup(v.sup).name)}</td><td>${v.start?esc(mLabel(v.start)):'—'}</td><td class="n">${M(num(v.rate))}</td>
+      ${L.map(v=>{const gone=v.removed&&v.removed<=now;return`<tr><td>${esc(v.type||'—')}</td><td><b>${esc(flPl(v))}</b></td><td>${esc(v.dept||'—')}</td><td>${esc(flSup(v.sup).name)}</td><td>${v.start?esc(mLabel(v.start)):'—'}</td><td class="n">${M(num(v.rate))}</td>
         <td>${gone?`<span class="pill">Removed ${esc(mLabel(v.removed,true)+' '+v.removed.slice(0,4))}</span>`:v.removed?`<span class="pill warn">Leaves ${esc(mLabel(v.removed,true)+' '+v.removed.slice(0,4))}</span>`:v.start&&v.start>now?'<span class="pill warn">Starts later</span>':'<span class="pill good">Active</span>'}</td><td class="small">${esc([v.why,v.note].filter(Boolean).join(' · '))}</td>
         <td><div class="inline-actions" style="flex-wrap:nowrap"><button class="btn ghost sm" data-act="flVeh" data-id="${v.id}">Edit</button>${v.removed?`<button class="btn ghost sm" data-act="flBack" data-id="${v.id}">Reinstate</button>`:`<button class="btn ghost sm" data-act="flRm" data-id="${v.id}">Remove</button>`}<button class="x" data-act="flDel" data-id="${v.id}" aria-label="Delete ${esc(v.plate)}">×</button></div></td></tr>`}).join('')||'<tr><td colspan="9" class="muted">No vehicles in this list.</td></tr>'}</tbody></table></div>
-      <p class="small muted" style="margin-bottom:0">Remove takes a vehicle off the fleet from a chosen month and keeps its history. Delete erases it and its invoices completely.</p></div>`}
+      <p class="small muted" style="margin-bottom:0">Remove takes a vehicle off the fleet from a chosen month and keeps its history. Delete erases it and its invoices completely.</p></div>${gapCard}`}
   else if(tab==='sup'){body=`<div class="card s12"><div class="card-h"><div><h2>Suppliers &amp; payment details</h2><span class="small muted">Used on the invoices screen and in the CFO report</span></div><button class="btn sm" data-act="flSupNew">+ Add supplier</button></div>
       <div class="tw"><table><thead><tr><th>Supplier</th><th>Contact</th><th>Payment details</th><th class="n">Vehicles</th><th class="n">Due ${esc(mLabel(mk,true))}</th><th class="n">Unpaid to date</th><th></th></tr></thead><tbody>
       ${F.sup.map(s=>{const V=F.v.filter(v=>v.sup===s.id),dm=r2(sum(V.filter(v=>flActive(v,mk)),v=>flDue(v,mk))),un=r2(sum(V,flUnpaid));
@@ -3696,6 +3808,7 @@ function flAction(a,t){const F=flData(),o=ui.fl||(ui.fl={tab:'inv',mk:curMK()}),
   else if(a==='flDel'&&v){const i=F.v.indexOf(v),lines={};Object.keys(F.inv).forEach(m=>{if(F.inv[m][v.id]){lines[m]=F.inv[m][v.id];delete F.inv[m][v.id]}});F.v.splice(i,1);flSave();render();
     toastAction(v.plate+' deleted','Undo',()=>{F.v.splice(i,0,v);Object.keys(lines).forEach(m=>{(F.inv[m]=F.inv[m]||{})[v.id]=lines[m]});flSave();render()})}
   else if(a==='flPay'&&v)flPayModal([v.id],o.mk);
+  else if(a==='flUnlock'&&v){const L=flLine(v,o.mk);if(!L)return true;pcrModal(`${mdHead('Correct an imported amount?')}<p class="small" style="margin:0">${esc(flPl(v))} · ${esc(mLabel(o.mk))}: ${fmt(flDue(v,o.mk))} came from ${esc(L.imp)}. Unlock it only to fix an error in the uploaded record; the change is recorded against the line.</p><div class="inline-actions"><button class="btn" type="submit">Unlock to correct</button></div>`,close=>{$('#mdForm').onsubmit=e=>{e.preventDefault();L.was=L.imp;delete L.imp;L.unl=todayStr();flSave();close();ui.focusNext='fli-'+v.id+'-amt';render()}})}
   else if(a==='flPayAll')flPayModal(String(t.dataset.id).split(','),o.mk);
   else if(a==='flUnpay'&&v){const L=flLine(v,o.mk);if(!L)return true;const old=JSON.stringify(L);L.paid=false;delete L.pdate;delete L.pref;flSave();render();toastAction(v.plate+' marked unpaid','Undo',()=>{F.inv[o.mk][v.id]=JSON.parse(old);flSave();render()})}
   else if(a==='flSupNew')flSupModal();
@@ -3712,6 +3825,7 @@ document.addEventListener('change',ev=>{const el=ev.target;if(ui.view!=='fleet'|
   if(el.dataset.fli){const [vid,f]=el.dataset.fli.split('|'),v=F.v.find(x=>x.id===vid);if(!v)return;const inv=F.inv[o.mk]=F.inv[o.mk]||{},L=inv[vid]=inv[vid]||{};
     if(f==='amt'){const n=el.value.trim()===''?'':num(el.value);if(n===''||n===num(v.rate))delete L.amt;else L.amt=n}else{const s=el.value.trim();if(s)L[f]=s;else delete L[f]}
     if(!Object.keys(L).length)delete inv[vid];flSave();if(holdRender)pendingRender=true;else render();return}
+  if(el.id==='flFile'){const f=el.files[0];el.value='';if(f)flImportFile(f);return}
   if(el.id==='flr-f'||el.id==='flr-t'||el.id==='flr-d'){o[{'flr-f':'rf','flr-t':'rt','flr-d':'rd'}[el.id]]=el.value;render();return}
   if(el.dataset.flcfg){F.cfg[el.dataset.flcfg]=el.value.trim();flSave();render()}});
 document.addEventListener('input',ev=>{const el=ev.target;if(ui.view==='fleet'&&el.dataset&&el.dataset.fli&&el.dataset.fli.endsWith('|amt'))liveFmt(el)});
