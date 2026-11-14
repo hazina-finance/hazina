@@ -668,36 +668,49 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='14 Nov 2026 · sidebar, fleet invoicing (with record upload) & casuals red flags';
+const APP_BUILD='14 Nov 2026 · cross-device sync, offline mode, Excel logo placement';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
-const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):null;
-const store={uid:null,me:null,pending:new Set(),flushing:false,retry:null};
+/* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
+const OFFLINE_SB=(()=>{const err={message:'offline: network unavailable'},q=()=>{const a={select:()=>a,eq:()=>a,like:()=>a,order:()=>a,maybeSingle:()=>a,delete:()=>a,upsert:()=>Promise.resolve({error:err}),then:(r,j)=>Promise.resolve({data:null,error:err}).then(r,j)};return a};
+  return{stub:true,from:q,rpc:()=>Promise.resolve({error:err}),auth:{getSession:()=>Promise.reject(err),refreshSession:()=>Promise.reject(err),onAuthStateChange(){},signOut:()=>Promise.resolve(),updateUser:()=>Promise.resolve({error:err}),signInWithPassword:()=>Promise.resolve({error:err})}}})();
+const sb=configured?window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey):(!window.supabase&&lsGet('hz-last-uid')?OFFLINE_SB:null);
+const store={uid:null,me:null,pending:new Set(),pendAt:{},ver:{},flushing:false,retry:null};
 const parse=s=>{try{return s?JSON.parse(s):null}catch(e){return null}};
 const isAdmin=()=>!!(store.me&&store.me.role==='admin'&&store.me.active);
 function setSync(cls,txt){const el=$('#sync');el.className='sync '+cls;el.querySelector('span').textContent=txt;el.title=txt}
 const cacheKey=()=>'hz-cache-'+store.uid, pendKey=()=>'hz-pend-'+store.uid;
-function cacheSave(){if(!store.uid||!P||store.viewing)return;lsSet(cacheKey(),JSON.stringify({P,TX,PCR,CL,FL}));lsSet(pendKey(),JSON.stringify([...store.pending]))}
+function cacheSave(){if(!store.uid||!P||store.viewing)return;lsSet(cacheKey(),JSON.stringify({P,TX,PCR,CL,FL,ver:store.ver,at:Date.now()}));const ids={};store.pending.forEach(id=>{ids[id]=store.pendAt[id]||{t:Date.now()}});lsSet(pendKey(),JSON.stringify({v:2,ids}))}
+/* every saved document carries the time it was last written. A device only uploads its own change when nothing newer was saved from another device, so a run deleted on the PC can't come back from a phone that still had it. */
+const tOf=x=>{const n=Date.parse(x||'');return isFinite(n)?n:0};
+const MERGED=/^pcr-\d{4}$/;
 const cacheSoon=debounce(cacheSave,300);
 async function loadData(){
   if(store.viewing)return loadViewed();
-  let ok=false;const cached=parse(lsGet(cacheKey())),pend=parse(lsGet(pendKey()))||[];
+  if(store.uid&&P&&store.pending.size)cacheSave();
+  let ok=false;const cached=parse(lsGet(cacheKey())),praw=parse(lsGet(pendKey()));
+  const pend=Array.isArray(praw)?Object.fromEntries(praw.map(id=>[id,{t:(cached&&cached.at)||0}])):(praw&&praw.ids)||{};
   try{
-    const {data,error}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.uid);
+    const {data,error}=await sb.from('hz_docs').select('doc_id,body,updated_at').eq('user_id',store.uid);
     if(error)throw error;
-    let prof=null;const tx={};
+    let prof=null;const tx={},ver={};
     PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;
-    data.forEach(r=>{if(r.doc_id==='fl'){FL=r.body&&!r.body.gone?r.body:null;return}if(r.doc_id.startsWith('cl-')){clAbsorb(r);return}if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
-    if(pcrClerk()){const {data:pd,error:pe}=await sb.from('hz_docs').select('doc_id,body').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(pe)throw pe;(pd||[]).forEach(pcrAbsorb)}
-    P=migrate(prof);TX=tx;ok=true;
-  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}if(cached.CL)CL=Object.assign({cfg:null,reg:null,runs:{}},cached.CL);if(cached.FL)FL=cached.FL}}
-  // put back changes made on this device that had not reached the server yet
-  if(cached&&pend.length){pend.forEach(id=>{store.pending.add(id);if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id==='fl'){if(cached.FL)FL=cached.FL}else if(id.startsWith('cl-'))clFromCache(id,cached.CL);else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR){PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[];PCR.dead[id.slice(4)]=(cached.PCR.dead||{})[id.slice(4)]||{}}}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]})}
+    data.forEach(r=>{ver[r.doc_id]=r.updated_at;if(r.doc_id==='fl'){FL=r.body&&!r.body.gone?r.body:null;return}if(r.doc_id.startsWith('cl-')){clAbsorb(r);return}if(r.body&&r.body.gone)return;if(r.doc_id==='profile')prof=r.body;else if(r.doc_id.startsWith('tx-'))tx[r.doc_id.slice(3)]=(r.body&&r.body.items)||[];else if(r.doc_id.startsWith('pcr-')&&!pcrClerk())pcrAbsorb(r)});
+    if(pcrClerk()){const {data:pd,error:pe}=await sb.from('hz_docs').select('doc_id,body,updated_at').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(pe)throw pe;(pd||[]).forEach(r=>{ver[r.doc_id]=r.updated_at;pcrAbsorb(r)})}
+    P=migrate(prof);TX=tx;store.ver=ver;ok=true;
+  }catch(e){if(cached){P=migrate(cached.P);TX=cached.TX||{};if(cached.PCR){PCR=cached.PCR;PCR.dead=PCR.dead||{}}if(cached.CL)CL=Object.assign({cfg:null,reg:null,runs:{}},cached.CL);if(cached.FL)FL=cached.FL;store.ver=cached.ver||{}}}
+  // put back changes made on this device that had not reached the server yet, unless another device has saved something newer since
+  store.pending=new Set();store.pendAt={};let lost=0;
+  if(cached)Object.entries(pend).forEach(([id,pa])=>{pa=pa||{t:0};
+    if(ok&&!MERGED.test(id)){const sv=tOf(store.ver[id]);if(sv&&(pa.soft||sv>=pa.t)){if(!pa.soft)lost++;return}}
+    store.pending.add(id);store.pendAt[id]=pa;
+    if(id==='profile'){if(cached.P)P=migrate(cached.P)}else if(id==='fl'){if(cached.FL)FL=cached.FL}else if(id.startsWith('cl-'))clFromCache(id,cached.CL);else if(id==='pcr-cfg'){if(cached.PCR)PCR.cfg=cached.PCR.cfg}else if(id.startsWith('pcr-')){if(cached.PCR){PCR.years[id.slice(4)]=(cached.PCR.years||{})[id.slice(4)]||[];PCR.dead[id.slice(4)]=(cached.PCR.dead||{})[id.slice(4)]||{}}}else TX[id.slice(3)]=(cached.TX||{})[id.slice(3)]||[]});
   if(!P){if(store.me&&store.me.pcr_owner){P=baseProfile(false);TX={}}else{P=baseProfile(true);TX=exampleTx(P);store.fresh=true}}
-  setSync(ok?'':'local',ok?'Saved to your account':'Offline – changes will sync');
-  render();if(store.pending.size)flush();
+  setSync(ok?'':'local',ok?'Up to date with your other devices':'Offline – showing saved figures; changes will sync');store.loadedAt=Date.now();
+  render();cacheSave();if(lost)toast(lost===1?'One older change on this device was replaced by a newer one from your other device':lost+' older changes on this device were replaced by newer ones from your other device');if(store.pending.size)flush();
 }
-function queue(id){if(/^pcr-/.test(id)&&typeof pcrViewer==='function'&&pcrViewer())return;if(store.viewing){toast('Read-only: you are viewing another account');return}if(store.fresh){store.fresh=false;store.pending.add('profile');Object.keys(TX).forEach(mk=>store.pending.add('tx-'+mk))}store.pending.add(id);cacheSoon();setSync('busy','Saving…');flushSoon()}
+function queue(id,o){if(/^pcr-/.test(id)&&typeof pcrViewer==='function'&&pcrViewer())return;if(store.viewing){toast('Read-only: you are viewing another account');return}if(store.fresh){store.fresh=false;['profile',...Object.keys(TX).map(mk=>'tx-'+mk)].forEach(k=>{store.pending.add(k);store.pendAt[k]={t:Date.now()}})}
+  const cur=store.pendAt[id];if(o&&o.soft){if(!cur)store.pendAt[id]={t:Date.now(),soft:1}}else store.pendAt[id]={t:Date.now()};store.pending.add(id);cacheSoon();setSync('busy','Saving…');flushSoon()}
 const flushSoon=debounce(()=>flush(),700);
 /* ---------- administrator incognito view (read-only) ---------- */
 async function loadViewed(){
@@ -720,51 +733,85 @@ async function exitView(){
   history.replaceState(null,'','#users');P=null;TX={};await loadData();
 }
 async function flush(){
-  if(store.flushing||!store.uid||!sb)return;store.flushing=true;clearTimeout(store.retry);
-  let failed=false,changed=false;
+  if(store.flushing||!store.uid||!sb||store.viewing)return;store.flushing=true;clearTimeout(store.retry);
+  let failed=false,changed=false,stale=0;
   while(store.pending.size){
-    const id=[...store.pending][0];store.pending.delete(id);
-    if(id==='pcr-cfg'&&pcrClerk())continue;
+    const id=[...store.pending][0];store.pending.delete(id);const pa=store.pendAt[id]||{t:Date.now()};
+    if(id==='pcr-cfg'&&pcrClerk()){delete store.pendAt[id];continue}
     let body,target=store.uid;
-    if(id.startsWith('cl-')){body=clBody(id);if(body===null){const {data:dd,error:de}=await sb.from('hz_docs').delete().eq('user_id',store.uid).eq('doc_id',id).select('doc_id');if(!de&&dd&&dd.length)continue;body={gone:true}}}
-    else if(/^pcr-\d{4}$/.test(id)){const y=id.slice(4);target=pcrOwnerId();
+    if(MERGED.test(id)){const y=id.slice(4);target=pcrOwnerId();
       const {data:row,error:e0}=await sb.from('hz_docs').select('body').eq('user_id',target).eq('doc_id',id).maybeSingle();
       if(e0){store.pending.add(id);failed=true;break}
       const before=(PCR.years[y]||[]).map(e=>e.id+':'+num(e.mt)).sort().join();
       body=pcrMerge(row&&row.body,{items:PCR.years[y]||[],dead:PCR.dead[y]||{}});PCR.years[y]=body.items;PCR.dead[y]=body.dead;
       if(body.items.map(e=>e.id+':'+num(e.mt)).sort().join()!==before)changed=true}
-    else body=id==='profile'?P:id==='fl'?flData():id==='pcr-cfg'?pcrCfg():{items:TX[id.slice(3)]||[]};
-    const {error}=await sb.from('hz_docs').upsert({user_id:target,doc_id:id,body,updated_at:new Date().toISOString()});
-    if(error){store.pending.add(id);failed=true;break}
+    else{if(id==='pcr-cfg')target=pcrOwnerId();
+      /* has another device saved this document after this change was made? then theirs is newer: keep it */
+      const {data:row,error:e0}=await sb.from('hz_docs').select('updated_at').eq('user_id',target).eq('doc_id',id).maybeSingle();
+      if(e0){store.pending.add(id);failed=true;break}
+      const sv=row?tOf(row.updated_at):0,base=tOf(store.ver[id]);
+      if(row&&sv>base+500&&(pa.soft||sv>=pa.t)){if(!store.pending.has(id))delete store.pendAt[id];if(!pa.soft)stale++;else changed=true;continue}
+      if(id.startsWith('cl-')){body=clBody(id);if(body===null)body={gone:true,at:Date.now()}}
+      else if(id.startsWith('tx-')&&!(TX[id.slice(3)]||[]).length&&!row){delete store.pendAt[id];continue}
+      else body=id==='profile'?P:id==='fl'?flData():id==='pcr-cfg'?pcrCfg():{items:TX[id.slice(3)]||[]}}
+    const at=new Date(Math.max(Date.now(),tOf(store.ver[id])+1)).toISOString();
+    const {error}=await sb.from('hz_docs').upsert({user_id:target,doc_id:id,body,updated_at:at});
+    if(error){store.pending.add(id);failed=true;if(/jwt|token|auth|401|403/i.test(error.message||''))store.authLost=true;break}
+    store.ver[id]=at;if(!store.pending.has(id))delete store.pendAt[id];
   }
-  store.flushing=false;cacheSave();if(changed&&ui.view==='pcr'&&!document.querySelector('.modal')&&!(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)))render();
-  if(failed){setSync('local',navigator.onLine?'Not saved yet – retrying':'Offline – changes will sync');store.retry=setTimeout(flush,15000)}
-  else setSync('','Saved to your account');
+  store.flushing=false;cacheSave();
+  const idle=()=>!document.querySelector('.modal')&&!(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName));
+  if(stale){toast(stale===1?'A newer change from your other device was kept; this screen has been refreshed':stale+' newer changes from your other device were kept; this screen has been refreshed');if(idle())loadData();else store.reload=true}
+  else if(changed&&idle())render();
+  if(failed){setSync('local',navigator.onLine?(store.authLost?'Sign in again to upload changes':'Not saved yet – retrying'):'Offline – changes will sync');store.retry=setTimeout(flush,15000);if(store.authLost&&navigator.onLine)reauth()}
+  else if(!stale)setSync('','Saved · in sync with your other devices');
 }
-window.addEventListener('online',()=>flush());
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&store.uid&&!store.viewing&&!store.pending.size&&!store.flushing&&!document.querySelector('.modal')&&!(document.activeElement&&/INPUT|SELECT/.test(document.activeElement.tagName)))loadData()});
+/* look for changes saved from another device (PC ↔ phone) and refresh the figures */
+async function checkRemote(force){
+  if(!sb||!store.uid||store.viewing||store.flushing||!navigator.onLine||(!force&&document.visibilityState!=='visible'))return;
+  try{let {data,error}=await sb.from('hz_docs').select('doc_id,updated_at').eq('user_id',store.uid);if(error)throw error;
+    if(pcrClerk()){const r2_=await sb.from('hz_docs').select('doc_id,updated_at').eq('user_id',store.me.pcr_owner).like('doc_id','pcr-%');if(!r2_.error)data=data.filter(r=>!r.doc_id.startsWith('pcr-')).concat(r2_.data||[])}
+    const seen=new Set(data.map(r=>r.doc_id));
+    const diff=data.some(r=>store.ver[r.doc_id]!==r.updated_at)||Object.keys(store.ver).some(k=>!seen.has(k)&&!store.pending.has(k));
+    if(store.pending.size){await flush();if(store.pending.size)return}
+    if(!diff&&!store.reload){if(!store.pending.size)setSync('','Up to date with your other devices');return}
+    if(document.querySelector('.modal')||(document.activeElement&&/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName))){store.reload=true;return}
+    store.reload=false;await loadData()}
+  catch(e){setSync('local','Offline – showing saved figures')}}
+setInterval(()=>checkRemote(false),25000);
+/* the session may have expired while offline: renew it, or ask to sign in again without losing the saved changes */
+async function reauth(){if(store.reauthing)return;store.reauthing=true;try{const {data}=await sb.auth.getSession();let ok=!!(data&&data.session);if(!ok){const r=await sb.auth.refreshSession().catch(()=>({}));ok=!!(r&&r.data&&r.data.session)}
+  if(ok){store.authLost=false;flush()}else showLogin('Welcome back online. Sign in again to upload the changes you made offline; they are kept on this device.')}catch(e){}store.reauthing=false}
+window.addEventListener('online',async()=>{if(!store.uid)return;setSync('busy','Back online – syncing…');await reauth();await flush();checkRemote(true)});
+window.addEventListener('offline',()=>{if(store.uid)setSync('local','Offline – showing saved figures; changes will sync')});
+
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&store.uid&&!store.viewing)checkRemote(true)});
 const saveP=()=>queue('profile');
 const saveTx=mk=>queue('tx-'+mk);
 
 /* ---------- sign-in & account ---------- */
 async function boot(){
   if(!sb){$('#app').innerHTML=`<div class="card"><h2>Almost there</h2><p>Open <b>config.js</b> and paste your Supabase project URL and anon key, then upload it again.</p></div>`;setSync('local','Not connected');$('#fab').hidden=true;return}
-  let session=null;try{session=(await sb.auth.getSession()).data.session}catch(e){}
-  if(session)await afterLogin(session.user);else showLogin();
-  sb.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT')showLogin()});
+  let session=null,netErr=false;try{const r=await sb.auth.getSession();session=r.data.session;if(r.error&&/fetch|network|offline|load failed/i.test(r.error.message||''))netErr=true}catch(e){netErr=true}
+  if(session)await afterLogin(session.user);
+  else{const last=lsGet('hz-last-uid'),me=last&&parse(lsGet('hz-me-'+last));
+    /* offline: open the figures saved on this device; they sync when the connection returns */
+    if(me&&me.active&&(netErr||!navigator.onLine||sb.stub))await afterLogin({id:last},true);else showLogin()}
+  sb.auth.onAuthStateChange(ev=>{if(ev==='SIGNED_OUT'&&navigator.onLine&&!sb.stub)showLogin()});
+  if(sb.stub)window.addEventListener('online',()=>location.reload());
 }
-async function afterLogin(u){
-  store.uid=u.id;let prof=null;
-  try{const {data,error}=await sb.from('hz_profiles').select('*').eq('id',u.id).maybeSingle();if(error)throw error;prof=data;if(prof)lsSet('hz-me-'+u.id,JSON.stringify(prof))}
+async function afterLogin(u,offline){
+  store.uid=u.id;lsSet('hz-last-uid',u.id);let prof=null;
+  try{if(offline)throw 0;const {data,error}=await sb.from('hz_profiles').select('*').eq('id',u.id).maybeSingle();if(error)throw error;prof=data;if(prof)lsSet('hz-me-'+u.id,JSON.stringify(prof))}
   catch(e){prof=parse(lsGet('hz-me-'+u.id))}
   if(!prof||!prof.active){await sb.auth.signOut().catch(()=>{});showLogin('Your account is not active yet. Ask your administrator to activate it.');return}
-  store.me=prof;$('#auth').hidden=true;$('#fab').hidden=false;$('#refreshBtn').hidden=false;
+  store.me=prof;store.offlineStart=!!offline;$('#auth').hidden=true;$('#fab').hidden=false;$('#refreshBtn').hidden=false;
   $('#acctName').textContent=prof.full_name||prof.email;$('#acct').hidden=false;
   const h=location.hash.slice(1);ui.view=views().some(v=>v[0]===h)?h:'dashboard';
   await loadData();
 }
 function showLogin(msg){
-  P=null;TX={};PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;ui.cl=null;ui.fl=null;store.uid=null;store.me=null;store.fresh=false;store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
+  P=null;TX={};PCR={cfg:null,years:{},dead:{}};CL={cfg:null,reg:null,runs:{}};FL=null;ui.cl=null;ui.fl=null;store.uid=null;store.me=null;store.fresh=false;store.ver={};store.pendAt={};store.viewing=null;document.body.classList.remove('viewing');store.pending.clear();ui.users=null;
   $('#acct').hidden=true;$('#fab').hidden=true;$('#refreshBtn').hidden=true;$('#app').innerHTML='';$('#modalRoot').innerHTML='';$('#tabs').innerHTML='';$('#side').hidden=true;$('#sbOpen').hidden=true;document.body.classList.remove('has-side','sb-open');
   $('#auth').hidden=false;const m=$('#authMsg');m.textContent=msg||'';m.hidden=!msg;setSync('local','Signed out');
 }
@@ -786,7 +833,7 @@ $('#loginForm').addEventListener('submit',async e=>{
 });
 async function signOut(){
   if(store.pending.size){await flush();if(store.pending.size){toast('Some changes have not synced yet. Connect to the internet first.');return}}
-  try{localStorage.removeItem(cacheKey());localStorage.removeItem(pendKey())}catch(e){}
+  try{localStorage.removeItem(cacheKey());localStorage.removeItem(pendKey());localStorage.removeItem('hz-last-uid')}catch(e){}
   await sb.auth.signOut().catch(()=>{});showLogin();
 }
 function openAccount(){
@@ -1841,6 +1888,10 @@ let PCR={cfg:null,years:{},dead:{}};
 const PCR_LOGO_DEFAULT='data:image/png;base64,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';
 const PCR_CATS=['Reimbursements to individuals','Staff medical & welfare support','Kitchen, farm & operational expenses','Engineering & workshop expenses','Transfers & M-Pesa / Paybill charges'];
 const PCR_POINTS=['M-Pesa','Equity Bank','Cash'];
+/* logo at the top-right corner of the report, measured in real pixels so it lands in the executive spot in every Excel version */
+function xlLogo(ws,id,lastCol,w,h,top){const px=c=>{const col=ws.getColumn(c);const wd=col&&col.width?col.width:8.43;return Math.round(wd*7+5)};
+  let need=w+6,c=lastCol;while(c>1&&need>px(c)){need-=px(c);c--}const off=Math.max(0,px(c)-need);
+  ws.addImage(id,{tl:{nativeCol:c-1,nativeColOff:Math.round(off*9525),nativeRow:0,nativeRowOff:Math.round((top==null?6:top)*9525)},ext:{width:w,height:h},editAs:'oneCell'})}
 const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 const PCR_DARK=[54,86,40],PCR_BAND=[226,239,218];
 function pcrCfg(){
@@ -2163,7 +2214,7 @@ async function pcrXLSX(M,file){
   put(2,1,NC-2,M.title,{head:true,size:18,bold:true});ws.getRow(2).height=28;
   put(3,1,NC-2,M.sub,{size:9,color:SLATE});
   for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};
-  try{const dm=await imgDims(pcrLogo());const id=wb.addImage({base64:pcrLogo(),extension:'png'});const h=54,w=Math.min(110,h*dm.w/dm.h);ws.addImage(id,{tl:{col:NC-1.6,row:0.15},ext:{width:w,height:h}})}catch(e){}
+  try{const dm=await imgDims(pcrLogo());const id=wb.addImage({base64:pcrLogo(),extension:'png'});const h=54,w=Math.min(110,h*dm.w/dm.h);xlLogo(ws,id,NC,w,h)}catch(e){}
   let r=6;
   const label=t=>{put(r,1,NC,t.toUpperCase(),{size:8,bold:true,color:SLATE});r++};
   if(M.figs){const n=M.figs.length,bw=Math.floor(NC/n);M.figs.forEach(([l,v],i)=>{const c1=1+i*bw,c2=i===n-1?NC:c1+bw-1,key=i===n-1;
@@ -2938,7 +2989,7 @@ async function clWorkbook(wb,run,B,mode){
     put(ws,2,1,Math.max(1,NC-2),title,{head:true,size:20,bold:true});ws.getRow(2).height=30;put(ws,3,1,Math.max(1,NC-2),sub,{size:9,color:SLATE});
     for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;
     if(keyL!=null){put(ws,5,1,2,T(keyL).toUpperCase(),{size:8,bold:true,color:SLATE});const k=put(ws,5,3,5,keyV,{size:12,bold:true,numFmt:'"KES" #,##0.00'});k.alignment={horizontal:'left',vertical:'middle'};ws.getRow(5).height=24}
-    if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);ws.addImage(logo.id,{tl:{col:Math.max(0,NC-1.25),row:0.12},ext:{width:w,height:h}})}};
+    if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);xlLogo(ws,logo.id,NC,w,h)}};
   const label=(ws,r,NC,t)=>put(ws,r,1,NC,T(t).toUpperCase(),{size:8,bold:true,color:SLATE});
   const approval=(ws,r,NC)=>{const L=c.sign.filter(s=>s.role||s.name);if(!R.approval)return r;label(ws,r,NC,'Approval');r++;
     const nm=L.filter(s=>s.name);put(ws,r,1,NC,'Approved through the email approval thread.'+(nm.length?'  '+nm.map(s=>s.role+': '+s.name).join('   ·   '):''),{size:9,italic:true,color:SLATE});return r+1};
@@ -3205,7 +3256,7 @@ function clRename(C){const run=clCur();pcrModal(`${mdHead('Rename category')}<p 
 
 /* ---------- analysis: patterns, trends and red flags ---------- */
 const CL_SER=['--cs1','--cs2','--cs3','--cs4','--cs5','--cs6','--cs7','--cs8'];
-function clCatColor(names){const c=clCfg();if(!c.colors||typeof c.colors!=='object')c.colors={};let ch=false;names.forEach(n=>{const k=clCatKey(n);if(c.colors[k]==null){const usedIdx=new Set(Object.values(c.colors));let i=0;while(usedIdx.has(i)&&i<7)i++;c.colors[k]=Math.min(i,7);ch=true}});if(ch)queue('cl-cfg');return n=>'var('+CL_SER[c.colors[clCatKey(n)]??7]+')'}
+function clCatColor(names){const c=clCfg();if(!c.colors||typeof c.colors!=='object')c.colors={};let ch=false;names.forEach(n=>{const k=clCatKey(n);if(c.colors[k]==null){const usedIdx=new Set(Object.values(c.colors));let i=0;while(usedIdx.has(i)&&i<7)i++;c.colors[k]=Math.min(i,7);ch=true}});if(ch)queue('cl-cfg',{soft:true});return n=>'var('+CL_SER[c.colors[clCatKey(n)]??7]+')'}
 function clLegend(names,col){return`<div class="cl-leg">${names.map(n=>`<span><i style="background:${col(n)}"></i>${esc(n)}</span>`).join('')}</div>`}
 function clStack(groups,names,col,o){/* groups:[{label,vals:{name:v},tip}] */o=o||{};const W=Math.max(640,groups.length*(o.bw||34)+60),H=o.h||200,L=48,Bm=26,T=10,max=Math.max(1,...groups.map(g=>sum(names,n=>num(g.vals[n]))));
   const nice=v=>{const p=Math.pow(10,Math.floor(Math.log10(v)));const m=v/p;return(m<=1?1:m<=2?2:m<=5?5:10)*p};const top=nice(max),y=v=>H-Bm-(H-Bm-T)*v/top;const step=(W-L-10)/groups.length,bw=Math.min(28,step*0.62);
@@ -3543,7 +3594,7 @@ async function flXLSX(from,to,dfrom){toast('Preparing Excel file…');try{await 
     const isN=typeof v==='number'||(v&&typeof v==='object'&&'formula' in v);x.alignment={horizontal:o.center?'center':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap};return x};
   const header=(ws,NC,title,sub)=>{put(ws,1,1,Math.max(1,NC-2),[c.org,'Fleet invoicing'].filter(Boolean).join(' · ').toUpperCase(),{size:8,color:SLATE});put(ws,2,1,Math.max(1,NC-2),title,{head:true,size:20,bold:true});ws.getRow(2).height=30;
     put(ws,3,1,Math.max(1,NC-2),sub,{size:9,color:SLATE});for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;
-    if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);ws.addImage(logo.id,{tl:{col:Math.max(0,NC-1.3),row:0.12},ext:{width:w,height:h}})}};
+    if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);xlLogo(ws,logo.id,NC,w,h)}};
   const label=(ws,r,NC,t)=>put(ws,r,1,NC,t.toUpperCase(),{size:8,bold:true,color:SLATE});
   const hd=(ws,r,c1,h,o)=>put(ws,r,c1,(o&&o.to)||c1,h,Object.assign({bold:true,size:9,fill:FILL,border:{top:med,bottom:med},wrap:true},o||{}));
   const sub=['Invoice period '+flPer(from,to),'Prepared '+fmtD(todayStr())].join('  ·  ');
