@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · flagged list filters and approval-file option';
+const APP_BUILD='16 Nov 2026 · verified against clerk files; name matches need confirmation';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -2885,11 +2885,12 @@ const clMemo=new Map();
 function clBuild(run){const sig=clMemoSig(run);const hit=clMemo.get(run.id);if(hit&&hit.sig===sig)return hit.B;const B=clBuild0(run);clMemo.set(run.id,{sig,B});return B}
 const clMemoSig=run=>JSON.stringify(run.dec||{})+JSON.stringify(run.phOv||{})+JSON.stringify(run.idOv||{})+(run.uploads||[]).map(u=>u.sheets.length).join('.')+run.status+'|'+(run.uploads||[]).length+'|'+(run.uploads||[]).map(u=>u.id).join(',')+'|'+JSON.stringify(run.manual||[]).length+'|'+(run.excl||[]).join(',')+'|'+run.from+run.to+run.fixed+'|'+JSON.stringify(clCfg().alias)+'|'+Object.keys(clReg()).length;
 const CL_FIX=new Set(['calc','calc-sheet','dup']);
-const CL_FT={calc:'Calculation discrepancy · row total','calc-sheet':'Calculation discrepancy · sheet total',dup:'Recorded twice','dup-phone':'Duplicate payment number','no-phone':'Missing phone number','bad-phone':'Wrong phone number format','no-id':'Missing ID No.','bad-id':'Invalid ID No.','same-name':'Same name, paid separately','id-name':'One ID, two names',kind:'Category type',rate:'Two rates','no-rate':'No unit rate',outside:'Outside pay period'};
+const CL_FT={calc:'Calculation discrepancy · row total','calc-sheet':'Calculation discrepancy · sheet total',dup:'Recorded twice','dup-phone':'Duplicate payment number','no-phone':'Missing phone number','bad-phone':'Wrong phone number format','no-id':'Missing ID No.','bad-id':'Invalid ID No.','same-name':'Same name, paid separately','name-link':'Same name, no ID: same person?','id-name':'One ID, two names',kind:'Category type',rate:'Two rates','no-rate':'No unit rate',outside:'Outside pay period'};
 /* the effect of each decision, in words (used on screen and in the approval file) */
 function clFlagState(f){const d=f.dec;
   if(CL_FIX.has(f.type)){if(f.type==='dup')return d==='system'?'Counted once (system)':d==='keep'?'Both counted (as uploaded)':'Awaiting decision · both counted as uploaded';
     return d==='system'?'System figures used':d==='keep'?'Uploaded figures kept':'Awaiting decision · uploaded figures used'}
+  if(f.type==='name-link')return d==='adopt'?'Same person · combined':d==='disregard'?'Different people · kept separate':'Awaiting decision · kept separate';
   if(f.type==='dup-phone')return d==='adopt'?'Adopted · one bank line for this number':d==='same'?'Same person · combined':'Awaiting decision · held off the bank file';
   if(f.type==='no-phone'||f.type==='bad-phone')return d==='adopt'?'Adopted · on hold until a number is added':d==='disregard'?'Disregarded · still on hold (no number to pay)':'Awaiting decision · on hold';
   if(f.type==='no-id'||f.type==='bad-id')return d==='adopt'?'Adopted · paid as is, flag shown':d==='disregard'?'Disregarded · paid as is, flag hidden':'Awaiting decision · paid as is';
@@ -2903,12 +2904,13 @@ function clBuild0(run){
   const REG=clReg(),warn=[],flags=[],cats=new Map(),ex=new Set(run.excl||[]),seen={},dec=run.dec||{},legacy=run.status!=='open';const once=(k,lvl,msg)=>{if(seen[k])return;seen[k]=1;warn.push({lvl,msg})};
   /* every red flag waits for the admin: Adopt (keep the flag visible) or Disregard. Correctable ones choose system vs uploaded figures. */
   const flag=(key,type,lvl,msg,o)=>{if(seen['f:'+key])return seen['f:'+key];const d=dec[key];const f=Object.assign({key,type,lvl,msg,dec:d?d.v:'',fix:CL_FIX.has(type)},o||{});seen['f:'+key]=f;flags.push(f);return f};
-  const choice=key=>{const d=dec[key];if(d)return d.v;return legacy?'system':'keep'};
+  const choice=key=>{const d=dec[key];if(d)return d.v;return legacy?'system':'keep'};const decOf=k=>(dec[k]||{}).v;
   const P=clPeriod(run),days=clDays(P.from,P.to),inP=d=>d>=P.from&&d<=P.to;
   /* a row without an ID joins the same-named person who has an ID; the same name is one person within a category */
   const nameToId={},idCats={};const see=(r,ck)=>{const i=clIdNorm(r.id);if(!i)return;const nn=clNorm(r.n);if(nameToId[nn]&&nameToId[nn]!==i)nameToId[nn]='?';else nameToId[nn]=i;(idCats[nn]=idCats[nn]||new Set()).add(ck)};
   (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{const ck=clCatKey(clCanon(s.cat));s.rows.forEach(r=>see(r,ck))}));(run.manual||[]).forEach(m=>see(m,clCatKey(clCanon(m.cat))));
-  const wkey=(r,ck)=>{const i=clIdNorm(r.id);if(i)return'i:'+i;const nn=clNorm(r.n);const m=nameToId[nn];return m&&m!=='?'?'i:'+m:'n:'+nn};
+  /* a row with no ID is linked to a same-named person with an ID only when the admin confirms it (the money would go to that person's number) */
+  const nlCand={};const wkey=(r,ck)=>{const i=clIdNorm(r.id);if(i)return'i:'+i;const nn=clNorm(r.n);const m=nameToId[nn];if(m&&m!=='?'){const d=dec['nl:'+nn];if((d&&d.v==='adopt')||(!d&&legacy&&!run.lv2))return'i:'+m;if(ck){const c=nlCand[nn]||(nlCand[nn]={id:m,n:String(r.n).trim(),cats:new Set(),ph:r.ph||''});c.cats.add(ck)}}return'n:'+nn};
   const getCat=(name,kind)=>{const nm=clCanon(name),k=clCatKey(nm);let C=cats.get(k);if(!C){C={key:k,name:nm,kind,W:new Map(),adj:0,adjK:[]};cats.set(k,C)}
     else if(C.kind!==kind)flag('kind:'+k,'kind','warn','“'+nm+'” arrived both as a daily-rate sheet and as a per-unit sheet. It is treated as '+(C.kind==='unit'?'per unit (bags)':'daily rate')+'.');return C};
   const add=(cat,kind,r,src,manual,rk)=>{const C=getCat(cat,kind);const k=wkey(r,C.key);if(ex.has(C.key+'|'+k))return;
@@ -2980,15 +2982,36 @@ function clBuild0(run){
     else P0.forEach(b=>{b.hold='shared';b.fl.add('dup-phone')})});
   const bank=[...bm.values()].map(b=>Object.assign(b,{grp:gname})).sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
   bank.forEach(b=>{b.days=Object.values(b.e).filter(v=>v>0).length;b.dual=Object.keys(b.cd).filter(d=>b.cd[d].length>1).sort()});
-  /* missing / invalid ID and phone: one flag per person (a person in two categories counts once), listing their categories */
-  bank.forEach(b=>{const cl=[...b.cats],ks=b.keys.join(','),rg=b.keys.map(k=>REG[k]).find(Boolean)||{};
-    if(!clIdNorm(b.id)){const bad=!!String(b.rawId||'').trim();flag(pre+'id0:'+b.key,bad?'bad-id':'no-id','bad',b.n+' ('+cl.join(', ')+') has '+(bad?'an invalid ID number ('+b.rawId+')':'no ID number')+'. Paid as is.',{who:b.n,wk:pre+b.key,amt:b.amt,catList:cl,people:[{key:ks,n:b.n,cats:cl.join(', '),amt:b.amt,id:b.rawId,sug:clIdNorm(rg.id)?rg.id:''}]})}
-    if(!clPhoneOk(b.ph)){b.hold='phone';const bad=!!String(b.rawPh||'').trim();b.badPh=bad;flag(pre+'ph0:'+b.key,bad?'bad-phone':'no-phone','bad',b.n+' ('+cl.join(', ')+') has '+(bad?'a phone number in the wrong format: “'+(b.rawTxt||clPh(b.rawPh))+'”'+(b.rawCat&&cl.length>1?' in '+b.rawCat:'')+' ('+clPhWhy(b.rawTxt||clPh(b.rawPh))+')':'no phone number')+'. The '+fmt(b.amt)+' stays in the approval file and is held off the bank file until a number is added.',{who:b.n,wk:pre+b.key,amt:b.amt,catList:cl,people:[{key:ks,n:b.n,cats:cl.join(', '),amt:b.amt,ph:b.rawPh,sug:clPhoneOk(rg.ph)&&!byPh.has(rg.ph)?rg.ph:''}]})}});
+  /* who cannot be paid: no valid phone number anywhere for this person */
+  bank.forEach(b=>{if(!clPhoneOk(b.ph)){b.hold='phone';b.badPh=!!String(b.rawPh||'').trim()}});
   {const seenPh=new Set();bank.forEach(b=>{if(b.hold)return;if(seenPh.has(b.ph))b.hold='shared';else seenPh.add(b.ph)})}
   return bank};
   const bankM=grp(out.filter(C=>!C.sep),'','main'),bankS=grp(out.filter(C=>C.sep),'s:','sec'),bank=[...bankM,...bankS],catOf=b=>[...b.cats].join(' + ');
   const multi=bank.filter(b=>Object.keys(b.by).length>1).length;
-  const idN={};bank.forEach(b=>{const nn=clNorm(b.n);(idN[nn]=idN[nn]||[]).push(b)});Object.entries(idN).filter(([nn,L])=>new Set(L.map(b=>clIdNorm(b.id)||'none:'+b.key)).size>1).forEach(([nn,L])=>flag('nmid:'+nn,'same-name','warn','“'+L[0].n+'” appears '+L.length+' times with different ID or phone numbers ('+L.map(b=>'ID '+(b.id||'none')+', '+(clPh(b.ph)||'no phone')+' in '+catOf(b)).join('; ')+') and is paid separately for each. Check whether they are the same person.',{who:L[0].n,amt:r2(sum(L,b=>b.amt))}));
+  /* same name, one row without an ID: ask before treating them as one person */
+  {const decided=Object.keys(dec).filter(k=>k.startsWith('nl:')&&dec[k].v==='adopt').map(k=>k.slice(3));
+    const info=nn=>{const id=nameToId[nn];const L=[];(run.uploads||[]).forEach(u=>u.sheets.forEach(sh=>sh.rows.forEach(r=>{if(clIdNorm(r.id)===id&&clNorm(r.n)===nn)L.push({cat:clCanon(sh.cat),ph:r.ph})})));return{id,cats:[...new Set(L.map(x=>x.cat))],ph:(L.find(x=>clPhoneOk(x.ph))||{}).ph||''}};
+    const nmcat=nn=>{const S=new Set();(run.uploads||[]).forEach(u=>u.sheets.forEach(sh=>sh.rows.forEach(r=>{if(!clIdNorm(r.id)&&clNorm(r.n)===nn)S.add(clCanon(sh.cat))})));return[...S]};
+    [...Object.keys(nlCand),...decided].filter((x,i,a)=>a.indexOf(x)===i).forEach(nn=>{const I=info(nn),nc=nmcat(nn),nm=(nlCand[nn]||{}).n||nn;if(!nc.length)return;
+      flag('nl:'+nn,'name-link','warn',nm+' in '+nc.join(', ')+' has no ID number. A person with the same name in '+(I.cats.join(', ')||'another category')+' has ID '+I.id+(I.ph?' and phone '+clPh(I.ph):'')+'. If they are the same person, the amounts are combined and paid on that number; if not, they stay separate.',{who:nm,catList:nc,amt:r2(sum(bank.filter(b=>b.keys.includes('n:'+nn)),b=>b.amt))})})}
+  /* missing / wrong ID and phone are read straight from the uploaded rows (the clerks' files are the source of truth):
+     nothing linked, merged or filled in by the app changes these counts. The same name is one person (once per category, and once in the total). */
+  {const BKk=new Map(bank.flatMap(b=>b.keys.map(k=>[k,b]))),RF=new Map(),REGl=clReg();
+    (run.uploads||[]).forEach(u=>u.sheets.forEach(sh=>{const cn=clCanon(sh.cat),ck=clCatKey(cn),pre=clIsSep(cn)?'s:':'';
+      sh.rows.forEach(r=>{const k=wkey(r,ck);if(ex.has(ck+'|'+k))return;const amt=clRowAmt(Object.assign({},r,{r:num(r.r)||((cats.get(ck)||{}).W&&((cats.get(ck).W.get(k)||{}).r))||0}),sh.kind);if(!(amt>0))return;
+        const nn=clNorm(r.n),idv=idOv[k]!=null?idOv[k]:(r.id||''),phv=phOv[k]!=null?phOv[k]:(r.ph||'');
+        const iv=clIdNorm(idv)||'',put=(t,raw)=>{const id=t+'|'+pre+nn+'|'+iv;let o=RF.get(id);if(!o){o={t,nn,iv,n:String(r.n).trim(),pre,cats:new Map(),amt:0,keys:new Set(),raw:'',rawCat:''};RF.set(id,o)}
+          if(!o.cats.has(cn))o.cats.set(cn,0);o.cats.set(cn,r2(o.cats.get(cn)+amt));o.amt=r2(o.amt+amt);o.keys.add(k);if(raw&&!o.raw){o.raw=String(raw);o.rawCat=cn}};
+        if(!clIdNorm(idv))put(String(idv).trim()?'bad-id':'no-id',idv);
+        if(!clPhoneOk(phv))put(String(phv).trim()?'bad-phone':'no-phone',r.phr||(phv?clPh(phv):''))})}));
+    /* a nameless-ID row joins the one person of that name who has an ID; two people with the same name and different IDs stay two */
+    [...RF.values()].filter(o=>!o.iv).forEach(o=>{const L=[...RF.values()].filter(x=>x!==o&&x.t===o.t&&x.pre===o.pre&&x.nn===o.nn&&x.iv);if(L.length!==1)return;const x=L[0];
+      o.cats.forEach((v,c)=>x.cats.set(c,r2((x.cats.get(c)||0)+v)));x.amt=r2(x.amt+o.amt);o.keys.forEach(k=>x.keys.add(k));if(!x.raw&&o.raw){x.raw=o.raw;x.rawCat=o.rawCat}RF.delete(o.t+'|'+o.pre+o.nn+'|')});
+    RF.forEach(o=>{const cl=[...o.cats.keys()],ks=[...o.keys],b=ks.map(k=>BKk.get(k)).find(Boolean),rg=ks.map(k=>REGl[k]).find(Boolean)||{},where=cl.length>1?' in '+cl.map(c=>c+' ('+fmt(o.cats.get(c))+')').join(', '):'';
+      const fk=o.pre+o.nn+(o.iv?'|'+o.iv:'');if(/id$/.test(o.t))flag('id0:'+fk,o.t,'bad',o.n+' ('+cl.join(', ')+') has '+(o.t==='bad-id'?'an invalid ID number (“'+o.raw+'”)':'no ID number')+where+'. Paid as is.',{who:o.n,wk:'p:'+fk,amt:o.amt,catList:cl,people:[{key:ks.join(','),n:o.n,cats:cl.join(', '),amt:o.amt,sug:clIdNorm(rg.id)?rg.id:''}]});
+      else{const held=!b||b.hold==='phone',paidOn=b&&clPhoneOk(b.ph)?clPh(b.ph):'';
+        flag('ph0:'+fk,o.t,'bad',o.n+' ('+cl.join(', ')+') has '+(o.t==='bad-phone'?'a phone number in the wrong format: “'+o.raw+'”'+(cl.length>1?' (in '+o.rawCat+')':'')+' – '+clPhWhy(o.raw):'no phone number')+where+'. '+(held?'The '+fmt(o.amt)+' stays in the approval file and is held off the bank file until a number is added.':'Paid on '+paidOn+', the number given in another category.'),{who:o.n,wk:'p:'+fk,amt:o.amt,catList:cl,held,people:[{key:ks.join(','),n:o.n,cats:cl.join(', '),amt:o.amt,ph:o.raw,sug:clPhoneOk(rg.ph)&&!bank.some(x=>x.ph===rg.ph)?rg.ph:''}]})}})}
+  const idN={};bank.forEach(b=>{const nn=clNorm(b.n);(idN[nn]=idN[nn]||[]).push(b)});Object.entries(idN).filter(([nn,L])=>new Set(L.map(b=>clIdNorm(b.id)).filter(Boolean)).size>1).forEach(([nn,L])=>flag('nmid:'+nn,'same-name','warn','“'+L[0].n+'” appears '+L.length+' times with different ID or phone numbers ('+L.map(b=>'ID '+(b.id||'none')+', '+(clPh(b.ph)||'no phone')+' in '+catOf(b)).join('; ')+') and is paid separately for each. Check whether they are the same person.',{who:L[0].n,amt:r2(sum(L,b=>b.amt))}));
   flags.forEach(f=>{if(f.dec==='disregard'&&!f.fix)f.off=true;if(f.type==='dup-phone'&&f.dec==='same')f.off=true});
   const rank={bad:0,warn:1,info:2};flags.sort((a,b)=>(!!a.dec-!!b.dec)||rank[a.lvl]-rank[b.lvl]);
   const pay=bank.filter(b=>!b.hold),hold=bank.filter(b=>b.hold),adj=r2(sum(out,C=>C.adj));
@@ -3023,7 +3046,7 @@ function clModel(run,B,type,o){o=o||{};const c=clCfg(),R=clRepO(),ref=clRef(run)
     if(FC.length)M.blocks.push({t:'table',cols:[{h:'Flagged people by category'},...FC.map(n=>({h:n,n:1,w:70})),{h:'Total',n:1,w:52}],rows:[...S.filter(g=>Object.keys(g.byCat).length).map(g=>({c:[g.l,...FC.map(n=>String(g.byCat[n]||0)),String(g.n)]}))]});
     M.blocks.push({t:'note',x:'Each person is counted once. Someone who worked in two categories shows under both categories but once in the total. Amounts are what the flagged people are owed; a person can appear under more than one flag, so they are not added to the payout.'});
     if(FV==='detail'){M.blocks.push({t:'h',x:'Flagged items · detail'});M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Flagged item',w:110},{h:'Detail'},{h:'Amount (KES)',n:1,w:70},{h:'Status',w:120}],rows:L.map((f,i)=>({c:[String(i+1),CL_FT[f.type]||'Check',f.msg,f.amt!=null?f.amt:'',clFlagState(f)]}))})}};
-  const payBlk=()=>{M.blocks.push({t:'h',x:'Payout status'});M.blocks.push({t:'recon',rows:[['Payable now · '+B.pay.length+' workers on the bank file',B.payTot,''],...(B.holdPh.length?[['On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),'']]:[]),...(B.holdSh.length?[['On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),'']]:[]),...(B.adj?[['Retained clerk’s total adjustments (not on the bank file)',B.adj,'']]:[]),['Total expected payout',B.total,'key']]})};
+  const payBlk=()=>{M.blocks.push({t:'h',x:'Payout status'});M.blocks.push({t:'recon',rows:[['Payable now · '+B.pay.length+' workers on the bank file',B.payTot,''],...(B.holdPh.length?[['On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),'']]:[]),...(B.holdSh.length?[['On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),'']]:[]),...(B.adj?[['Retained clerk’s total adjustments (not on the bank file)',B.adj,'']]:[]),['Total expected payout',B.total,'key']]});const pe=B.flags.filter(f=>/phone$/.test(f.type)&&f.type!=='dup-phone'&&f.held===false).length;if(pe)M.blocks.push({t:'note',x:pe+' more '+(pe===1?'person has':'people have')+' no phone number in one category but '+(pe===1?'is':'are')+' paid on the number given in another category, so they are flagged but not on hold.'})};
   if(type==='bank'){const pmd=sum(B.payM,b=>b.days);
     M.figs=[...(R.workersFig?[['Workers paid',String(B.pay.length)]]:[]),['Categories',String(B.cats.length)],...(R.mandays?[['Mandays',clFmtN(pmd)]]:[]),...(B.payS.length?[['Security (KES)',r2(sum(B.payS,b=>b.amt))]]:[]),...(B.hold.length?[['On hold (KES)',B.holdTot]]:[]),['Total to pay (KES)',B.payTot]];
     const tbl=(L,lbl,DD)=>{const g=R.grid&&DD.length&&DD.length<=16;const cols=[{h:'No',w:20},{h:'Name'},{h:'ID No',w:g?50:62},{h:'Phone No',w:g?58:70},...(g?[]:[{h:'Categories',w:130}]),...(g?DD.map(dcol):[]),...(R.mandays?[{h:'Days',n:1,w:28}]:[]),{h:'Total (KES)',n:1,w:62}];
@@ -3154,7 +3177,8 @@ async function clWorkbook(wb,run,B,mode){
     {label(ws,r,NC,'Payout status');r++;const r0=r;
       line('Payable now · '+B.pay.length+' workers on the bank file',B.payTot,{border:{bottom:thin}});if(B.holdPh.length)line('On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),{border:{bottom:thin}});
       if(B.holdSh.length)line('On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),{border:{bottom:thin}});if(B.adj)line('Retained clerk’s total adjustments (not on the bank file)',B.adj,{border:{bottom:thin}});
-      line('Total expected payout',{formula:'SUM('+clColL(cA)+r0+':'+clColL(cA)+(r-1)+')',result:B.total},{border:{top:med,bottom:dbl},bold:true});r++}
+      line('Total expected payout',{formula:'SUM('+clColL(cA)+r0+':'+clColL(cA)+(r-1)+')',result:B.total},{border:{top:med,bottom:dbl},bold:true});
+      {const pe=B.flags.filter(f=>/phone$/.test(f.type)&&f.type!=='dup-phone'&&f.held===false).length;if(pe){put(ws,r,2,NC,pe+' more '+(pe===1?'person has':'people have')+' no phone number in one category but '+(pe===1?'is':'are')+' paid on the number given in another category, so they are flagged but not on hold.',{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(r).height=26;r++}}r++}
     {const FV=clFlagView(R),L=B.flags.filter(f=>!f.off&&f.lvl!=='info'),S=clFlagSum(B);if(FV!=='off'&&L.length){label(ws,r,NC,'Flagged'+(B.pend.length?' · '+B.pend.length+' awaiting decision':''));r++;
       /* summary: rows exactly as uploaded, unique workers, (awaiting), amount; each item broken down by category underneath */
       const AW=B.pend.length>0,tW=new Set(S.flatMap(g=>[...g.W]));let nums=[['Count',g=>g.n,sum(S,g=>g.n),'0'],...(AW?[['Awaiting',g=>g.pend,B.pend.length,'0']]:[]),['Amount (KES)',g=>g.amt,r2(sum(S,g=>g.amt)),AMT]];
@@ -3262,15 +3286,15 @@ async function clUpload(files){
       $('#rpYes').onclick=()=>{close();const before=JSON.stringify(run.uploads||[]);run.uploads=(run.uploads||[]).map(u=>u.archived?u:Object.assign({},u,{sheets:u.sheets.filter(s=>!cats.has(clCatKey(clCanon(s.cat))))})).filter(u=>u.sheets.length);
         add(run,list);toastAction('Earlier sheets replaced by '+list.map(x=>x.f.name).join(', '),'Undo',()=>{run.uploads=JSON.parse(before);clSaveRun(run);render()})}})};
   const open=clOpenRun();const per=parsed[0].per;
-  if(!open){const c=clCfg();c.seq=clNextNo();const run={id:nid(),no:c.seq,status:'open',created:Date.now(),by:pcrMyName(),from:per.from||'',to:per.to||'',fixed:!!per.from,uploads:[],manual:[],excl:[]};CL.runs[run.id]=run;add(run,parsed);toast('New payment run '+clRef(run)+' started for '+clPerLbl(per.from,per.to));return}
+  if(!open){const c=clCfg();c.seq=clNextNo();const run={id:nid(),no:c.seq,status:'open',lv2:1,created:Date.now(),by:pcrMyName(),from:per.from||'',to:per.to||'',fixed:!!per.from,uploads:[],manual:[],excl:[]};CL.runs[run.id]=run;add(run,parsed);toast('New payment run '+clRef(run)+' started for '+clPerLbl(per.from,per.to));return}
   const OB=clBuild(open),op={from:OB.from,to:OB.to};
   if(!op.from||!per.from||clOverlap(op,per)){askReplace(open,parsed);return}
   pcrModal(`${mdHead('Which payment run?')}<p class="small" style="margin:0">The file${parsed.length===1?'':'s'} cover${parsed.length===1?'s':''} <b>${esc(clPerLbl(per.from,per.to))}</b>, but the open run ${esc(clRef(open))} is for <b>${esc(clPerLbl(op.from,op.to))}</b>. Files from different clerks join the same run when their dates fall in its period.</p>
     <div class="inline-actions"><button class="btn" type="button" id="upNew">Close ${esc(clRef(open))} and start a run for ${esc(clPerLbl(per.from,per.to))}</button><button class="btn ghost" type="button" id="upSame">Add to ${esc(clRef(open))} anyway</button></div>`,close=>{
     $('#upSame').onclick=()=>{close();askReplace(open,parsed)};
     $('#upNew').onclick=()=>{close();const B=clBuild(open);clLockDec(open,B);open.status='closed';open.closedAt=Date.now();open.closedBy=pcrMyName();open.total=B.total;open.workers=B.bank.length;if(!open.fixed&&B.from){open.from=B.from;open.to=B.to;open.fixed=true}clSaveRun(open);
-      const c=clCfg();c.seq=clNextNo();const run={id:nid(),no:c.seq,status:'open',created:Date.now(),by:pcrMyName(),from:per.from||'',to:per.to||'',fixed:!!per.from,uploads:[],manual:[],excl:[]};CL.runs[run.id]=run;add(run,parsed)}})}
-const clLockDec=(run,B)=>{if(!B.pend.length)return;run.dec=run.dec||{};B.pend.forEach(f=>{run.dec[f.key]={v:f.fix?'keep':'adopt',at:Date.now(),by:pcrMyName(),auto:1}})};
+      const c=clCfg();c.seq=clNextNo();const run={id:nid(),no:c.seq,status:'open',lv2:1,created:Date.now(),by:pcrMyName(),from:per.from||'',to:per.to||'',fixed:!!per.from,uploads:[],manual:[],excl:[]};CL.runs[run.id]=run;add(run,parsed)}})}
+const clLockDec=(run,B)=>{run.lv2=1;if(!B.pend.length)return;run.dec=run.dec||{};B.pend.filter(f=>f.type!=='name-link'&&f.type!=='dup-phone').forEach(f=>{run.dec[f.key]={v:f.fix?'keep':'adopt',at:Date.now(),by:pcrMyName(),auto:1}})};
 /* next number: one after the counter, skipping numbers already used in that year */
 function clNextNo(yr){const c=clCfg();let n=num(c.seq)+1;const y=yr||todayStr().slice(0,4);const used=new Set(clRuns().filter(r=>clRef(r).slice(3,7)===y).map(r=>num(r.no)));while(used.has(n))n++;return n}
 /* the main admin can renumber a run, e.g. after trial uploads: CL/2026/05 → CL/2026/01 */
@@ -3364,7 +3388,7 @@ function clNewRun(){if(clOpenRun()){toast('Close the open run ('+clRef(clOpenRun
     $('#nrSug').onclick=()=>{$('#nrFrom').value=df;$('#nrTo').value=dt};
     $('#mdForm').onsubmit=e=>{e.preventDefault();const f=$('#nrFrom').value,t=$('#nrTo').value;if((f&&!t)||(t&&!f)||(f&&t&&t<f)){toast('Choose both dates, with the end after the start');return}
       const no=Math.round(num($('#nrNo').value));if(!(no>=1)){toast('Type a run number of 1 or more');return}const yr=String(f||todayStr()).slice(0,4);if(clRuns().some(r=>clRef(r)==='CL/'+yr+'/'+String(no).padStart(2,'0'))){toast('CL/'+yr+'/'+String(no).padStart(2,'0')+' is already used');return}
-      c.seq=no;const run={id:nid(),no,status:'open',created:Date.now(),by:pcrMyName(),from:f||'',to:t||'',fixed:!!f,uploads:[],manual:[],excl:[]};
+      c.seq=no;const run={id:nid(),no,status:'open',lv2:1,created:Date.now(),by:pcrMyName(),from:f||'',to:t||'',fixed:!!f,uploads:[],manual:[],excl:[]};
       CL.runs[run.id]=run;ui.cl.run=run.id;ui.cl.tab='uploads';clSaveCfg();clSaveRun(run);close();render();toast('Payment run '+clRef(run)+' started. Upload the clerks’ files.')}})}
 function clCloseRun(run){const B=clBuild(run);const bad=B.pend.length;
   pcrModal(`${mdHead('Close & finalise '+esc(clRef(run)))}
@@ -3459,6 +3483,7 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
     const phEd=p=>closed?'':`<span class="fl-ph"><span class="small">${esc(p.n)} <span class="muted">· ${esc(p.cats)} · ${fmt(p.amt)}</span></span><input class="pcin" data-clph="${esc(p.key)}" inputmode="tel" placeholder="${p.ph?esc(clPh(p.ph)):'07XX XXX XXX'}" aria-label="New phone number for ${esc(p.n)}"><button type="button" class="btn ghost sm" data-act="clPhSave" data-k="${esc(p.key)}">Save number</button>${p.sug?`<button type="button" class="btn ghost sm" data-act="clPhSave" data-k="${esc(p.key)}" data-v="${esc(p.sug)}" title="Saved from an earlier run">Use saved ${esc(clPh(p.sug))}</button>`:''}</span>`;
     const idEd=p=>closed?'':`<span class="fl-ph"><span class="small">${esc(p.n)} <span class="muted">· ${esc(p.cats)} · ${fmt(p.amt)}</span></span><input class="pcin" data-clid="${esc(p.key)}" inputmode="numeric" placeholder="ID number" aria-label="ID number for ${esc(p.n)}"><button type="button" class="btn ghost sm" data-act="clIdSave" data-k="${esc(p.key)}">Save ID</button>${p.sug?`<button type="button" class="btn ghost sm" data-act="clIdSave" data-k="${esc(p.key)}" data-v="${esc(p.sug)}" title="Saved from an earlier run">Use saved ${esc(p.sug)}</button>`:''}</span>`;
     const btns=f=>closed?'':f.type==='dup'?`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="system">Count once (system)</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="keep">Count both (as uploaded)</button>`
+      :f.type==='name-link'?`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="adopt">Same person · combine</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="disregard">Different people</button>`
       :f.type==='dup-phone'?`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="same">Same person · combine</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="adopt">Adopt · pay to this number</button>`
       :f.fix?`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="system">Adopt system figures</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="keep">Disregard · keep uploaded</button>`
       :`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="adopt" title="${f.type==='no-phone'?'Keep on hold and show the flag in the approval file':f.type==='no-id'?'Pay as is and show the flag in the approval file':'Keep the record and show the flag'}">Adopt</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="disregard" title="${f.type==='no-phone'?'Hide the flag; still on hold, as there is no number to pay':f.type==='no-id'?'Pay as is and hide the flag':'Hide the flag'}">Disregard</button>`;
