@@ -300,6 +300,7 @@ body.sb-min .sb-top{flex-direction:column;padding:12px 8px}
 .fl-a{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .fl-s{font-weight:600;color:var(--ink-2)}.fl-i:not(.done) .fl-s{color:var(--bad)}.fl-i.done{opacity:.85}
 .fl-phs{display:flex;flex-direction:column;gap:6px;margin-top:6px}.fl-ph{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.fl-ph .pcin{max-width:170px}.ex-fv{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fl-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:4px 14px;margin:12px 0 4px;max-width:520px;background:var(--surface)}.fl-search input{border:0;background:transparent;padding:7px 0;flex:1;min-width:0;outline:none}.fl-search:focus-within{border-color:var(--accent)}
 .fl-done{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
 /* casual labour */
 .cl-drop{display:flex;flex-direction:column;gap:4px;border:1.5px dashed var(--line);border-radius:12px;padding:18px;cursor:pointer;background:var(--surface-2)}
@@ -672,7 +673,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · flagged counts match the uploaded rows';
+const APP_BUILD='16 Nov 2026 · wrong phone format flags and flag search';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -2777,6 +2778,9 @@ const clWKey=r=>{const i=clIdNorm(r.id);return i?'i:'+i:'n:'+clNorm(r.n)};
 function clPhone(v){let s=String(v==null?'':v).replace(/\.0+$/,'').replace(/\D/g,'');if(!s)return'';
   if(s.length===9&&/^[17]/.test(s))s='254'+s;else if(s.length===10&&s[0]==='0')s='254'+s.slice(1);else if(s.length===13&&s.startsWith('2540'))s='254'+s.slice(4);return s}
 const clPhoneOk=p=>/^254[17]\d{8}$/.test(p);
+/* why a phone number cannot be used: shown on the flag so the clerk's entry is easy to find and fix */
+function clPhWhy(raw){const r=String(raw||'').trim(),d=r.replace(/\D/g,'');if(!r)return'blank';if(/[a-z]/i.test(r))return'contains letters';
+  const loc=d.startsWith('254')?'0'+d.slice(3):d.length===9?'0'+d:d;if(loc.length<10)return loc.length+' digits, a phone number needs 10';if(loc.length>10)return loc.length+' digits, a phone number needs 10';if(!/^0[17]/.test(loc))return'starts with '+loc.slice(0,2)+', must start with 07 or 01';return'not a valid format'}
 const clPh=p=>/^254\d{9}$/.test(String(p||''))?'0'+String(p).slice(3):String(p||'');
 const clGender=v=>{const s=String(v==null?'':v).trim().toUpperCase();return /^F/.test(s)?'FEMALE':/^M/.test(s)?'MALE':s};
 const CL_MON=/\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\b/ig;
@@ -2830,7 +2834,7 @@ function clParseSheet(ws){
   const rows=[],idle=[],warn=[];let merged=0,marks=0,fall=0,over=0;
   for(let r=hr+1;r<=maxR;r++){const R=ws.getRow(r);const n=String(clCell(R.getCell(col.name).value)??'').replace(/\s+/g,' ').trim();
     if(!n||/^(grand\s*)?(sub\s*)?totals?\b|^calculated|^prepared|^approved|^checked/i.test(n)||/^[\d.,\s]+$/.test(n))continue;
-    const o={n};if(col.id){const i=clIdStr(R.getCell(col.id).value);if(i)o.id=i}if(col.ph){const p=clPhone(clCell(R.getCell(col.ph).value));if(p)o.ph=p}
+    const o={n};if(col.id){const i=clIdStr(R.getCell(col.id).value);if(i)o.id=i}if(col.ph){const raw=clCell(R.getCell(col.ph).value),p=clPhone(raw);if(p)o.ph=p;if(p&&!clPhoneOk(p))o.phr=String(raw).replace(/\.0+$/,'').trim()}
     if(col.g){const g=clGender(clCell(R.getCell(col.g).value));if(g)o.g=g}
     const x={};col.extra.forEach(e=>{const v=clCell(R.getCell(e.c).value);if(v!=null&&String(v).trim())x[e.t]=v instanceof Date?clIso(v):String(v).trim()});if(Object.keys(x).length)o.x=x;
     if(col.rate){const rt=num(clCell(R.getCell(col.rate).value));if(rt>0)o.r=rt}
@@ -2880,17 +2884,17 @@ const clMemo=new Map();
 function clBuild(run){const sig=clMemoSig(run);const hit=clMemo.get(run.id);if(hit&&hit.sig===sig)return hit.B;const B=clBuild0(run);clMemo.set(run.id,{sig,B});return B}
 const clMemoSig=run=>JSON.stringify(run.dec||{})+JSON.stringify(run.phOv||{})+JSON.stringify(run.idOv||{})+(run.uploads||[]).map(u=>u.sheets.length).join('.')+run.status+'|'+(run.uploads||[]).length+'|'+(run.uploads||[]).map(u=>u.id).join(',')+'|'+JSON.stringify(run.manual||[]).length+'|'+(run.excl||[]).join(',')+'|'+run.from+run.to+run.fixed+'|'+JSON.stringify(clCfg().alias)+'|'+Object.keys(clReg()).length;
 const CL_FIX=new Set(['calc','calc-sheet','dup']);
-const CL_FT={calc:'Calculation discrepancy · row total','calc-sheet':'Calculation discrepancy · sheet total',dup:'Recorded twice','dup-phone':'Duplicate payment number','no-phone':'Missing phone number','no-id':'Missing ID No.','same-name':'Same name, paid separately','id-name':'One ID, two names',kind:'Category type',rate:'Two rates','no-rate':'No unit rate',outside:'Outside pay period'};
+const CL_FT={calc:'Calculation discrepancy · row total','calc-sheet':'Calculation discrepancy · sheet total',dup:'Recorded twice','dup-phone':'Duplicate payment number','no-phone':'Missing phone number','bad-phone':'Wrong phone number format','no-id':'Missing ID No.','bad-id':'Invalid ID No.','same-name':'Same name, paid separately','id-name':'One ID, two names',kind:'Category type',rate:'Two rates','no-rate':'No unit rate',outside:'Outside pay period'};
 /* the effect of each decision, in words (used on screen and in the approval file) */
 function clFlagState(f){const d=f.dec;
   if(CL_FIX.has(f.type)){if(f.type==='dup')return d==='system'?'Counted once (system)':d==='keep'?'Both counted (as uploaded)':'Awaiting decision · both counted as uploaded';
     return d==='system'?'System figures used':d==='keep'?'Uploaded figures kept':'Awaiting decision · uploaded figures used'}
   if(f.type==='dup-phone')return d==='adopt'?'Adopted · one bank line for this number':d==='same'?'Same person · combined':'Awaiting decision · held off the bank file';
-  if(f.type==='no-phone')return d==='adopt'?'Adopted · on hold until a number is added':d==='disregard'?'Disregarded · still on hold (no number to pay)':'Awaiting decision · on hold';
-  if(f.type==='no-id')return d==='adopt'?'Adopted · paid as is, flag shown':d==='disregard'?'Disregarded · paid as is, flag hidden':'Awaiting decision · paid as is';
+  if(f.type==='no-phone'||f.type==='bad-phone')return d==='adopt'?'Adopted · on hold until a number is added':d==='disregard'?'Disregarded · still on hold (no number to pay)':'Awaiting decision · on hold';
+  if(f.type==='no-id'||f.type==='bad-id')return d==='adopt'?'Adopted · paid as is, flag shown':d==='disregard'?'Disregarded · paid as is, flag hidden':'Awaiting decision · paid as is';
   return d==='adopt'?'Adopted · flag kept':d==='disregard'?'Disregarded':'Awaiting decision'}
 /* flagged items counted by type, for the summary view and the approval file */
-function clFlagSum(B){const m=new Map();B.flags.filter(f=>f.lvl!=='info'&&!(f.type==='dup-phone'&&f.dec==='same')).forEach(f=>{const k=CL_FT[f.type]||'Check';const g=m.get(k)||{l:k,t:f.type,n:0,amt:0,pend:0,ok:0,W:new Set(),byCat:{}};g.n++;if(f.wk)g.W.add(f.wk);if(f.cat)g.byCat[f.cat]=(g.byCat[f.cat]||0)+1;g.amt=r2(g.amt+num(f.amt));if(f.dec)g.ok++;else g.pend++;m.set(k,g)});return[...m.values()]}
+function clFlagSum(B){const m=new Map();B.flags.filter(f=>f.lvl!=='info'&&!(f.type==='dup-phone'&&f.dec==='same')).forEach(f=>{const k=CL_FT[f.type]||'Check';const g=m.get(k)||{l:k,t:f.type,n:0,amt:0,pend:0,ok:0,W:new Set(),byCat:{}};g.n++;if(f.wk)g.W.add(f.wk);(f.catList||[]).forEach(c=>g.byCat[c]=(g.byCat[c]||0)+1);g.amt=r2(g.amt+num(f.amt));if(f.dec)g.ok++;else g.pend++;m.set(k,g)});return[...m.values()]}
 const clFlagView=R=>R.flagView||(R.flags===false?'off':'summary');
 function clBuild0(run){
   const REG=clReg(),warn=[],flags=[],cats=new Map(),ex=new Set(run.excl||[]),seen={},dec=run.dec||{},legacy=run.status!=='open';const once=(k,lvl,msg)=>{if(seen[k])return;seen[k]=1;warn.push({lvl,msg})};
@@ -2898,17 +2902,17 @@ function clBuild0(run){
   const flag=(key,type,lvl,msg,o)=>{if(seen['f:'+key])return seen['f:'+key];const d=dec[key];const f=Object.assign({key,type,lvl,msg,dec:d?d.v:'',fix:CL_FIX.has(type)},o||{});seen['f:'+key]=f;flags.push(f);return f};
   const choice=key=>{const d=dec[key];if(d)return d.v;return legacy?'system':'keep'};
   const P=clPeriod(run),days=clDays(P.from,P.to),inP=d=>d>=P.from&&d<=P.to;
-  /* a row without an ID joins the same-named person only when that person's ID comes from another category; inside one category every uploaded row stays a row */
+  /* a row without an ID joins the same-named person who has an ID; the same name is one person within a category */
   const nameToId={},idCats={};const see=(r,ck)=>{const i=clIdNorm(r.id);if(!i)return;const nn=clNorm(r.n);if(nameToId[nn]&&nameToId[nn]!==i)nameToId[nn]='?';else nameToId[nn]=i;(idCats[nn]=idCats[nn]||new Set()).add(ck)};
   (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{const ck=clCatKey(clCanon(s.cat));s.rows.forEach(r=>see(r,ck))}));(run.manual||[]).forEach(m=>see(m,clCatKey(clCanon(m.cat))));
-  const wkey=(r,ck)=>{const i=clIdNorm(r.id);if(i)return'i:'+i;const nn=clNorm(r.n);const m=nameToId[nn];return m&&m!=='?'&&!(ck&&idCats[nn]&&idCats[nn].has(ck))?'i:'+m:'n:'+nn+(clPhoneOk(r.ph)?'#'+r.ph:'')};
+  const wkey=(r,ck)=>{const i=clIdNorm(r.id);if(i)return'i:'+i;const nn=clNorm(r.n);const m=nameToId[nn];return m&&m!=='?'?'i:'+m:'n:'+nn};
   const getCat=(name,kind)=>{const nm=clCanon(name),k=clCatKey(nm);let C=cats.get(k);if(!C){C={key:k,name:nm,kind,W:new Map(),adj:0,adjK:[]};cats.set(k,C)}
     else if(C.kind!==kind)flag('kind:'+k,'kind','warn','“'+nm+'” arrived both as a daily-rate sheet and as a per-unit sheet. It is treated as '+(C.kind==='unit'?'per unit (bags)':'daily rate')+'.');return C};
   const add=(cat,kind,r,src,manual,rk)=>{const C=getCat(cat,kind);const k=wkey(r,C.key);if(ex.has(C.key+'|'+k))return;
     let w=C.W.get(k);
-    if(!w){w={key:k,n:String(r.n||'').trim(),id:r.id||'',ph:r.ph||'',g:r.g||'',x:Object.assign({},r.x||{}),d:{},r:0,ap:[],src:[],mids:[],adj:0,fl:new Set()};C.W.set(k,w)}
+    if(!w){w={key:k,phr:r.phr||'',n:String(r.n||'').trim(),id:r.id||'',ph:r.ph||'',g:r.g||'',x:Object.assign({},r.x||{}),d:{},r:0,ap:[],src:[],mids:[],adj:0,fl:new Set()};C.W.set(k,w)}
     else{if(r.n&&clNorm(r.n)!==clNorm(w.n))flag('nm:'+k,'id-name','warn','ID '+(w.id||'?')+' appears as “'+w.n+'” and as “'+r.n+'” in '+C.name+'. Treated as one person.',{who:w.n,wk:k});
-      ['id','ph','g'].forEach(f=>{if(r[f]&&(!w[f]||manual||src===w.lastSrc||(r.at||0)>=(w.at||0)))w[f]=r[f]});if(r.x)Object.keys(r.x).forEach(q=>{if(!w.x[q])w.x[q]=r.x[q]})}
+      ['id','ph','g'].forEach(f=>{if(r[f]&&(!w[f]||manual||src===w.lastSrc||(r.at||0)>=(w.at||0))){w[f]=r[f];if(f==='ph')w.phr=r.phr||''}});if(r.x)Object.keys(r.x).forEach(q=>{if(!w.x[q])w.x[q]=r.x[q]})}
     w.lastSrc=src;if(r.at&&!manual)w.at=Math.max(w.at||0,r.at);
     if(r.d)for(const dt in r.d){const v=num(r.d[dt]);if(!(v>0))continue;
       if(w.d[dt]!=null){if(manual)w.d[dt]=Math.max(w.d[dt],v);
@@ -2948,9 +2952,7 @@ function clBuild0(run){
       if(C.kind==='unit'&&!w.r&&units)flag('nr:'+C.key+w.key,'no-rate','bad',w.n+' in '+C.name+' has no unit rate, so is paid nothing for '+clFmtN(units)+' units.',{who:w.n,wk:w.key});
       w.d=d2;w.e=e;w.units=r2(units);w.days=Object.values(e).filter(v=>v>0).length;w.amt=r2(sum(Object.values(e)));
       if(C.kind==='day'){const vals=Object.values(d2).map(num);w.r=clMode(vals)||w.r;w.rv=new Set(vals).size>1}
-      if(w.amt>0){rows.push(w);
-        if(!clIdNorm(w.id))flag('id0:'+C.key+'|'+w.key,'no-id','bad',w.n+' ('+C.name+') has '+(w.id?'an invalid ID number ('+w.id+')':'no ID number')+'. Paid as is.',{who:w.n,wk:w.key,amt:w.amt,cat:C.name,people:[{key:w.key,n:w.n,cats:C.name,amt:w.amt,id:w.id,sug:w.sug.id}],idEd:true});
-        if(!clPhoneOk(w.ph))flag('ph0:'+C.key+'|'+w.key,'no-phone','bad',w.n+' ('+C.name+') has '+(w.ph?'an invalid phone number ('+clPh(w.ph)+')':'no phone number')+'.',{who:w.n,wk:w.key,amt:w.amt,cat:C.name,people:[{key:w.key,n:w.n,cats:C.name,amt:w.amt,ph:w.ph,sug:w.sug.ph}]})}}
+      if(w.amt>0)rows.push(w)}
     rows.sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
     const ct=r2(sum(rows,w=>w.amt)+C.adj);total=r2(total+ct);
     const xk=[...new Set(rows.flatMap(w=>Object.keys(w.x)))];
@@ -2958,7 +2960,7 @@ function clBuild0(run){
   Object.entries(outside).forEach(([cn,o])=>flag('out:'+clCatKey(cn),'outside','bad',fmt(o.amt)+' of '+cn+' work ('+o.ws.size+' worker'+(o.ws.size===1?'':'s')+', '+[...o.ds].sort().slice(0,5).map(d=>fmtD(d)).join(', ')+(o.ds.size>5?'…':'')+') falls outside the pay period '+(P.from?fmtD(P.from)+' – '+fmtD(P.to):'')+' and is not paid in this run. Fix the clerk’s dates, or widen the period in Settings.',{amt:o.amt}));
   const grp=(OUT,pre,gname)=>{const bm=new Map();
   OUT.forEach(C=>C.rows.forEach(w=>{let b=bm.get(w.key);if(!b){b={key:w.key,keys:[w.key],n:w.n,id:w.id,ph:w.ph,g:w.g,by:{},e:{},cd:{},amt:0,fl:new Set(),cats:new Set()};bm.set(w.key,b)}
-    if(!clIdNorm(b.id)&&clIdNorm(w.id))b.id=w.id;if(!clPhoneOk(b.ph)&&clPhoneOk(w.ph))b.ph=w.ph;if(!b.g&&w.g)b.g=w.g;b.by[C.key]=r2((b.by[C.key]||0)+w.amt);b.amt=r2(b.amt+w.amt);w.fl.forEach(x=>b.fl.add(x));b.cats.add(C.name);
+    if(!clIdNorm(b.id)&&clIdNorm(w.id))b.id=w.id;if(!clPhoneOk(b.ph)&&clPhoneOk(w.ph))b.ph=w.ph;if(w.id&&!b.rawId)b.rawId=w.id;if(w.ph&&!b.rawPh){b.rawPh=w.ph;b.rawTxt=w.phr||'';b.rawCat=C.name}if(!b.g&&w.g)b.g=w.g;b.by[C.key]=r2((b.by[C.key]||0)+w.amt);b.amt=r2(b.amt+w.amt);w.fl.forEach(x=>b.fl.add(x));b.cats.add(C.name);
     Object.keys(w.e).forEach(dt=>{b.e[dt]=r2((b.e[dt]||0)+w.e[dt]);(b.cd[dt]=b.cd[dt]||[]).push(C.name)})}));
   const absorb=(a,x,names)=>{x.keys.forEach(k=>a.keys.push(k));['id','g'].forEach(f=>{if(!a[f]&&x[f])a[f]=x[f]});if(names&&clNorm(x.n)!==clNorm(a.n))a.n=a.n+' / '+x.n;
     Object.entries(x.by).forEach(([k,v])=>a.by[k]=r2((a.by[k]||0)+v));a.amt=r2(a.amt+x.amt);x.fl.forEach(f=>a.fl.add(f));x.cats.forEach(c=>a.cats.add(c));
@@ -2975,14 +2977,15 @@ function clBuild0(run){
     else P0.forEach(b=>{b.hold='shared';b.fl.add('dup-phone')})});
   const bank=[...bm.values()].map(b=>Object.assign(b,{grp:gname})).sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
   bank.forEach(b=>{b.days=Object.values(b.e).filter(v=>v>0).length;b.dual=Object.keys(b.cd).filter(d=>b.cd[d].length>1).sort()});
-  bank.filter(b=>!clPhoneOk(b.ph)).forEach(b=>{b.hold='phone'});
+  /* missing / invalid ID and phone: one flag per person (a person in two categories counts once), listing their categories */
+  bank.forEach(b=>{const cl=[...b.cats],ks=b.keys.join(','),rg=b.keys.map(k=>REG[k]).find(Boolean)||{};
+    if(!clIdNorm(b.id)){const bad=!!String(b.rawId||'').trim();flag(pre+'id0:'+b.key,bad?'bad-id':'no-id','bad',b.n+' ('+cl.join(', ')+') has '+(bad?'an invalid ID number ('+b.rawId+')':'no ID number')+'. Paid as is.',{who:b.n,wk:pre+b.key,amt:b.amt,catList:cl,people:[{key:ks,n:b.n,cats:cl.join(', '),amt:b.amt,id:b.rawId,sug:clIdNorm(rg.id)?rg.id:''}]})}
+    if(!clPhoneOk(b.ph)){b.hold='phone';const bad=!!String(b.rawPh||'').trim();b.badPh=bad;flag(pre+'ph0:'+b.key,bad?'bad-phone':'no-phone','bad',b.n+' ('+cl.join(', ')+') has '+(bad?'a phone number in the wrong format: “'+(b.rawTxt||clPh(b.rawPh))+'”'+(b.rawCat&&cl.length>1?' in '+b.rawCat:'')+' ('+clPhWhy(b.rawTxt||clPh(b.rawPh))+')':'no phone number')+'. The '+fmt(b.amt)+' stays in the approval file and is held off the bank file until a number is added.',{who:b.n,wk:pre+b.key,amt:b.amt,catList:cl,people:[{key:ks,n:b.n,cats:cl.join(', '),amt:b.amt,ph:b.rawPh,sug:clPhoneOk(rg.ph)&&!byPh.has(rg.ph)?rg.ph:''}]})}});
   {const seenPh=new Set();bank.forEach(b=>{if(b.hold)return;if(seenPh.has(b.ph))b.hold='shared';else seenPh.add(b.ph)})}
   return bank};
   const bankM=grp(out.filter(C=>!C.sep),'','main'),bankS=grp(out.filter(C=>C.sep),'s:','sec'),bank=[...bankM,...bankS],catOf=b=>[...b.cats].join(' + ');
   const multi=bank.filter(b=>Object.keys(b.by).length>1).length;
   const idN={};bank.forEach(b=>{const nn=clNorm(b.n);(idN[nn]=idN[nn]||[]).push(b)});Object.entries(idN).filter(([nn,L])=>new Set(L.map(b=>clIdNorm(b.id)||'none:'+b.key)).size>1).forEach(([nn,L])=>flag('nmid:'+nn,'same-name','warn','“'+L[0].n+'” appears '+L.length+' times with different ID or phone numbers ('+L.map(b=>'ID '+(b.id||'none')+', '+(clPh(b.ph)||'no phone')+' in '+catOf(b)).join('; ')+') and is paid separately for each. Check whether they are the same person.',{who:L[0].n,amt:r2(sum(L,b=>b.amt))}));
-  const BKk=new Map(bank.flatMap(b=>b.keys.map(k=>[k,b])));
-  flags.forEach(f=>{if(f.type!=='no-phone')return;const b=BKk.get(f.wk);if(b&&b.hold==='phone')f.msg+=' Held off the bank file until a number is added.';else if(b&&clPhoneOk(b.ph))f.msg+=' Paid on '+clPh(b.ph)+' from another category.'});
   flags.forEach(f=>{if(f.dec==='disregard'&&!f.fix)f.off=true;if(f.type==='dup-phone'&&f.dec==='same')f.off=true});
   const rank={bad:0,warn:1,info:2};flags.sort((a,b)=>(!!a.dec-!!b.dec)||rank[a.lvl]-rank[b.lvl]);
   const pay=bank.filter(b=>!b.hold),hold=bank.filter(b=>b.hold),adj=r2(sum(out,C=>C.adj));
@@ -3011,13 +3014,13 @@ function clModel(run,B,type,o){o=o||{};const c=clCfg(),R=clRepO(),ref=clRef(run)
     M.blocks.push({t:'h',x:'Flagged'+(B.pend.length?' · '+B.pend.length+' awaiting decision':'')});
     const AW=B.pend.length>0;/* the Awaiting decision column only shows while something is still undecided */
     const tW=new Set(S.flatMap(g=>[...g.W]));
-    M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Flagged item'},{h:'Rows (as uploaded)',n:1,w:70},{h:'Workers',n:1,w:52},...(AW?[{h:'Awaiting decision',n:1,w:70}]:[]),{h:'Amount (KES)',n:1,w:80}],
-      rows:[...S.map((g,i)=>({c:[String(i+1),g.l,String(g.n),String(g.W.size||g.n),...(AW?[String(g.pend)]:[]),g.amt]})),{k:'tot',c:['','Total flagged',String(sum(S,g=>g.n)),String(tW.size),...(AW?[String(sum(S,g=>g.pend))]:[]),r2(sum(S,g=>g.amt))]}]});
+    M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Flagged item'},{h:'Count',n:1,w:52},...(AW?[{h:'Awaiting decision',n:1,w:70}]:[]),{h:'Amount (KES)',n:1,w:80}],
+      rows:[...S.map((g,i)=>({c:[String(i+1),g.l,String(g.n),...(AW?[String(g.pend)]:[]),g.amt]})),{k:'tot',c:['','Total flagged',String(sum(S,g=>g.n)),...(AW?[String(sum(S,g=>g.pend))]:[]),r2(sum(S,g=>g.amt))]}]});
     const FC=B.cats.map(C=>C.name).filter(n=>S.some(g=>g.byCat[n]));
-    if(FC.length)M.blocks.push({t:'table',cols:[{h:'Flagged rows by category'},...FC.map(n=>({h:n,n:1,w:70})),{h:'Total',n:1,w:52}],rows:[...S.filter(g=>Object.keys(g.byCat).length).map(g=>({c:[g.l,...FC.map(n=>String(g.byCat[n]||0)),String(sum(FC,n=>g.byCat[n]||0))]}))]});
-    M.blocks.push({t:'note',x:'Rows are counted exactly as in the uploaded sheets (a worker in two categories is two rows). Amounts are what the flagged rows are owed; a worker can appear under more than one flag, so they are not added to the payout.'});
+    if(FC.length)M.blocks.push({t:'table',cols:[{h:'Flagged people by category'},...FC.map(n=>({h:n,n:1,w:70})),{h:'Total',n:1,w:52}],rows:[...S.filter(g=>Object.keys(g.byCat).length).map(g=>({c:[g.l,...FC.map(n=>String(g.byCat[n]||0)),String(g.n)]}))]});
+    M.blocks.push({t:'note',x:'Each person is counted once. Someone who worked in two categories shows under both categories but once in the total. Amounts are what the flagged people are owed; a person can appear under more than one flag, so they are not added to the payout.'});
     if(FV==='detail'){M.blocks.push({t:'h',x:'Flagged items · detail'});M.blocks.push({t:'table',cols:[{h:'No',w:22},{h:'Flagged item',w:110},{h:'Detail'},{h:'Amount (KES)',n:1,w:70},{h:'Status',w:120}],rows:L.map((f,i)=>({c:[String(i+1),CL_FT[f.type]||'Check',f.msg,f.amt!=null?f.amt:'',clFlagState(f)]}))})}};
-  const payBlk=()=>{M.blocks.push({t:'h',x:'Payout status'});M.blocks.push({t:'recon',rows:[['Payable now · '+B.pay.length+' workers on the bank file',B.payTot,''],...(B.holdPh.length?[['On hold · '+B.holdPh.length+' awaiting phone numbers',r2(sum(B.holdPh,b=>b.amt)),'']]:[]),...(B.holdSh.length?[['On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),'']]:[]),...(B.adj?[['Retained clerk’s total adjustments (not on the bank file)',B.adj,'']]:[]),['Total expected payout',B.total,'key']]})};
+  const payBlk=()=>{M.blocks.push({t:'h',x:'Payout status'});M.blocks.push({t:'recon',rows:[['Payable now · '+B.pay.length+' workers on the bank file',B.payTot,''],...(B.holdPh.length?[['On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),'']]:[]),...(B.holdSh.length?[['On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),'']]:[]),...(B.adj?[['Retained clerk’s total adjustments (not on the bank file)',B.adj,'']]:[]),['Total expected payout',B.total,'key']]})};
   if(type==='bank'){const pmd=sum(B.payM,b=>b.days);
     M.figs=[...(R.workersFig?[['Workers paid',String(B.pay.length)]]:[]),['Categories',String(B.cats.length)],...(R.mandays?[['Mandays',clFmtN(pmd)]]:[]),...(B.payS.length?[['Security (KES)',r2(sum(B.payS,b=>b.amt))]]:[]),...(B.hold.length?[['On hold (KES)',B.holdTot]]:[]),['Total to pay (KES)',B.payTot]];
     const tbl=(L,lbl,DD)=>{const g=R.grid&&DD.length&&DD.length<=16;const cols=[{h:'No',w:20},{h:'Name'},{h:'ID No',w:g?50:62},{h:'Phone No',w:g?58:70},...(g?[]:[{h:'Categories',w:130}]),...(g?DD.map(dcol):[]),...(R.mandays?[{h:'Days',n:1,w:28}]:[]),{h:'Total (KES)',n:1,w:62}];
@@ -3146,20 +3149,20 @@ async function clWorkbook(wb,run,B,mode){
     const line=(l,v,o)=>{put(ws,r,2,cA-1,l,o);put(ws,r,cA,cA,v,Object.assign({numFmt:AMT},o));r++};
     /* after expenditure: payout status, then the flagged summary (or detail) */
     {label(ws,r,NC,'Payout status');r++;const r0=r;
-      line('Payable now · '+B.pay.length+' workers on the bank file',B.payTot,{border:{bottom:thin}});if(B.holdPh.length)line('On hold · '+B.holdPh.length+' awaiting phone numbers',r2(sum(B.holdPh,b=>b.amt)),{border:{bottom:thin}});
+      line('Payable now · '+B.pay.length+' workers on the bank file',B.payTot,{border:{bottom:thin}});if(B.holdPh.length)line('On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),{border:{bottom:thin}});
       if(B.holdSh.length)line('On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),{border:{bottom:thin}});if(B.adj)line('Retained clerk’s total adjustments (not on the bank file)',B.adj,{border:{bottom:thin}});
       line('Total expected payout',{formula:'SUM('+clColL(cA)+r0+':'+clColL(cA)+(r-1)+')',result:B.total},{border:{top:med,bottom:dbl},bold:true});r++}
     {const FV=clFlagView(R),L=B.flags.filter(f=>!f.off&&f.lvl!=='info'),S=clFlagSum(B);if(FV!=='off'&&L.length){label(ws,r,NC,'Flagged'+(B.pend.length?' · '+B.pend.length+' awaiting decision':''));r++;
       /* summary: rows exactly as uploaded, unique workers, (awaiting), amount; each item broken down by category underneath */
-      const AW=B.pend.length>0,tW=new Set(S.flatMap(g=>[...g.W]));let nums=[['Rows (as uploaded)',g=>g.n,sum(S,g=>g.n),'0'],['Workers',g=>g.W.size||g.n,tW.size,'0'],...(AW?[['Awaiting',g=>g.pend,B.pend.length,'0']]:[]),['Amount (KES)',g=>g.amt,r2(sum(S,g=>g.amt)),AMT]];
-      if(NC-nums.length<2)nums=nums.filter(x=>x[0]!=='Workers');const c0n=NC-nums.length+1,lastL=Math.max(2,c0n-1);
+      const AW=B.pend.length>0,tW=new Set(S.flatMap(g=>[...g.W]));let nums=[['Count',g=>g.n,sum(S,g=>g.n),'0'],...(AW?[['Awaiting',g=>g.pend,B.pend.length,'0']]:[]),['Amount (KES)',g=>g.amt,r2(sum(S,g=>g.amt)),AMT]];
+const c0n=NC-nums.length+1,lastL=Math.max(2,c0n-1);
       put(ws,r,1,1,'No',{bold:true,size:9,fill:HEAD,border:{top:med,bottom:med},center:true});put(ws,r,2,lastL,'Flagged item',{bold:true,size:9,fill:HEAD,border:{top:med,bottom:med}});
       nums.forEach(([h],j)=>put(ws,r,c0n+j,c0n+j,h,{bold:true,size:9,fill:HEAD,border:{top:med,bottom:med},right:true,wrap:true}));ws.getRow(r).height=26;r++;
       S.forEach((g,i)=>{const o={border:{bottom:thin}};put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,lastL,g.l,Object.assign({bold:true},o));
         nums.forEach(([h,fn,,f],j)=>put(ws,r,c0n+j,c0n+j,fn(g),Object.assign({numFmt:f,bold:h.startsWith('Amount')},o)));ws.getRow(r).height=19;r++;
-        const bc=Object.entries(g.byCat);if(bc.length){put(ws,r,1,1,'',{border:{bottom:thin}});put(ws,r,2,NC,'By category: '+bc.map(([n,k])=>n+' '+k).join('  ·  '),{size:8.5,italic:true,color:SLATE,border:{bottom:thin},wrap:true});ws.getRow(r).height=16;r++}});
+        const bc=Object.entries(g.byCat);if(bc.length){put(ws,r,1,1,'',{border:{bottom:thin}});put(ws,r,2,NC,'By category: '+bc.map(([n,k])=>n+' '+k).join('  ·  ')+(sum(bc,x=>x[1])>g.n?'  (people in two categories counted once in the total)':''),{size:8.5,italic:true,color:SLATE,border:{bottom:thin},wrap:true});ws.getRow(r).height=16;r++}});
       const T3={border:{top:med,bottom:dbl},bold:true,fill:TROW};put(ws,r,1,lastL,'Total flagged',T3);nums.forEach(([h,,tot,f],j)=>put(ws,r,c0n+j,c0n+j,tot,Object.assign({numFmt:f},T3)));ws.getRow(r).height=20;r++;
-      put(ws,r,1,NC,'Rows are counted exactly as in the uploaded sheets (a worker in two categories is two rows). A worker can appear under more than one flag, so flagged amounts are not added to the payout.',{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(r).height=26;r+=2;
+      put(ws,r,1,NC,'Each person is counted once; someone in two categories shows under both categories but once in the count. A person can appear under more than one flag, so flagged amounts are not added to the payout.',{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(r).height=26;r+=2;
       if(FV==='detail'){label(ws,r,NC,'Flagged items · detail');r++;const sC=Math.min(NC,cA+1);
         hd(ws,r,1,'No',{center:true});put(ws,r,2,cA-1,'Flagged item',{bold:true,size:9,fill:HEAD,border:{top:med,bottom:med}});hd(ws,r,cA,'Amount (KES)',{right:true});if(sC>cA)put(ws,r,sC,NC,'Status',{bold:true,size:9,fill:HEAD,border:{top:med,bottom:med}});r++;
         L.forEach((f,i)=>{const o={border:{bottom:thin},size:9,wrap:true};const txt=(CL_FT[f.type]||'Check')+' — '+f.msg;put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,cA-1,txt,o);put(ws,r,cA,cA,f.amt!=null?f.amt:'',Object.assign({numFmt:AMT},o));if(sC>cA)put(ws,r,sC,NC,clFlagState(f),Object.assign({},o,f.dec?{}:{bold:true}));
@@ -3457,18 +3460,20 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
       :f.fix?`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="system">Adopt system figures</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="keep">Disregard · keep uploaded</button>`
       :`<button class="btn sm" data-act="clDec" data-k="${esc(f.key)}" data-v="adopt" title="${f.type==='no-phone'?'Keep on hold and show the flag in the approval file':f.type==='no-id'?'Pay as is and show the flag in the approval file':'Keep the record and show the flag'}">Adopt</button><button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="disregard" title="${f.type==='no-phone'?'Hide the flag; still on hold, as there is no number to pay':f.type==='no-id'?'Pay as is and hide the flag':'Hide the flag'}">Disregard</button>`;
     const item=f=>`<div class="fl-i ${f.dec?'done':''}"><div class="fl-t"><span class="pill ${f.dec?(f.dec==='disregard'?'':'good'):f.lvl==='bad'?'bad':'warn'}">${esc(CL_FT[f.type]||'Check')}</span><span class="small">${esc(f.msg)}</span>${f.fix&&f.sys!=null?`<span class="small muted">System: <b>${fmt(f.sys)}</b> · Uploaded: <b>${fmt(f.upl)}</b></span>`:''}<span class="small fl-s">${esc(clFlagState(f))}</span>
-      ${!closed&&f.people&&(f.type==='dup-phone'||f.type==='no-phone'||f.type==='no-id')&&(!f.dec||f.type!=='dup-phone')?`<div class="fl-phs"><span class="small muted">${f.type==='dup-phone'?'Or change one person’s number:':f.type==='no-id'?'Add the ID number (optional; paid either way):':'Add the phone number:'}</span>${f.people.map(f.type==='no-id'?idEd:phEd).join('')}</div>`:''}</div>
+      ${!closed&&f.people&&/^(dup-phone|no-phone|bad-phone|no-id|bad-id)$/.test(f.type)&&(!f.dec||f.type!=='dup-phone')?`<div class="fl-phs"><span class="small muted">${f.type==='dup-phone'?'Or change one person’s number:':/id$/.test(f.type)?'Add the ID number (optional; paid either way):':'Add the phone number:'}</span>${f.people.map(/id$/.test(f.type)?idEd:phEd).join('')}</div>`:''}</div>
       <div class="fl-a">${f.amt!=null&&f.amt!==''?`<b class="small">${M(f.amt)}</b>`:''}${f.dec?(closed?'':`<button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="">Change</button>`):btns(f)}</div></div>`;
-    const groups={};pend.forEach(f=>(groups[f.type]=groups[f.type]||[]).push(f));const lim=ui.cl.allW?2000:6;
+    const fq=normT(ui.cl.flq||''),fm=f=>!fq||fq.split(' ').every(t=>normT(f.msg+' '+(f.who||'')+' '+(f.catList||[]).join(' ')).includes(t));
+    const groups={};pend.filter(fm).forEach(f=>(groups[f.type]=groups[f.type]||[]).push(f));const lim=ui.cl.allW||fq?2000:6;const showDet=det||!!fq;
     const bulk=(t,L)=>closed||L.length<2?'':t==='dup'?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="system">Count all once</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="keep">Count all both</button>`:t==='dup-phone'?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="adopt">Adopt all ${L.length}</button>`:CL_FIX.has(t)?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="system">Adopt system figures for all ${L.length}</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="keep">Keep uploaded for all</button>`:`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="adopt">Adopt all ${L.length}</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="disregard">Disregard all</button>`;
-    const sumT=`<div class="tw"><table class="fl-sum"><thead><tr><th>Flagged item</th><th class="n">Rows (as uploaded)</th><th class="n">Workers</th><th class="n">Awaiting decision</th><th class="n">Decided</th><th class="n">Amount</th><th></th></tr></thead><tbody>
-      ${S.map(g=>{const L=pend.filter(f=>CL_FT[f.type]===g.l),bc=Object.entries(g.byCat);return`<tr><td><b>${esc(g.l)}</b>${bc.length?`<div class="small muted">${esc(bc.map(([n,k])=>n+' '+k).join(' · '))}</div>`:''}</td><td class="n">${g.n}</td><td class="n">${g.W.size||g.n}</td><td class="n">${g.pend?`<span class="pill bad">${g.pend}</span>`:'0'}</td><td class="n">${g.ok}</td><td class="n">${M(g.amt)}</td><td><div class="inline-actions" style="justify-content:flex-end">${L.length?bulk(L[0].type,L).replace(/Adopt all \d+/,'Adopt all'):''}</div></td></tr>`}).join('')}
-      <tr class="tot"><td>Total flagged</td><td class="n">${sum(S,g=>g.n)}</td><td class="n">${new Set(S.flatMap(g=>[...g.W])).size}</td><td class="n">${sum(S,g=>g.pend)}</td><td class="n">${sum(S,g=>g.ok)}</td><td class="n">${M(r2(sum(S,g=>g.amt)))}</td><td></td></tr></tbody></table></div>`;
+    const sumT=`<div class="tw"><table class="fl-sum"><thead><tr><th>Flagged item</th><th class="n">Count</th><th class="n">Awaiting decision</th><th class="n">Decided</th><th class="n">Amount</th><th></th></tr></thead><tbody>
+      ${S.map(g=>{const L=pend.filter(f=>CL_FT[f.type]===g.l),bc=Object.entries(g.byCat);return`<tr><td><b>${esc(g.l)}</b>${bc.length?`<div class="small muted">${esc(bc.map(([n,k])=>n+' '+k).join(' · '))}</div>`:''}</td><td class="n">${g.n}</td><td class="n">${g.pend?`<span class="pill bad">${g.pend}</span>`:'0'}</td><td class="n">${g.ok}</td><td class="n">${M(g.amt)}</td><td><div class="inline-actions" style="justify-content:flex-end">${L.length?bulk(L[0].type,L).replace(/Adopt all \d+/,'Adopt all'):''}</div></td></tr>`}).join('')}
+      <tr class="tot"><td>Total flagged</td><td class="n">${sum(S,g=>g.n)}</td><td class="n">${sum(S,g=>g.pend)}</td><td class="n">${sum(S,g=>g.ok)}</td><td class="n">${M(r2(sum(S,g=>g.amt)))}</td><td></td></tr></tbody></table></div>`;
     return`<div class="card s12" id="clFlags"><div class="card-h"><div><h2>Flagged</h2><span class="small muted">Nothing is auto-corrected. Adopt keeps the record and the flag visible in the approval file; Disregard dismisses it. A number used by two different people is held off the bank file until you decide or change a number.</span></div>
       <span class="inline-actions">${pend.length?`<span class="pill bad">${pend.length} awaiting decision</span>`:F.length?'<span class="pill good">All decided</span>':''}<span class="seg seg2" style="width:220px"><button type="button" data-act="clFlDet" data-v="0" aria-pressed="${!det}">Summary</button><button type="button" data-act="clFlDet" data-v="1" aria-pressed="${det}">Detailed list</button></span></span></div>
       ${S.length?sumT:''}
-      ${det?Object.entries(groups).map(([t,L])=>`<div class="fl-g"><div class="fl-gh"><b>${esc(CL_FT[t]||t)} · ${L.length}</b><span class="inline-actions">${bulk(t,L)}</span></div>${t==='no-phone'?`<p class="small muted" style="margin:2px 0 6px">${L.length} worker${L.length===1?'':'s'} · ${fmt(sum(L,f=>num(f.amt)))} stay in the approval file and are listed apart from the bank file until numbers are added.</p>`:''}${L.slice(0,lim).map(item).join('')}${L.length>lim?`<button class="addrow" data-act="clAllW">Show all ${L.length}</button>`:''}</div>`).join('')
-        +(done.length?`<details class="fl-done" ${ui.cl.doneOpen?'open':''}><summary data-act="clDoneT">Decided (${done.length})</summary>${done.map(item).join('')}</details>`:''):(pend.length?`<p class="small muted" style="margin:10px 0 0">Open the <b>Detailed list</b> to see each flagged worker, change a phone number, or decide one at a time.</p>`:'')}
+      <div class="fl-search"><span aria-hidden="true">⌕</span><input id="clFlq" type="search" value="${esc(ui.cl.flq||'')}" placeholder="Find a flagged person, phone number or category" autocomplete="off" aria-label="Search flagged items">${fq?`<small class="muted">${pend.filter(fm).length+done.filter(fm).length} found</small>`:''}</div>
+      ${showDet?Object.entries(groups).map(([t,L])=>`<div class="fl-g"><div class="fl-gh"><b>${esc(CL_FT[t]||t)} · ${L.length}</b><span class="inline-actions">${bulk(t,L)}</span></div>${t==='no-phone'?`<p class="small muted" style="margin:2px 0 6px">${L.length} worker${L.length===1?'':'s'} · ${fmt(sum(L,f=>num(f.amt)))} stay in the approval file and are listed apart from the bank file until numbers are added.</p>`:''}${L.slice(0,lim).map(item).join('')}${L.length>lim?`<button class="addrow" data-act="clAllW">Show all ${L.length}</button>`:''}</div>`).join('')
+        +(done.filter(fm).length?`<details class="fl-done" ${ui.cl.doneOpen||fq?'open':''}><summary data-act="clDoneT">Decided (${done.filter(fm).length})</summary>${done.filter(fm).map(item).join('')}</details>`:''):(pend.length?`<p class="small muted" style="margin:10px 0 0">Open the <b>Detailed list</b> to see each flagged worker, change a phone number, or decide one at a time.</p>`:'')}
       ${inf.length?`<details class="fl-done"><summary>Notes from reading the files (${inf.length})</summary>${inf.map(w=>`<div class="cl-w"><span class="pill">Info</span><span class="small">${esc(w.msg)}</span></div>`).join('')}</details>`:''}</div>`};
   const lock=closed?`<div class="banner"><p><b>${esc(clRef(run))} is closed.</b> It can’t be changed, but every report can still be downloaded.${open?'':' Reopen it to make changes.'}</p></div>`:'';
   const chip=(k,l)=>`<button type="button" class="optchip" data-act="clOpt" data-k="${k}" aria-pressed="${!!R[k]}">${R[k]?'✓ ':''}${esc(l)}</button>`;
@@ -3618,10 +3623,10 @@ function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clC
   else if(a==='clFlDet'){ui.cl.flagDet=t.dataset.v==='1';render()}
   else if(a==='clFlView'){clCfg().rep.flagView=t.dataset.v;clSaveCfg();render()}
   else if(a==='clIdSave'){if(!run||closed)return true;const k=t.dataset.k,inp=document.querySelector('[data-clid="'+CSS.escape(k)+'"]'),v=String(t.dataset.v||(inp&&inp.value)||'').replace(/\s+/g,'');if(!clIdNorm(v)){toast('Type a valid ID number');if(inp)inp.focus();return true}
-    run.idOv=run.idOv||{};const old=run.idOv[k];run.idOv[k]=v;clSaveRun(run);render();toastAction('ID saved for this run','Undo',()=>{if(old==null)delete run.idOv[k];else run.idOv[k]=old;clSaveRun(run);render()})}
+    run.idOv=run.idOv||{};const ks=k.split(','),old=JSON.stringify(run.idOv);ks.forEach(x=>run.idOv[x]=v);clSaveRun(run);render();toastAction('ID saved for this run','Undo',()=>{run.idOv=JSON.parse(old);clSaveRun(run);render()})}
   else if(a==='clPhSave'){if(!run||closed)return true;const k=t.dataset.k,inp=document.querySelector('[data-clph="'+CSS.escape(k)+'"]'),ph=clPhone(t.dataset.v||(inp&&inp.value));if(!clPhoneOk(ph)){toast('Type a valid phone number, e.g. 0712 345 678');if(inp)inp.focus();return true}
-    const B=clBuild(run),other=B.bank.find(b=>b.ph===ph&&!b.keys.includes(k));run.phOv=run.phOv||{};const old=run.phOv[k];run.phOv[k]=ph;const W=clReg();if(W[k]){W[k].ph=ph;clSaveReg()}clSaveRun(run);render();
-    toastAction('Number saved'+(other?' · note: '+clPh(ph)+' is also used by '+other.n:''),'Undo',()=>{if(old==null)delete run.phOv[k];else run.phOv[k]=old;clSaveRun(run);render()})}
+    const ks=k.split(','),B=clBuild(run),other=B.bank.find(b=>b.ph===ph&&!ks.some(x=>b.keys.includes(x)));run.phOv=run.phOv||{};const oldAll=JSON.stringify(run.phOv);ks.forEach(x=>run.phOv[x]=ph);const W=clReg();ks.forEach(x=>{if(W[x])W[x].ph=ph});clSaveReg();clSaveRun(run);render();
+    toastAction('Number saved'+(other?' · note: '+clPh(ph)+' is also used by '+other.n:''),'Undo',()=>{run.phOv=JSON.parse(oldAll);clSaveRun(run);render()})}
   else if(a==='clNewRun')clNewRun();
   else if(a==='clAdd')clOpenAdd(null,t.dataset.c);
   else if(a==='clEdit')clOpenAdd(t.dataset.id);
@@ -3656,7 +3661,8 @@ function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clC
   else if(a==='clRegDel'){const W=clReg(),k=t.dataset.k,o=W[k];if(!o)return true;delete W[k];clSaveReg();render();toastAction(o.n+' forgotten','Undo',()=>{W[k]=o;clSaveReg();render()})}
   else return false;
   return true}
-document.addEventListener('input',ev=>{const el=ev.target;if(el.id==='cl-clerk'&&ui.cl)ui.cl.clerk=el.value});
+document.addEventListener('input',ev=>{const el=ev.target;if(el.id==='cl-clerk'&&ui.cl)ui.cl.clerk=el.value;if(el.id==='clFlq'&&ui.cl){ui.cl.flq=el.value;clFlqRender()}});
+const clFlqRender=debounce(()=>{const el=$('#clFlq'),pos=el?el.selectionStart:null;render();const n=$('#clFlq');if(n){n.focus({preventScroll:true});try{n.setSelectionRange(pos,pos)}catch(e){}}},250);
 document.addEventListener('change',ev=>{const el=ev.target;if(!el.closest||!el.closest('#app')||ui.view!=='casual')return;
   if(el.id==='cl-run'){ui.cl.run=el.value;render();return}
   if(el.id==='clFile'){const fs=[...el.files];el.value='';if(fs.length)clUpload(fs);return}
