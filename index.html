@@ -672,7 +672,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · casuals: security payroll list, wording carry-over';
+const APP_BUILD='16 Nov 2026 · executive Excel layout: key figures row';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -1904,7 +1904,7 @@ const PCR_CATS=['Reimbursements to individuals','Staff medical & welfare support
 const PCR_POINTS=['M-Pesa','Equity Bank','Cash'];
 /* logo at the top-right corner of the report, measured in real pixels so it lands in the executive spot in every Excel version */
 function xlLogo(ws,id,lastCol,w,h,top){const px=c=>{const col=ws.getColumn(c);const wd=col&&col.width?col.width:8.43;return Math.round(wd*7+5)};
-  let need=w+6,c=lastCol;while(c>1&&need>px(c)){need-=px(c);c--}const off=Math.max(0,px(c)-need);
+  let c=lastCol,off;if(px(lastCol)>=w+8)off=px(lastCol)-w-6;else{let need=w+6;while(c>1&&need>px(c)){need-=px(c);c--}off=Math.max(0,px(c)-need)}
   ws.addImage(id,{tl:{nativeCol:c-1,nativeColOff:Math.round(off*9525),nativeRow:0,nativeRowOff:Math.round((top==null?6:top)*9525)},ext:{width:w,height:h},editAs:'oneCell'})}
 const EXCELJS_URL='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 const PCR_DARK=[54,86,40],PCR_BAND=[226,239,218];
@@ -3057,12 +3057,14 @@ async function clWorkbook(wb,run,B,mode){
     const x=ws.getRow(r).getCell(c1);x.value=v===''||v==null?null:typeof v==='string'?T(v):v;x.font={name:o.head?'Aptos Display':'Aptos',size:o.size||10,bold:!!o.bold,italic:!!o.italic,color:{argb:o.color||INK}};
     if(o.numFmt)x.numFmt=o.numFmt;const isN=typeof v==='number'||(v&&typeof v==='object'&&'formula' in v);
     x.alignment={horizontal:o.center?'center':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap,indent:o.indent||0};return x};
-  const header=(ws,NC,title,sub,keyL,keyV)=>{put(ws,1,1,Math.max(1,NC-2),T(clKick()).toUpperCase(),{size:8,color:SLATE});
-    put(ws,2,1,Math.max(1,NC-2),title,{head:true,size:20,bold:true});ws.getRow(2).height=30;put(ws,3,1,Math.max(1,NC-2),sub,{size:9,color:SLATE});
+  const header=(ws,NC,title,sub,keyL,keyV)=>{const L=Math.max(1,NC-1),wch=sum(Array.from({length:NC},(_,i)=>(ws.getColumn(i+1).width||8.43)));
+    put(ws,1,1,L,T(clKick()).toUpperCase(),{size:8,color:SLATE});ws.getRow(1).height=16;
+    put(ws,2,1,L,title,{head:true,size:20,bold:true});ws.getRow(2).height=34;
+    const sx=T(sub);put(ws,3,1,NC,sx,{size:9.5,color:SLATE,wrap:true});ws.getRow(3).height=Math.max(16,Math.ceil(String(sx).length*1.1/Math.max(20,wch))*14+2);
     for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;
     if(keyL!=null){put(ws,5,1,2,T(keyL).toUpperCase(),{size:8,bold:true,color:SLATE});const k=put(ws,5,3,5,keyV,{size:12,bold:true,numFmt:'"KES" #,##0.00'});k.alignment={horizontal:'left',vertical:'middle'};ws.getRow(5).height=24}
     if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);xlLogo(ws,logo.id,NC,w,h)}};
-  const label=(ws,r,NC,t)=>put(ws,r,1,NC,T(t).toUpperCase(),{size:8,bold:true,color:SLATE});
+  const label=(ws,r,NC,t)=>{const x=put(ws,r,1,NC,T(t).toUpperCase(),{size:8,bold:true,color:'FF365628',border:{bottom:{style:'thin',color:{argb:'FF9DB59A'}}}});ws.getRow(r).height=18;return x};
   const approval=(ws,r,NC)=>{const L=c.sign.filter(s=>s.role||s.name);if(!R.approval)return r;label(ws,r,NC,'Approval');r++;
     const nm=L.filter(s=>s.name);put(ws,r,1,NC,'Approved through the email approval thread.'+(nm.length?'  '+nm.map(s=>s.role+': '+s.name).join('   ·   '):''),{size:9,italic:true,color:SLATE});return r+1};
   const hd=(ws,r,c1,h,o)=>put(ws,r,c1,c1,h,Object.assign({bold:true,size:9,fill:HEAD,border:{top:med,bottom:med,left:box,right:box},wrap:true},o||{}));
@@ -3100,18 +3102,23 @@ async function clWorkbook(wb,run,B,mode){
       p.totRef=clQ(ws.name)+'!'+clColL(cols.amt)+tr;p.daysRef=R.mandays?clQ(ws.name)+'!'+clColL(cols.days)+tr:null;
       ws.getRow(5).getCell(3).value={formula:clColL(cols.amt)+tr,result:C.total};
       ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false,zoomScale:90}];ws.pageSetup.printTitlesRow=hr+':'+hr;ws.autoFilter={from:{row:hr,column:1},to:{row:last<hr?hr:last,column:NC}};
-      let nr=tr+2;if(C.rows.some(w=>shd(w.key))){put(ws,nr,1,Math.min(NC,12),'# Payment number used by more than one person (flagged). Amounts are as recorded.',{size:9,italic:true,color:SLATE});nr++}
+      let nr=tr+2;if(C.rows.some(w=>shd(w.key))){put(ws,nr,1,NC,'# Payment number used by more than one person (flagged). Amounts are as recorded.',{size:9,italic:true,color:SLATE});nr++}
       approval(ws,nr+1,NC)});
     // summary dashboard
     const ws=dash,cols=['No','Category',...(R.workersCol?['Workers']:[]),...(R.mandays?['Mandays']:[]),'Amount (KES)',...(R.share?['Cost share']:[]),'Sheet'],NC=cols.length,cA=cols.indexOf('Amount (KES)')+1,cS=R.share?cols.indexOf('Cost share')+1:0,cM=R.mandays?cols.indexOf('Mandays')+1:0,cW=R.workersCol?cols.indexOf('Workers')+1:0;
-    ws.columns=cols.map(h=>({width:h==='No'?6:h==='Category'?36:h==='Amount (KES)'?19:h==='Sheet'?13:12}));
+    ws.columns=cols.map(h=>({width:h==='No'?6:h==='Category'?40:h==='Amount (KES)'?20:h==='Sheet'?16:15}));
     header(ws,NC,c.title,[c.season,'Pay period '+per+' ('+nD+' days)',...(B.sdays.length?['Security '+clPerLbl(B.secFrom,B.secTo)]:[]),'Ref '+ref,'Prepared '+prep].filter(Boolean).join('  ·  '));
-    let r=6;label(ws,r,NC,'Key figures');r++;
-    const figs=[['Categories',B.cats.length],...(R.workersFig?[['Workers (unique)',B.bank.length]]:[]),...(R.mandays?[['Mandays',B.mandays]]:[]),...(B.hold.length?[['Payable now (KES)',B.payTot],['On hold (KES)',B.holdTot]]:[]),['Grand total (KES)',null]];
-    const rest=Math.max(1,Math.floor((NC-2)/Math.max(1,figs.length-1)));let gtCell=null;
-    figs.forEach(([l,v],i)=>{const a=i===0?1:3+(i-1)*rest,b=i===0?2:i===figs.length-1?NC:Math.min(NC,a+rest-1),key=i===figs.length-1;put(ws,r,a,b,T(l).toUpperCase(),{size:7.5,color:SLATE,wrap:true,fill:key?HEAD:undefined,border:{top:med,left:i?thin:undefined}});ws.getRow(r).height=24;
-      const x=put(ws,r+1,a,b,key?null:v,{size:14,bold:true,fill:key?HEAD:undefined,border:{bottom:med,left:i?thin:undefined},numFmt:'#,##0'});x.alignment={horizontal:'left',vertical:'middle'};if(key)gtCell=x});
-    ws.getRow(r+1).height=28;r+=3;
+    /* key figures in one row of cards: smaller type so long figures fit; payable now and the grand total are shaded */
+    let r=6;label(ws,r,NC,'Key figures');r++;let gtCell=null;
+    const kf=[['Categories',B.cats.length,'0'],...(R.workersFig?[['Workers (unique)',B.bank.length,'0']]:[]),...(R.mandays?[['Mandays',B.mandays,'#,##0']]:[]),...(B.hold.length?[['Payable now (KES)',B.payTot,'#,##0.00','FFE6F2EA'],['On hold (KES)',B.holdTot,'#,##0.00','FFFBF1DE']]:[]),['Grand total (KES)',null,'#,##0.00',HEAD]];
+    const slots=[[1,2]];for(let k=3;k<=NC;k++)slots.push([k,k]);
+    const rowsN=Math.ceil(kf.length/slots.length);
+    for(let q=0;q<rowsN;q++){const part=kf.slice(q*slots.length,(q+1)*slots.length),S=slots.slice(0,part.length);if(part.length<slots.length)S[S.length-1]=[S[S.length-1][0],NC];
+      part.forEach(([l,v,f,fill],i)=>{const [a,b]=S[i],key=l.startsWith('Grand'),bl=i?{style:'thin',color:{argb:'FFD1D5DB'}}:undefined;
+        put(ws,r,a,b,T(l).toUpperCase(),{size:7,bold:true,color:SLATE,wrap:true,fill,border:{top:med,left:bl}});
+        const x=put(ws,r+1,a,b,v,{size:key?11.5:10.5,bold:true,numFmt:f,fill,border:{bottom:med,left:bl},color:key?INK:INK});x.alignment={horizontal:'left',vertical:'middle',indent:0};if(key)gtCell=x});
+      ws.getRow(r).height=24;ws.getRow(r+1).height=26;r+=2}
+    r++;
     label(ws,r,NC,'Expenditure by category');r++;
     cols.forEach((h,i)=>hd(ws,r,i+1,h,{right:i>=2&&h!=='Sheet',center:h==='Sheet'||h==='No',wrap:false}));ws.getRow(r).height=22;r++;
     const c0=r,gtRow=c0+plans.length;
@@ -3125,7 +3132,7 @@ async function clWorkbook(wb,run,B,mode){
     if(cW)put(ws,r,cW,cW,B.bank.length,Object.assign({numFmt:'0 "unique"'},T2));
     if(cM)put(ws,r,cM,cM,{formula:plans.length?'SUM('+clColL(cM)+c0+':'+clColL(cM)+(r-1)+')':'0',result:B.mandays},Object.assign({numFmt:'#,##0'},T2));
     put(ws,r,cA,cA,{formula:plans.length?'SUM('+clColL(cA)+c0+':'+clColL(cA)+(r-1)+')':'0',result:B.total},Object.assign({numFmt:AMT},T2));if(cS)put(ws,r,cS,cS,{formula:'IF('+clColL(cA)+r+'=0,0,1)',result:B.total?1:0},Object.assign({numFmt:'0%'},T2));put(ws,r,NC,NC,'',T2);
-    gtCell.value={formula:clColL(cA)+gtRow,result:B.total};gtCell.numFmt=AMT;r+=2;
+    gtCell.value={formula:clColL(cA)+gtRow,result:B.total};gtCell.numFmt=AMT;gtCell.alignment={horizontal:'left',vertical:'middle'};r+=2;
     const line=(l,v,o)=>{put(ws,r,2,cA-1,l,o);put(ws,r,cA,cA,v,Object.assign({numFmt:AMT},o));r++};
     /* after expenditure: payout status, then the flagged summary (or detail) */
     {label(ws,r,NC,'Payout status');r++;const r0=r;
@@ -3164,7 +3171,7 @@ async function clWorkbook(wb,run,B,mode){
     D.forEach((d,j)=>sc(d0+j,r2(sum(L,b=>num(b.e[d]))),'#,##0;-#,##0;""',{size:8,center:true}));if(dc)sc(dc,md,'0',{center:true});sc(BN,tot,AMT);
     ws.getRow(5).getCell(3).value={formula:clColL(BN)+tr,result:tot};
     ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false,zoomScale:90}];ws.pageSetup.printTitlesRow=hr+':'+hr;ws.autoFilter={from:{row:hr,column:1},to:{row:Math.max(hr,last),column:BN}};
-    let nr=tr+2;note.forEach(t=>{put(ws,nr,1,Math.min(BN,14),t,{size:9,italic:true,color:SLATE});nr++});
+    let nr=tr+2;const wch=sum(Array.from({length:BN},(_,i)=>ws.getColumn(i+1).width||8.43));note.forEach(t=>{put(ws,nr,1,BN,t,{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(nr).height=Math.max(15,Math.ceil(t.length*1.05/wch)*13+2);nr++});
     approval(ws,nr+1,BN)};
   const secPer=B.secFrom?fmtD(B.secFrom)+' – '+fmtD(B.secTo):perMain,HM=B.hold.filter(b=>b.grp==='main'),HS=B.hold.filter(b=>b.grp==='sec');
   bankSheet('Bank File',B.payM,'Bank File','Total to pay',['Each worker appears once and each phone number once. Pay from every category is combined per day, including two roles on the same day (e.g. offloading in the morning, field work later). Sorted A–Z.',...(B.payM.some(b=>b.shared)?['Shaded lines combine people who share a payment number (adopted by the admin): '+[...new Set(B.payM.filter(b=>b.shared).map(b=>clPh(b.ph)))].join(', ')+'.']:[]),...(B.bankS.length?['Security ('+clPerLbl(B.secFrom,B.secTo)+') is on its own sheet.']:[]),...(B.hold.length?[B.hold.length+' worker'+(B.hold.length===1?'':'s')+' ('+fmt(B.holdTot)+') on hold are listed separately and are not part of this payment.']:[])],B.days,perMain);
@@ -3702,7 +3709,7 @@ async function flXLSX(from,to,dfrom){toast('Preparing Excel file…');try{await 
     const x=ws.getRow(r).getCell(c1);x.value=v===''||v==null?null:v;x.font={name:o.head?'Aptos Display':'Aptos',size:o.size||10,bold:!!o.bold,italic:!!o.italic,color:{argb:o.color||INK}};if(o.numFmt)x.numFmt=o.numFmt;
     const isN=typeof v==='number'||(v&&typeof v==='object'&&'formula' in v);x.alignment={horizontal:o.center?'center':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap};return x};
   const header=(ws,NC,title,sub)=>{put(ws,1,1,Math.max(1,NC-2),[c.org,'Fleet invoicing'].filter(Boolean).join(' · ').toUpperCase(),{size:8,color:SLATE});put(ws,2,1,Math.max(1,NC-2),title,{head:true,size:20,bold:true});ws.getRow(2).height=30;
-    put(ws,3,1,Math.max(1,NC-2),sub,{size:9,color:SLATE});for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;
+    put(ws,3,1,NC,sub,{size:9.5,color:SLATE,wrap:true});ws.getRow(3).height=18;for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;
     if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);xlLogo(ws,logo.id,NC,w,h)}};
   const label=(ws,r,NC,t)=>put(ws,r,1,NC,t.toUpperCase(),{size:8,bold:true,color:SLATE});
   const hd=(ws,r,c1,h,o)=>put(ws,r,c1,(o&&o.to)||c1,h,Object.assign({bold:true,size:9,fill:FILL,border:{top:med,bottom:med},wrap:true},o||{}));
