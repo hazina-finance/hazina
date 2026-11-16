@@ -300,6 +300,7 @@ body.sb-min .sb-top{flex-direction:column;padding:12px 8px}
 .fl-a{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .fl-s{font-weight:600;color:var(--ink-2)}.fl-i:not(.done) .fl-s{color:var(--bad)}.fl-i.done{opacity:.85}
 .fl-phs{display:flex;flex-direction:column;gap:6px;margin-top:6px}.fl-ph{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.fl-ph .pcin{max-width:170px}.ex-fv{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fl-fbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0 4px}.fl-fbar select{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
 .fl-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:4px 14px;margin:12px 0 4px;max-width:520px;background:var(--surface)}.fl-search input{border:0;background:transparent;padding:7px 0;flex:1;min-width:0;outline:none}.fl-search:focus-within{border-color:var(--accent)}
 .fl-done{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
 /* casual labour */
@@ -673,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · wrong phone format flags and flag search';
+const APP_BUILD='16 Nov 2026 · flagged list filters and approval-file option';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -2894,7 +2895,9 @@ function clFlagState(f){const d=f.dec;
   if(f.type==='no-id'||f.type==='bad-id')return d==='adopt'?'Adopted · paid as is, flag shown':d==='disregard'?'Disregarded · paid as is, flag hidden':'Awaiting decision · paid as is';
   return d==='adopt'?'Adopted · flag kept':d==='disregard'?'Disregarded':'Awaiting decision'}
 /* flagged items counted by type, for the summary view and the approval file */
-function clFlagSum(B){const m=new Map();B.flags.filter(f=>f.lvl!=='info'&&!(f.type==='dup-phone'&&f.dec==='same')).forEach(f=>{const k=CL_FT[f.type]||'Check';const g=m.get(k)||{l:k,t:f.type,n:0,amt:0,pend:0,ok:0,W:new Set(),byCat:{}};g.n++;if(f.wk)g.W.add(f.wk);(f.catList||[]).forEach(c=>g.byCat[c]=(g.byCat[c]||0)+1);g.amt=r2(g.amt+num(f.amt));if(f.dec)g.ok++;else g.pend++;m.set(k,g)});return[...m.values()]}
+/* missing / wrong IDs and phone numbers are facts and always counted; other checks drop out of the summary once disregarded (e.g. two different people with the same name) */
+const CL_FACT=new Set(['no-id','bad-id','no-phone','bad-phone']);
+function clFlagSum(B){const m=new Map();B.flags.filter(f=>f.lvl!=='info'&&!(f.type==='dup-phone'&&f.dec==='same')&&!(f.dec==='disregard'&&!CL_FACT.has(f.type))).forEach(f=>{const k=CL_FT[f.type]||'Check';const g=m.get(k)||{l:k,t:f.type,n:0,amt:0,pend:0,ok:0,W:new Set(),byCat:{}};g.n++;if(f.wk)g.W.add(f.wk);(f.catList||[]).forEach(c=>g.byCat[c]=(g.byCat[c]||0)+1);g.amt=r2(g.amt+num(f.amt));if(f.dec)g.ok++;else g.pend++;m.set(k,g)});return[...m.values()]}
 const clFlagView=R=>R.flagView||(R.flags===false?'off':'summary');
 function clBuild0(run){
   const REG=clReg(),warn=[],flags=[],cats=new Map(),ex=new Set(run.excl||[]),seen={},dec=run.dec||{},legacy=run.status!=='open';const once=(k,lvl,msg)=>{if(seen[k])return;seen[k]=1;warn.push({lvl,msg})};
@@ -3463,17 +3466,25 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
       ${!closed&&f.people&&/^(dup-phone|no-phone|bad-phone|no-id|bad-id)$/.test(f.type)&&(!f.dec||f.type!=='dup-phone')?`<div class="fl-phs"><span class="small muted">${f.type==='dup-phone'?'Or change one person’s number:':/id$/.test(f.type)?'Add the ID number (optional; paid either way):':'Add the phone number:'}</span>${f.people.map(/id$/.test(f.type)?idEd:phEd).join('')}</div>`:''}</div>
       <div class="fl-a">${f.amt!=null&&f.amt!==''?`<b class="small">${M(f.amt)}</b>`:''}${f.dec?(closed?'':`<button class="btn ghost sm" data-act="clDec" data-k="${esc(f.key)}" data-v="">Change</button>`):btns(f)}</div></div>`;
     const fq=normT(ui.cl.flq||''),fm=f=>!fq||fq.split(' ').every(t=>normT(f.msg+' '+(f.who||'')+' '+(f.catList||[]).join(' ')).includes(t));
-    const groups={};pend.filter(fm).forEach(f=>(groups[f.type]=groups[f.type]||[]).push(f));const lim=ui.cl.allW||fq?2000:6;const showDet=det||!!fq;
+    /* detailed list: grouped by flag type, filtered by status and type, before and after decisions */
+    const st=ui.cl.flSt||'pend',ty=ui.cl.flTy||'',stOf=f=>!f.dec?'pend':f.dec==='disregard'?'disregard':'adopt';
+    const FL=F.filter(f=>f.lvl!=='info').filter(fm).filter(f=>st==='all'||stOf(f)===st||(st==='done'&&f.dec)).filter(f=>!ty||f.type===ty);
+    const groups={};FL.forEach(f=>(groups[f.type]=groups[f.type]||[]).push(f));const lim=ui.cl.allW||fq?2000:6;const showDet=det||!!fq;
+    const cnt=k=>F.filter(f=>f.lvl!=='info').filter(f=>k==='all'||stOf(f)===k||(k==='done'&&f.dec)).length,types=[...new Set(F.filter(f=>f.lvl!=='info').map(f=>f.type))];
+    const fbar=`<div class="fl-fbar"><span class="small muted">Show</span>${[['pend','Awaiting decision'],['adopt','Adopted'],['disregard','Disregarded'],['all','All']].map(([k,l])=>`<button type="button" class="optchip" data-act="clFlSt" data-v="${k}" aria-pressed="${st===k}">${l} · ${cnt(k)}</button>`).join('')}
+      <select id="clFlTy" aria-label="Flag type"><option value="">All flag types</option>${types.map(t=>`<option value="${t}" ${ty===t?'selected':''}>${esc(CL_FT[t]||t)}</option>`).join('')}</select></div>`;
     const bulk=(t,L)=>closed||L.length<2?'':t==='dup'?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="system">Count all once</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="keep">Count all both</button>`:t==='dup-phone'?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="adopt">Adopt all ${L.length}</button>`:CL_FIX.has(t)?`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="system">Adopt system figures for all ${L.length}</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="keep">Keep uploaded for all</button>`:`<button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="adopt">Adopt all ${L.length}</button><button class="btn ghost sm" data-act="clDecAll" data-t="${t}" data-v="disregard">Disregard all</button>`;
     const sumT=`<div class="tw"><table class="fl-sum"><thead><tr><th>Flagged item</th><th class="n">Count</th><th class="n">Awaiting decision</th><th class="n">Decided</th><th class="n">Amount</th><th></th></tr></thead><tbody>
       ${S.map(g=>{const L=pend.filter(f=>CL_FT[f.type]===g.l),bc=Object.entries(g.byCat);return`<tr><td><b>${esc(g.l)}</b>${bc.length?`<div class="small muted">${esc(bc.map(([n,k])=>n+' '+k).join(' · '))}</div>`:''}</td><td class="n">${g.n}</td><td class="n">${g.pend?`<span class="pill bad">${g.pend}</span>`:'0'}</td><td class="n">${g.ok}</td><td class="n">${M(g.amt)}</td><td><div class="inline-actions" style="justify-content:flex-end">${L.length?bulk(L[0].type,L).replace(/Adopt all \d+/,'Adopt all'):''}</div></td></tr>`}).join('')}
       <tr class="tot"><td>Total flagged</td><td class="n">${sum(S,g=>g.n)}</td><td class="n">${sum(S,g=>g.pend)}</td><td class="n">${sum(S,g=>g.ok)}</td><td class="n">${M(r2(sum(S,g=>g.amt)))}</td><td></td></tr></tbody></table></div>`;
     return`<div class="card s12" id="clFlags"><div class="card-h"><div><h2>Flagged</h2><span class="small muted">Nothing is auto-corrected. Adopt keeps the record and the flag visible in the approval file; Disregard dismisses it. A number used by two different people is held off the bank file until you decide or change a number.</span></div>
       <span class="inline-actions">${pend.length?`<span class="pill bad">${pend.length} awaiting decision</span>`:F.length?'<span class="pill good">All decided</span>':''}<span class="seg seg2" style="width:220px"><button type="button" data-act="clFlDet" data-v="0" aria-pressed="${!det}">Summary</button><button type="button" data-act="clFlDet" data-v="1" aria-pressed="${det}">Detailed list</button></span></span></div>
+      <div class="fl-fbar"><span class="small muted">In the approval file:</span>${[['off','Don’t show flagged items'],['summary','Show summary'],['detail','Show summary + list']].map(([k,l])=>`<button type="button" class="optchip" data-act="clFlView" data-v="${k}" aria-pressed="${clFlagView(R)===k}">${clFlagView(R)===k?'✓ ':''}${l}</button>`).join('')}</div>
       ${S.length?sumT:''}
       <div class="fl-search"><span aria-hidden="true">⌕</span><input id="clFlq" type="search" value="${esc(ui.cl.flq||'')}" placeholder="Find a flagged person, phone number or category" autocomplete="off" aria-label="Search flagged items">${fq?`<small class="muted">${pend.filter(fm).length+done.filter(fm).length} found</small>`:''}</div>
-      ${showDet?Object.entries(groups).map(([t,L])=>`<div class="fl-g"><div class="fl-gh"><b>${esc(CL_FT[t]||t)} · ${L.length}</b><span class="inline-actions">${bulk(t,L)}</span></div>${t==='no-phone'?`<p class="small muted" style="margin:2px 0 6px">${L.length} worker${L.length===1?'':'s'} · ${fmt(sum(L,f=>num(f.amt)))} stay in the approval file and are listed apart from the bank file until numbers are added.</p>`:''}${L.slice(0,lim).map(item).join('')}${L.length>lim?`<button class="addrow" data-act="clAllW">Show all ${L.length}</button>`:''}</div>`).join('')
-        +(done.filter(fm).length?`<details class="fl-done" ${ui.cl.doneOpen||fq?'open':''}><summary data-act="clDoneT">Decided (${done.filter(fm).length})</summary>${done.filter(fm).map(item).join('')}</details>`:''):(pend.length?`<p class="small muted" style="margin:10px 0 0">Open the <b>Detailed list</b> to see each flagged worker, change a phone number, or decide one at a time.</p>`:'')}
+      ${F.some(f=>f.lvl!=='info')?fbar:''}
+      ${showDet?(FL.length?'':`<p class="small muted" style="margin:10px 0 0">Nothing to show for this filter.</p>`)+Object.entries(groups).map(([t,L])=>`<div class="fl-g"><div class="fl-gh"><b>${esc(CL_FT[t]||t)} · ${L.length}</b><span class="inline-actions">${bulk(t,L.filter(f=>!f.dec))}</span></div>${t==='no-phone'&&st==='pend'?`<p class="small muted" style="margin:2px 0 6px">${L.length} worker${L.length===1?'':'s'} · ${fmt(sum(L,f=>num(f.amt)))} stay in the approval file and are listed apart from the bank file until numbers are added.</p>`:''}${L.slice(0,lim).map(item).join('')}${L.length>lim?`<button class="addrow" data-act="clAllW">Show all ${L.length}</button>`:''}</div>`).join('')
+        :(pend.length?`<p class="small muted" style="margin:10px 0 0">Open the <b>Detailed list</b> to see each flagged worker, change a phone number, or decide one at a time.</p>`:'')}
       ${inf.length?`<details class="fl-done"><summary>Notes from reading the files (${inf.length})</summary>${inf.map(w=>`<div class="cl-w"><span class="pill">Info</span><span class="small">${esc(w.msg)}</span></div>`).join('')}</details>`:''}</div>`};
   const lock=closed?`<div class="banner"><p><b>${esc(clRef(run))} is closed.</b> It can’t be changed, but every report can still be downloaded.${open?'':' Reopen it to make changes.'}</p></div>`:'';
   const chip=(k,l)=>`<button type="button" class="optchip" data-act="clOpt" data-k="${k}" aria-pressed="${!!R[k]}">${R[k]?'✓ ':''}${esc(l)}</button>`;
@@ -3621,6 +3632,7 @@ function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clC
   else if(a==='clDoneT'){ui.cl.doneOpen=!ui.cl.doneOpen}
   else if(a==='clSep'){const c=clCfg(),n=t.dataset.v,k=clCatKey(clCanon(n));c.sep=c.sep||{};const was=clIsSep(n);c.sep[k]=!was;clSaveCfg();render();toast(was?n+' is now paid with the other categories':n+' now has its own pay period and a separate security list on the bank file')}
   else if(a==='clFlDet'){ui.cl.flagDet=t.dataset.v==='1';render()}
+  else if(a==='clFlSt'){ui.cl.flSt=t.dataset.v;ui.cl.flagDet=true;render()}
   else if(a==='clFlView'){clCfg().rep.flagView=t.dataset.v;clSaveCfg();render()}
   else if(a==='clIdSave'){if(!run||closed)return true;const k=t.dataset.k,inp=document.querySelector('[data-clid="'+CSS.escape(k)+'"]'),v=String(t.dataset.v||(inp&&inp.value)||'').replace(/\s+/g,'');if(!clIdNorm(v)){toast('Type a valid ID number');if(inp)inp.focus();return true}
     run.idOv=run.idOv||{};const ks=k.split(','),old=JSON.stringify(run.idOv);ks.forEach(x=>run.idOv[x]=v);clSaveRun(run);render();toastAction('ID saved for this run','Undo',()=>{run.idOv=JSON.parse(old);clSaveRun(run);render()})}
@@ -3665,6 +3677,7 @@ document.addEventListener('input',ev=>{const el=ev.target;if(el.id==='cl-clerk'&
 const clFlqRender=debounce(()=>{const el=$('#clFlq'),pos=el?el.selectionStart:null;render();const n=$('#clFlq');if(n){n.focus({preventScroll:true});try{n.setSelectionRange(pos,pos)}catch(e){}}},250);
 document.addEventListener('change',ev=>{const el=ev.target;if(!el.closest||!el.closest('#app')||ui.view!=='casual')return;
   if(el.id==='cl-run'){ui.cl.run=el.value;render();return}
+  if(el.id==='clFlTy'){ui.cl.flTy=el.value;ui.cl.flagDet=true;render();return}
   if(el.id==='clFile'){const fs=[...el.files];el.value='';if(fs.length)clUpload(fs);return}
   const run=clCur();
   if((el.id==='cl-from'||el.id==='cl-to')&&run&&run.status==='open'){const B=clBuild(run);const f=el.id==='cl-from'?el.value:($('#cl-from').value||B.from),t2=el.id==='cl-to'?el.value:($('#cl-to').value||B.to);
