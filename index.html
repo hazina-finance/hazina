@@ -672,7 +672,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · executive Excel layout: key figures row';
+const APP_BUILD='16 Nov 2026 · Excel: numeric IDs, apostrophe phone numbers';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -3048,6 +3048,8 @@ async function clWorkbook(wb,run,B,mode){
   const thin={style:'thin',color:{argb:LINE}},box={style:'thin',color:{argb:GRID}},med={style:'medium',color:{argb:INK}},dbl={style:'double',color:{argb:INK}};
   const BOX={top:box,left:box,bottom:box,right:box};
   const BK=new Map(B.bank.flatMap(b=>b.keys.map(k=>[k,b]))),shd=k=>{const b=BK.get(k)||{};return b.shared||b.hold==='shared'},phX=(ph,k)=>clPhoneOk(ph)?clPh(ph)+(shd(k)?' #':''):'Pending';
+  /* ID numbers are stored as numbers; phone numbers as text with a leading apostrophe ('07…) so the 0 stays */
+  const idV=id=>{const d=String(id||'').trim();return /^[1-9]\d{0,14}$/.test(d)?Number(d):d},idO={numFmt:'0',left:true},phO={numFmt:'@',left:true};
   let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
   const used=new Set();const sname=s=>{const b=String(s).replace(/[\[\]:*?\/\\]/g,' ').replace(/\s+/g,' ').trim().slice(0,31)||'Sheet';let x=b,i=2;while(used.has(x.toLowerCase()))x=b.slice(0,26)+' ('+(i++)+')';used.add(x.toLowerCase());return x};
   const foot=[c.org,mode==='bank'?'Casual labour bank file':'Casual labour payment record',c.season,ref].filter(Boolean).join(' · ');
@@ -3056,7 +3058,7 @@ async function clWorkbook(wb,run,B,mode){
   const put=(ws,r,c1,c2,v,o={})=>{if(c2>c1)ws.mergeCells(r,c1,r,c2);for(let i=c1;i<=c2;i++){const x=ws.getRow(r).getCell(i);if(o.fill)x.fill={type:'pattern',pattern:'solid',fgColor:{argb:o.fill}};if(o.border)x.border=o.border}
     const x=ws.getRow(r).getCell(c1);x.value=v===''||v==null?null:typeof v==='string'?T(v):v;x.font={name:o.head?'Aptos Display':'Aptos',size:o.size||10,bold:!!o.bold,italic:!!o.italic,color:{argb:o.color||INK}};
     if(o.numFmt)x.numFmt=o.numFmt;const isN=typeof v==='number'||(v&&typeof v==='object'&&'formula' in v);
-    x.alignment={horizontal:o.center?'center':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap,indent:o.indent||0};return x};
+    x.alignment={horizontal:o.center?'center':o.left?'left':(isN||o.right)?'right':'left',vertical:'middle',wrapText:!!o.wrap,indent:o.indent||0};return x};
   const header=(ws,NC,title,sub,keyL,keyV)=>{const L=Math.max(1,NC-1),wch=sum(Array.from({length:NC},(_,i)=>(ws.getColumn(i+1).width||8.43)));
     put(ws,1,1,L,T(clKick()).toUpperCase(),{size:8,color:SLATE});ws.getRow(1).height=16;
     put(ws,2,1,L,title,{head:true,size:20,bold:true});ws.getRow(2).height=34;
@@ -3086,7 +3088,7 @@ async function clWorkbook(wb,run,B,mode){
       hd(ws,hr,cols.amt,nD+' Days Total (KES)',{right:true,fill:COL?TOTF:HEAD});ws.getRow(hr).height=32;
       const dL=clColL(cols.d0),dR=clColL(cols.dN);
       C.rows.forEach((w,i)=>{const r=p.first+i,band=i%2?BAND:undefined,o={border:{bottom:thin},fill:band};ws.getRow(r).height=17;
-        put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,w.n,o);put(ws,r,3,3,w.id||'',o);put(ws,r,4,4,phX(w.ph,w.key),Object.assign({},o,clPhoneOk(w.ph)?{}:{italic:true,color:SLATE}));put(ws,r,5,5,w.g||'',Object.assign({size:9},o));
+        put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,w.n,o);put(ws,r,3,3,idV(w.id),Object.assign({},o,idO));put(ws,r,4,4,phX(w.ph,w.key),Object.assign({},o,phO,clPhoneOk(w.ph)?{}:{italic:true,color:SLATE}));put(ws,r,5,5,w.g||'',Object.assign({size:9},o));
         C.xk.forEach((k,j)=>put(ws,r,6+j,6+j,w.x[k]||'',Object.assign({size:9},o)));
         D.forEach((d,j)=>dayCell(ws,r,cols.d0+j,u?(w.d[d]!=null?num(w.d[d]):null):(w.e[d]?w.e[d]:null),u?QTY:'#,##0',band));
         const rng=nD?dL+r+':'+dR+r:null,fx=u&&w.fixed?'+'+w.fixed:'';
@@ -3162,7 +3164,7 @@ async function clWorkbook(wb,run,B,mode){
     header(ws,BN,title,[c.season,'Pay period '+per+' ('+nD+' days)',...(R.workersCol?[L.length+' worker'+(L.length===1?'':'s')+', each listed once']:[]),'Ref '+ref,'Prepared '+prep].filter(Boolean).join('  ·  '),keyL,tot);
     const hr=7;['S/No','Name','ID No','Phone No','Gender'].forEach((h,i)=>hd(ws,hr,i+1,h,{wrap:false,center:i===0}));dateHd(ws,hr,d0,D);if(dc)hd(ws,hr,dc,'Mandays',{right:true});hd(ws,hr,BN,nD+' Days Total (KES)',{right:true,fill:COL?TOTF:HEAD});ws.getRow(hr).height=32;
     const first=8,dL=clColL(d0),dR=clColL(d0+nD-1);
-    L.forEach((b,i)=>{const r=first+i,band=i%2?BAND:undefined,o={border:{bottom:thin},fill:band};ws.getRow(r).height=17;put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,b.n,o);put(ws,r,3,3,b.id||'',o);put(ws,r,4,4,clPhoneOk(b.ph)?clPh(b.ph):'Pending',Object.assign({},o,clPhoneOk(b.ph)?{}:{italic:true,color:SLATE},b.shared?{fill:'FFFDF3E1'}:{}));put(ws,r,5,5,b.g||'',Object.assign({size:9},o));
+    L.forEach((b,i)=>{const r=first+i,band=i%2?BAND:undefined,o={border:{bottom:thin},fill:band};ws.getRow(r).height=17;put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,b.n,o);put(ws,r,3,3,idV(b.id),Object.assign({},o,idO));put(ws,r,4,4,clPhoneOk(b.ph)?clPh(b.ph):'Pending',Object.assign({},o,phO,clPhoneOk(b.ph)?{}:{italic:true,color:SLATE},b.shared?{fill:'FFFDF3E1'}:{}));put(ws,r,5,5,b.g||'',Object.assign({size:9},o));
       D.forEach((d,j)=>dayCell(ws,r,d0+j,b.e[d]||null,'#,##0.##',band));
       if(dc)put(ws,r,dc,dc,nD?{formula:'COUNT('+dL+r+':'+dR+r+')',result:b.days}:b.days,Object.assign({numFmt:'0',center:true},o));
       put(ws,r,BN,BN,nD?{formula:'SUM('+dL+r+':'+dR+r+')',result:b.amt}:b.amt,Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
@@ -3180,10 +3182,17 @@ async function clWorkbook(wb,run,B,mode){
   if(HM.length)bankSheet('On hold',HM,'On hold','Held amount',hn,B.days,perMain);
   if(HS.length)bankSheet('Security on hold',HS,'Security · on hold','Held amount',hn,B.sdays,secPer);
   return wb}
+/* text-format cells get Excel's leading apostrophe ('0712…), and the green "number stored as text" markers are switched off */
+async function xlQuotePrefix(buf){try{await loadScript(JSZIP_URL);const z=await JSZip.loadAsync(buf);
+  const st=z.file('xl/styles.xml');if(st){let x=await st.async('string');x=x.replace(/<cellXfs[\s\S]*?<\/cellXfs>/,blk=>blk.replace(/<xf\b([^>]*?)numFmtId="49"([^>]*?)(\/?)>/g,(m,a,b,c)=>/quotePrefix/.test(m)?m:'<xf'+a+'numFmtId="49"'+b+' quotePrefix="1"'+c+'>'));z.file('xl/styles.xml',x)}
+  for(const n of Object.keys(z.files).filter(n=>/^xl\/worksheets\/sheet\d+\.xml$/.test(n))){let x=await z.file(n).async('string');if(/<ignoredErrors/.test(x))continue;
+    const ie='<ignoredErrors><ignoredError sqref="A1:XFD1048576" numberStoredAsText="1"/></ignoredErrors>';
+    const m=x.match(/<(smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/);x=m?x.slice(0,m.index)+ie+x.slice(m.index):x.replace('</worksheet>',ie+'</worksheet>');z.file(n,x)}
+  return await z.generateAsync({type:'arraybuffer'})}catch(e){console.warn('Excel tidy-up skipped',e);return buf}}
 async function clXLSX(run,B,mode){
   toast('Preparing Excel file…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel tool. Check your connection.');return}
   const wb=new ExcelJS.Workbook();wb.creator='Hazina';wb.created=new Date();wb.title=clFile(run,B,mode);await clWorkbook(wb,run,B,mode);
-  const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const buf=await xlQuotePrefix(await wb.xlsx.writeBuffer());const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=clFile(run,B,mode)+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
 const clFile=(run,B,mode)=>{const t=B.to||todayStr();return t.replace(/-/g,'')+'_'+(mode==='bank'?'Bank File':'Casual payment record')+(B.from?' ('+clPerLbl(B.from,B.to)+')':'')};
 function clBankCSV(run,B,sec){const R=clRepO(),DD=sec?B.sdays:B.days,LL=sec?B.payS:B.payM,q=x=>{const s=typeof x==='number'?(Math.round(x*100)/100).toFixed(2):String(x==null?'':x);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
