@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='23 Nov 2026 · flagged items download for clerks';
+const APP_BUILD='23 Nov 2026 · Excel files open cleanly';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -3098,7 +3098,7 @@ async function clWorkbook(wb,run,B,mode){
   /* ID numbers are stored as numbers; phone numbers as text with a leading apostrophe ('07…) so the 0 stays */
   const idV=id=>{const d=String(id||'').trim();return /^[1-9]\d{0,14}$/.test(d)?Number(d):d},idO={numFmt:'0',left:true},phO={numFmt:'@',left:true};
   let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
-  const used=new Set();const sname=s=>{const b=String(s).replace(/[\[\]:*?\/\\]/g,' ').replace(/\s+/g,' ').trim().slice(0,31)||'Sheet';let x=b,i=2;while(used.has(x.toLowerCase()))x=b.slice(0,26)+' ('+(i++)+')';used.add(x.toLowerCase());return x};
+  const used=new Set();const sname=s=>{const b=String(s).replace(/[\[\]:*?\/\\]/g,' ').replace(/'/g,'’').replace(/\s+/g,' ').trim().slice(0,31)||'Sheet';let x=b,i=2;while(used.has(x.toLowerCase()))x=b.slice(0,26)+' ('+(i++)+')';used.add(x.toLowerCase());return x};
   const foot=[c.org,mode==='bank'?'Casual labour bank file':'Casual labour payment record',c.season,ref].filter(Boolean).join(' · ');
   const mkWs=(name,orient,a3,tab)=>wb.addWorksheet(sname(name),{properties:{tabColor:{argb:tab||'FF365628'}},views:[{showGridLines:false,zoomScale:90}],pageSetup:{paperSize:a3?8:9,orientation:orient||'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,margins:{left:0.35,right:0.35,top:0.45,bottom:0.55,header:0.25,footer:0.25}},
     headerFooter:{oddFooter:'&L&"Aptos"&8'+foot.replace(/&/g,'&&')+'&R&"Aptos"&8Page &P of &N'}});
@@ -3241,7 +3241,8 @@ async function xlQuotePrefix(buf){try{await loadScript(JSZIP_URL);const z=await 
   for(const n of Object.keys(z.files).filter(n=>/^xl\/worksheets\/sheet\d+\.xml$/.test(n))){let x=await z.file(n).async('string');if(/<ignoredErrors/.test(x))continue;
     const ie='<ignoredErrors><ignoredError sqref="A1:XFD1048576" numberStoredAsText="1"/></ignoredErrors>';
     const m=x.match(/<(smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/);x=m?x.slice(0,m.index)+ie+x.slice(m.index):x.replace('</worksheet>',ie+'</worksheet>');z.file(n,x)}
-  return await z.generateAsync({type:'arraybuffer'})}catch(e){console.warn('Excel tidy-up skipped',e);return buf}}
+  const wbx=z.file('xl/workbook.xml');if(wbx){let x=await wbx.async('string');x=x.replace(/(<definedName\b[^>]*>)([\s\S]*?)(<\/definedName>)/g,(m,a,b,c)=>a+b.replace(/&apos;((?:[^&!]|&(?!apos;))*(?:&apos;(?:[^&!]|&(?!apos;))*)*)&apos;!/g,(q,nm)=>'&apos;'+nm.replace(/&apos;&apos;/g,'&apos;').replace(/&apos;/g,'&apos;&apos;')+'&apos;!')+c);z.file('xl/workbook.xml',x)}
+  return await z.generateAsync({type:'arraybuffer',compression:'DEFLATE',compressionOptions:{level:6}})}catch(e){console.warn('Excel tidy-up skipped',e);return buf}}
 async function clXLSX(run,B,mode){
   toast('Preparing Excel file…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel tool. Check your connection.');return}
   const wb=new ExcelJS.Workbook();wb.creator='Hazina';wb.created=new Date();wb.title=clFile(run,B,mode);await clWorkbook(wb,run,B,mode);
@@ -3284,7 +3285,7 @@ async function clFlagXLSX(run,B,o,file){toast('Preparing Excel file…');try{awa
   const INK='FF111827',SLATE='FF646C78',LINE='FFD6DAE0',FILL='FFF3F4F6',BAND='FFFAFAFB',GREEN='FF365628',AMT='#,##0.00;(#,##0.00);"-"';
   const thin={style:'thin',color:{argb:LINE}},med={style:'medium',color:{argb:INK}},dbl={style:'double',color:{argb:INK}};
   let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
-  const mk=(name,tab)=>wb.addWorksheet(name.replace(/[\[\]:*?\/\\]/g,' ').slice(0,31),{properties:{tabColor:{argb:tab}},views:[{showGridLines:false,zoomScale:90}],pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,margins:{left:0.35,right:0.35,top:0.45,bottom:0.55,header:0.25,footer:0.25}},
+  const mk=(name,tab)=>wb.addWorksheet(name.replace(/[\[\]:*?\/\\]/g,' ').replace(/'/g,'’').slice(0,31),{properties:{tabColor:{argb:tab}},views:[{showGridLines:false,zoomScale:90}],pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,margins:{left:0.35,right:0.35,top:0.45,bottom:0.55,header:0.25,footer:0.25}},
     headerFooter:{oddFooter:'&L&"Aptos"&8'+M.foot.replace(/&/g,'&&')+'&R&"Aptos"&8Page &P of &N'}});
   const put=(ws,r,c1,c2,v,x={})=>{if(c2>c1)ws.mergeCells(r,c1,r,c2);for(let i=c1;i<=c2;i++){const q=ws.getRow(r).getCell(i);if(x.fill)q.fill={type:'pattern',pattern:'solid',fgColor:{argb:x.fill}};if(x.border)q.border=x.border}
     const q=ws.getRow(r).getCell(c1);q.value=v===''||v==null?null:v;q.font={name:x.head?'Aptos Display':'Aptos',size:x.size||10,bold:!!x.bold,italic:!!x.italic,color:{argb:x.color||INK}};if(x.numFmt)q.numFmt=x.numFmt;
