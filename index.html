@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='23 Nov 2026 · arrears, claims and offloader group work';
+const APP_BUILD='23 Nov 2026 · warns before uploading Hazina’s own files';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -3275,11 +3275,22 @@ async function clLoadWB(buf){try{const wb=new ExcelJS.Workbook();await wb.xlsx.l
 async function clUpload(files){
   toast('Reading '+files.length+' file'+(files.length===1?'':'s')+'…');
   try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel reader. Check your connection.');return}
-  const parsed=[],bad=[];
+  const parsed=[],bad=[],ownL=[];
   for(const f of files){if(!/\.(xlsx|xlsm)$/i.test(f.name)){bad.push(f.name+' (save it as .xlsx)');continue}
-    try{const wb=await clLoadWB(await f.arrayBuffer());const P=clParseWB(wb);
-      if(!P.sheets.length){bad.push(f.name+' (no worker sheets found)');continue}parsed.push({f,P,per:clFilePeriod(P)})}
+    try{const wb=await clLoadWB(await f.arrayBuffer());
+      /* a file downloaded from Hazina (approval or bank file) is not a clerk's file: uploading it would replace the clerk's data with the app's own earlier output */
+      const own=wb.creator==='Hazina'||wb.worksheets.some(ws=>{const a=String(clCell(ws.getRow(1).getCell(1).value)||''),h=[];for(let c=1;c<=Math.min(ws.columnCount||0,60);c++)h.push(String(clCell(ws.getRow(7).getCell(c).value)||''));return /·\s*CASUAL LABOUR/i.test(a)&&h.some(x=>/Days Total \(KES\)|^Mandays$/.test(x))});
+      const P=clParseWB(wb);
+      if(!P.sheets.length){bad.push(f.name+' (no worker sheets found)');continue}(own?ownL:parsed).push({f,P,per:clFilePeriod(P),own})}
     catch(e){console.error(e);bad.push(f.name+' (could not be read)')}}
+  /* a file downloaded from Hazina (approval or bank file) is probably not a clerk's file: warn and let the admin decide */
+  if(ownL.length){pcrModal(`${mdHead('This looks like a Hazina file')}<p class="small" style="margin:0">${ownL.map(x=>'<b>'+esc(x.f.name)+'</b>').join(', ')} ${ownL.length===1?'was':'were'} downloaded from Hazina (an approval or bank file), not received from a data clerk. Uploading ${ownL.length===1?'it':'them'} would build this run from the app’s own earlier output, so anything left out of that file (for example arrears or claims sheets) would be missing.</p>
+      <p class="small muted" style="margin:0">The clerk’s workbook is usually named like <i>…Casual_Labour_Payment_record.xlsx</i>.</p>
+      <div class="inline-actions"><button class="btn" type="button" id="ownNo">Don’t upload ${ownL.length===1?'it':'them'}</button><button class="btn ghost" type="button" id="ownYes">Upload anyway</button></div>`,close=>{
+      $('#ownNo').onclick=()=>{close();if(parsed.length)clUploadGo(parsed,bad);else toast('Nothing uploaded')};
+      $('#ownYes').onclick=()=>{close();clUploadGo([...parsed,...ownL],bad)}});return}
+  clUploadGo(parsed,bad)}
+function clUploadGo(parsed,bad){
   if(!parsed.length){toast('No files added'+(bad.length?' · '+bad.join('; '):''));return}
   const add=(run,list)=>{let rows=0;list.forEach(({f,P})=>{const up={id:nid(),file:f.name,clerk:(ui.cl.clerk||'').trim()||clClerkGuess(f.name)||'Clerk',at:Date.now(),by:pcrMyName(),skipped:P.skipped,
       sheets:P.sheets.map(s=>({sheet:s.sheet,cat:s.cat,kind:s.kind,dates:s.dates,rows:s.rows,clerkTot:s.clerkTot,warn:s.warn,grp:s.grp||null}))};
