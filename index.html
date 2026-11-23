@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='23 Nov 2026 · warns before uploading Hazina’s own files';
+const APP_BUILD='23 Nov 2026 · flagged items download for clerks';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -3253,6 +3253,82 @@ function clBankCSV(run,B,sec){const R=clRepO(),DD=sec?B.sdays:B.days,LL=sec?B.pa
   LL.forEach((b,i)=>L.push([i+1,b.n,b.id||'','="'+clPh(b.ph)+'"',b.g||'',...DD.map(d=>b.e[d]||''),...X.map(C=>b.lump[C.key]||''),...(R.mandays?[b.days]:[]),b.amt]));
   L.push(['','TOTAL','','','',...DD.map(d=>r2(sum(LL,b=>num(b.e[d])))),...X.map(C=>r2(sum(LL,b=>num(b.lump[C.key])))),...(R.mandays?[sum(LL,b=>b.days)]:[]),r2(sum(LL,b=>b.amt))]);
   download(clFile(run,B,'bank')+(sec?' - Security':'')+'.csv',L.map(r=>r.map(q).join(',')).join('\n'))}
+/* ---------- flagged items for clerk verification (PDF and Excel) ---------- */
+const CL_FGUIDE={'no-id':'Confirm the person has no ID on record, or write the ID number.','bad-id':'Write the correct ID number.','no-phone':'Write the person’s phone number. They are not paid until it is added.','bad-phone':'Write the correct 10-digit phone number (07… or 01…).',
+  'dup-phone':'Confirm whose number this is and give the other person’s own number.','name-link':'Confirm whether these entries are the same person.','same-name':'Confirm these are different people.','dup':'Confirm whether the person worked once or twice on that day.',
+  'calc':'Confirm the correct row total.','calc-sheet':'Confirm the correct sheet total.','id-name':'Confirm which name is correct for this ID number.','rate':'Confirm the correct rate.','no-rate':'Give the rate per unit.','outside':'Confirm the dates worked.','kind':'Confirm how this category is paid.'};
+/* one row per flagged item, with the person's details as uploaded */
+function clFlagRows(B){const BK=new Map(B.bank.flatMap(b=>b.keys.map(k=>[k,b])));const byKey=k=>String(k||'').split(',').map(x=>BK.get(x)||BK.get(x.replace(/^p:(s:)?/,''))).find(Boolean);
+  return B.flags.filter(f=>f.lvl!=='info').map(f=>{const P=f.people&&f.people.length?f.people:[{n:f.who||'',key:f.wk}];
+    const ppl=P.map(p=>{const b=byKey(p.key)||byKey(f.wk);const idRaw=p.id!=null&&String(p.id).trim()?String(p.id):(b&&b.id)||'';const phRaw=f.type==='no-phone'?'':f.type==='bad-phone'?String(p.ph||''):(p.ph?clPh(p.ph):b&&clPhoneOk(b.ph)?clPh(b.ph):'');
+      return{n:p.n||f.who||(b&&b.n)||'',id:/id$/.test(f.type)&&f.type==='no-id'?'':idRaw,ph:phRaw,cats:p.cats||(f.catList||[]).join(', ')||(b?[...b.cats].join(', '):'')}});
+    const cats=[...new Set([...(f.catList||[]),...(f.cat?[f.cat]:[]),...ppl.flatMap(p=>String(p.cats||'').split(', ').filter(Boolean))])];
+    const st=!f.dec?'pend':f.dec==='disregard'||f.dec==='keep'&&!f.fix?'disregard':'adopt';return{f,ppl,cats,st}})}
+function clFlagModel(run,B,o){const c=clCfg(),ref=clRef(run),R0=clFlagRows(B),types=[...new Set(R0.map(x=>x.f.type))];
+  const R=R0.filter(x=>(!o.types||o.types.includes(x.f.type))&&(!o.cats||!x.cats.length||x.cats.some(k=>o.cats.includes(k)))&&(o.st==='all'||x.st===o.st));
+  const per=B.from?fmtD(B.from)+' – '+fmtD(B.to):'',stL={all:'All decisions',pend:'Awaiting decision',adopt:'Adopted',disregard:'Disregarded'}[o.st];
+  const M={kick:clKick(),title:'Flagged items for verification',sub:['Pay period '+per,'Ref '+ref,stL,o.cats&&o.cats.length<B.cats.length?o.cats.join(', '):'All categories','Prepared '+fmtD(todayStr())].filter(Boolean).join('  ·  '),
+    from:B.from||todayStr(),to:B.to||todayStr(),ref,org:c.org,orient:'l',fs:7.4,blocks:[],noApprove:true,approve:[],L:{approval:'Approval',name:'Name',signature:'Signature',date:'Date',page:'Page',supp:'',coverNote:''},
+    foot:[c.org,'Casual labour · flagged items for verification',ref].filter(Boolean).join(' · '),rows:R};
+  const n=k=>R.filter(x=>x.st===k).length;M.figs=[['Flagged items',String(R.length)],['Awaiting decision',String(n('pend'))],['Adopted',String(n('adopt'))],['Disregarded',String(n('disregard'))],['Amount involved (KES)',r2(sum(R,x=>num(x.f.amt)))]];
+  const G=[];types.forEach(t=>{const L=R.filter(x=>x.f.type===t);if(L.length)G.push({t,L})});M.groups=G;
+  M.blocks.push({t:'note',x:'For the data clerk: check each entry against your records. Tick “Confirmed” when the entry is correct, or write the correct ID number, phone number or remark under “Clerk’s comment”, then return this list to the admin.'});
+  M.blocks.push({t:'h',x:'Summary'});M.blocks.push({t:'table',cols:[{h:'No',w:24},{h:'Flagged item'},{h:'What to check',w:300},{h:'Items',n:1,w:46},{h:'Amount (KES)',n:1,w:80}],rows:[...G.map((g,i)=>({c:[String(i+1),CL_FT[g.t]||g.t,CL_FGUIDE[g.t]||'Confirm.',String(g.L.length),r2(sum(g.L,x=>num(x.f.amt)))]})),{k:'tot',c:['','Total','',String(R.length),r2(sum(R,x=>num(x.f.amt)))]}]});
+  G.forEach((g,gi)=>{M.blocks.push({t:'h',x:String.fromCharCode(65+gi%26)+'. '+(CL_FT[g.t]||g.t)+' · '+g.L.length});M.blocks.push({t:'note',x:CL_FGUIDE[g.t]||'Confirm.'});
+    M.blocks.push({t:'table',cols:[{h:'No',w:20},{h:'Name',w:92},{h:'Category',w:64},{h:'ID No',w:54},{h:'Phone No',w:60},{h:'Detail'},{h:'Amount',n:1,w:50},{h:'Admin decision',w:64},{h:'Confirmed',w:46,box:1},{h:'Clerk’s comment',w:90}],
+      rows:g.L.map((x,i)=>({c:[String(i+1),x.ppl.map(p=>p.n).join('\n'),x.cats.join(', '),x.ppl.map(p=>p.id||'—').join('\n'),x.ppl.map(p=>p.ph||'—').join('\n'),x.f.msg,x.f.amt!=null&&x.f.amt!==''?num(x.f.amt):'',clFlagState(x.f).replace(/ · .*$/,''),'','']}))})});
+  if(!R.length)M.blocks.push({t:'note',x:'No flagged items match the selection.'});
+  return M}
+async function clFlagXLSX(run,B,o,file){toast('Preparing Excel file…');try{await loadScript(EXCELJS_URL)}catch(e){toast('Couldn’t load the Excel tool. Check your connection.');return}
+  const M=clFlagModel(run,B,o),wb=new ExcelJS.Workbook();wb.creator='Hazina';wb.created=new Date();
+  const INK='FF111827',SLATE='FF646C78',LINE='FFD6DAE0',FILL='FFF3F4F6',BAND='FFFAFAFB',GREEN='FF365628',AMT='#,##0.00;(#,##0.00);"-"';
+  const thin={style:'thin',color:{argb:LINE}},med={style:'medium',color:{argb:INK}},dbl={style:'double',color:{argb:INK}};
+  let logo=null;try{const dm=await imgDims(pcrLogo());logo={id:wb.addImage({base64:pcrLogo(),extension:'png'}),w:dm.w,h:dm.h}}catch(e){}
+  const mk=(name,tab)=>wb.addWorksheet(name.replace(/[\[\]:*?\/\\]/g,' ').slice(0,31),{properties:{tabColor:{argb:tab}},views:[{showGridLines:false,zoomScale:90}],pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,margins:{left:0.35,right:0.35,top:0.45,bottom:0.55,header:0.25,footer:0.25}},
+    headerFooter:{oddFooter:'&L&"Aptos"&8'+M.foot.replace(/&/g,'&&')+'&R&"Aptos"&8Page &P of &N'}});
+  const put=(ws,r,c1,c2,v,x={})=>{if(c2>c1)ws.mergeCells(r,c1,r,c2);for(let i=c1;i<=c2;i++){const q=ws.getRow(r).getCell(i);if(x.fill)q.fill={type:'pattern',pattern:'solid',fgColor:{argb:x.fill}};if(x.border)q.border=x.border}
+    const q=ws.getRow(r).getCell(c1);q.value=v===''||v==null?null:v;q.font={name:x.head?'Aptos Display':'Aptos',size:x.size||10,bold:!!x.bold,italic:!!x.italic,color:{argb:x.color||INK}};if(x.numFmt)q.numFmt=x.numFmt;
+    q.alignment={horizontal:x.center?'center':(typeof v==='number'||x.right)?'right':'left',vertical:x.top?'top':'middle',wrapText:!!x.wrap};return q};
+  const header=(ws,NC,title)=>{put(ws,1,1,NC-1,M.kick.toUpperCase(),{size:8,color:SLATE});put(ws,2,1,NC-1,title,{head:true,size:20,bold:true});ws.getRow(2).height=34;put(ws,3,1,NC,M.sub,{size:9.5,color:SLATE,wrap:true});ws.getRow(3).height=18;
+    for(let i=1;i<=NC;i++)ws.getRow(4).getCell(i).border={bottom:{style:'double',color:{argb:INK}}};ws.getRow(4).height=6;if(logo){const h=52,w=Math.min(104,h*logo.w/logo.h);xlLogo(ws,logo.id,NC,w,h)}};
+  const label=(ws,r,NC,t)=>{put(ws,r,1,NC,t.toUpperCase(),{size:8,bold:true,color:GREEN,border:{bottom:{style:'thin',color:{argb:'FF9DB59A'}}}});ws.getRow(r).height=18};
+  const hd=(ws,r,c,h,x)=>put(ws,r,c,c,h,Object.assign({bold:true,size:9,fill:FILL,border:{top:med,bottom:med},wrap:true},x||{}));
+  /* Summary sheet */
+  const S=mk('Summary','FF111827'),SN=6;S.columns=[{width:6},{width:34},{width:62},{width:10},{width:16},{width:14}];header(S,SN,M.title);
+  let r=6;label(S,r,SN,'Key figures');r++;M.figs.forEach(([l,v],i)=>{const key=i===M.figs.length-1,x=key?{border:{top:med,bottom:dbl},fill:FILL}:{border:{bottom:thin}};put(S,r,1,1,'',x);put(S,r,2,4,l,Object.assign({},x,key?{bold:true}:{color:SLATE}));put(S,r,5,5,typeof v==='number'?v:Number(v),Object.assign({bold:true,numFmt:typeof v==='number'?AMT:'0'},x));put(S,r,6,6,'',x);S.getRow(r).height=19;r++});r++;
+  label(S,r,SN,'Flagged items by type');r++;['No','Flagged item','What to check','Items','Amount (KES)','Sheet'].forEach((h,i)=>hd(S,r,i+1,h,{right:i===3||i===4,center:i===0||i===5}));S.getRow(r).height=22;r++;const s0=r;
+  M.groups.forEach((g,i)=>{const x={border:{bottom:thin},fill:i%2?BAND:undefined};put(S,r,1,1,i+1,Object.assign({center:true,color:SLATE},x));put(S,r,2,2,CL_FT[g.t]||g.t,Object.assign({bold:true},x));put(S,r,3,3,CL_FGUIDE[g.t]||'Confirm.',Object.assign({wrap:true,size:9},x));
+    put(S,r,4,4,g.L.length,Object.assign({numFmt:'0'},x));put(S,r,5,5,r2(sum(g.L,y=>num(y.f.amt))),Object.assign({numFmt:AMT},x));const lk=put(S,r,6,6,'',x);g.sheet=(String.fromCharCode(65+i%26)+'. '+(CL_FT[g.t]||g.t)).replace(/[\[\]:*?\/\\]/g,' ').slice(0,31);lk.value={text:'Open ›',hyperlink:"#'"+g.sheet.replace(/'/g,"''")+"'!A1"};lk.font={name:'Aptos',size:9,color:{argb:SLATE},underline:true};lk.alignment={horizontal:'center',vertical:'middle'};S.getRow(r).height=30;r++});
+  const T2={border:{top:med,bottom:dbl},bold:true,fill:FILL};put(S,r,1,3,'Total',T2);put(S,r,4,4,{formula:M.groups.length?'SUM(D'+s0+':D'+(r-1)+')':'0',result:M.rows.length},Object.assign({numFmt:'0'},T2));put(S,r,5,5,{formula:M.groups.length?'SUM(E'+s0+':E'+(r-1)+')':'0',result:r2(sum(M.rows,y=>num(y.f.amt)))},Object.assign({numFmt:AMT},T2));put(S,r,6,6,'',T2);r+=2;
+  put(S,r,1,SN,M.blocks[0].x,{size:9.5,italic:true,color:SLATE,wrap:true});S.getRow(r).height=30;S.pageSetup.fitToHeight=1;
+  /* one sheet per flag type */
+  M.groups.forEach((g,gi)=>{const ws=mk(g.sheet,'FF9DB59A'),NC=10;ws.columns=[{width:6},{width:30},{width:20},{width:13},{width:14},{width:52},{width:13},{width:20},{width:12},{width:32}];
+    header(ws,NC,(CL_FT[g.t]||g.t)+' · '+g.L.length);put(ws,5,1,NC,CL_FGUIDE[g.t]||'Confirm.',{size:9.5,italic:true,color:SLATE});const hr=7;
+    ['No','Name','Category','ID No','Phone No','Detail','Amount (KES)','Admin decision','Confirmed','Clerk’s comment'].forEach((h,i)=>hd(ws,hr,i+1,h,{right:i===6,center:i===0||i===8}));ws.getRow(hr).height=24;
+    g.L.forEach((x,i)=>{const rr=hr+1+i,o={border:{bottom:thin},fill:i%2?BAND:undefined,wrap:true,top:true},lines=Math.max(x.ppl.length,Math.ceil(x.f.msg.length/58));ws.getRow(rr).height=Math.max(20,lines*13+4);
+      put(ws,rr,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,rr,2,2,x.ppl.map(p=>p.n).join('\n'),Object.assign({bold:true},o));put(ws,rr,3,3,x.cats.join(', '),Object.assign({size:9},o));
+      const ids=x.ppl.map(p=>p.id||''),one=ids.length===1&&/^[1-9]\d{0,14}$/.test(String(ids[0]));put(ws,rr,4,4,one?Number(ids[0]):ids.map(v=>v||'—').join('\n'),Object.assign({},o,one?{numFmt:'0',right:false}:{}));
+      put(ws,rr,5,5,x.ppl.map(p=>p.ph||'—').join('\n'),Object.assign({numFmt:'@'},o));put(ws,rr,6,6,x.f.msg,Object.assign({size:9},o));put(ws,rr,7,7,x.f.amt!=null&&x.f.amt!==''?num(x.f.amt):null,Object.assign({numFmt:AMT},o));
+      put(ws,rr,8,8,'  '+clFlagState(x.f).replace(/ · .*$/,''),Object.assign({size:9,color:x.st==='pend'?'FFB42318':INK},o));const cf=put(ws,rr,9,9,'',Object.assign({center:true},o));cf.dataValidation={type:'list',allowBlank:true,formulae:['"Yes,No"']};put(ws,rr,10,10,'',o)});
+    const last=hr+g.L.length;ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false,zoomScale:90}];ws.pageSetup.printTitlesRow=hr+':'+hr;ws.autoFilter={from:{row:hr,column:1},to:{row:Math.max(hr,last),column:NC}};
+    put(ws,last+2,1,NC,'Confirmed: choose Yes if the entry matches your records, or No and write the correction under Clerk’s comment.',{size:9,italic:true,color:SLATE})});
+  const buf=await xlQuotePrefix(await wb.xlsx.writeBuffer());const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=file+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
+function clFlagDl(){const run=clCur();if(!run)return;const B=clBuild(run),R0=clFlagRows(B);if(!R0.length){toast('No flagged items in this run');return}
+  const o=ui.cl.fx||(ui.cl.fx={st:'all'}),types=[...new Set(R0.map(x=>x.f.type))],cats=B.cats.map(C=>C.name);
+  const tSel=t=>!o.types||o.types.includes(t),cSel=c=>!o.cats||o.cats.includes(c);
+  pcrModal(`${mdHead('Download flagged items for the clerks')}<p class="small muted" style="margin:0">An executive list grouped by flag type, with the person’s details as uploaded, your decision, a “Confirmed” box and a space for the clerk’s comment.</p>
+    <div><b class="small">Flag types</b><div class="ex-opts" style="margin-top:6px">${types.map(t=>`<label class="optchip"><input type="checkbox" data-fxt="${t}" ${tSel(t)?'checked':''}> ${esc(CL_FT[t]||t)} · ${R0.filter(x=>x.f.type===t).length}</label>`).join('')}</div></div>
+    <div><b class="small">Categories</b><div class="ex-opts" style="margin-top:6px">${cats.map(c=>`<label class="optchip"><input type="checkbox" data-fxc="${esc(c)}" ${cSel(c)?'checked':''}> ${esc(c)}</label>`).join('')}</div></div>
+    <div class="field" style="max-width:280px"><label for="fxSt">Decisions to include</label><select id="fxSt">${[['all','All'],['pend','Awaiting decision'],['adopt','Adopted'],['disregard','Disregarded']].map(([k,l])=>`<option value="${k}" ${o.st===k?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="kv"><span>Items in the download</span><b id="fxN">–</b></div>
+    <div class="inline-actions"><button class="btn" type="button" id="fxPdf">Download PDF</button><button class="btn ghost" type="button" id="fxXls">Download Excel</button></div>`,close=>{
+    const read=()=>{const T=[...document.querySelectorAll('[data-fxt]')].filter(x=>x.checked).map(x=>x.dataset.fxt),C=[...document.querySelectorAll('[data-fxc]')].filter(x=>x.checked).map(x=>x.dataset.fxc);
+      o.types=T.length===types.length?null:T;o.cats=C.length===cats.length?null:C;o.st=$('#fxSt').value;$('#fxN').textContent=clFlagModel(run,B,o).rows.length;return o};
+    $('#mdForm').addEventListener('change',read);read();
+    const file=()=>(B.to||todayStr()).replace(/-/g,'')+'_Flagged items for verification ('+clRef(run).replace(/\//g,'-')+')';
+    const go=async f=>{read();const M=clFlagModel(run,B,o);if(!M.rows.length){toast('Nothing matches the selection');return}if(f==='pdf')await pcrPDF(M,file());else await clFlagXLSX(run,B,o,file())};
+    $('#fxPdf').onclick=()=>go('pdf');$('#fxXls').onclick=()=>go('xlsx')})}
 async function clExport(kind,f,force){const run=clCur();if(!run)return;const B=clBuild(run);if(!B.cats.length){toast('Nothing to export yet. Upload the clerks’ files first.');return}
   if(B.pend.length&&!force){pcrModal(`${mdHead('Flagged items awaiting a decision')}<p class="small" style="margin:0">${B.pend.length} flagged item${B.pend.length===1?' has':'s have'} not been adopted or disregarded yet. Nothing has been corrected automatically: ${B.pend.some(x=>x.fix)?'calculation flags use the clerk’s uploaded figures until you choose, and ':''}every pending flag is listed in the file as “Awaiting decision”.</p>
     <div class="inline-actions"><button class="btn" type="button" id="xpRev">Review flagged items</button><button class="btn ghost" type="button" id="xpGo">Download anyway</button></div>`,close=>{$('#xpRev').onclick=()=>{close();ui.cl.tab='dash';ui.cl.flagOpen=true;render();setTimeout(()=>{const el=$('#clFlags');if(el)el.scrollIntoView({block:'start'})},40)};$('#xpGo').onclick=()=>{close();clExport(kind,f,true)}});return}
@@ -3525,6 +3601,7 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
       <tr class="tot"><td>Total flagged</td><td class="n">${sum(S,g=>g.n)}</td><td class="n">${sum(S,g=>g.pend)}</td><td class="n">${sum(S,g=>g.ok)}</td><td class="n">${M(r2(sum(S,g=>g.amt)))}</td><td></td></tr></tbody></table></div>`;
     return`<div class="card s12" id="clFlags"><div class="card-h"><div><h2>Flagged</h2><span class="small muted">Nothing is auto-corrected. Adopt keeps the record and the flag visible in the approval file; Disregard dismisses it. A number used by two different people is held off the bank file until you decide or change a number.</span></div>
       <span class="inline-actions">${pend.length?`<span class="pill bad">${pend.length} awaiting decision</span>`:F.length?'<span class="pill good">All decided</span>':''}<span class="seg seg2" style="width:220px"><button type="button" data-act="clFlDet" data-v="0" aria-pressed="${!det}">Summary</button><button type="button" data-act="clFlDet" data-v="1" aria-pressed="${det}">Detailed list</button></span></span></div>
+      <div class="fl-fbar"><button type="button" class="btn sm" data-act="clFlagDl">⬇ Download for clerks (PDF / Excel)</button></div>
       <div class="fl-fbar"><span class="small muted">In the approval file:</span>${[['off','Don’t show flagged items'],['summary','Show summary'],['detail','Show summary + list']].map(([k,l])=>`<button type="button" class="optchip" data-act="clFlView" data-v="${k}" aria-pressed="${clFlagView(R)===k}">${clFlagView(R)===k?'✓ ':''}${l}</button>`).join('')}</div>
       ${S.length?sumT:''}
       <div class="fl-search"><span aria-hidden="true">⌕</span><input id="clFlq" type="search" value="${esc(ui.cl.flq||'')}" placeholder="Find a flagged person, phone number or category" autocomplete="off" aria-label="Search flagged items">${fq?`<small class="muted">${pend.filter(fm).length+done.filter(fm).length} found</small>`:''}</div>
@@ -3678,6 +3755,7 @@ function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clC
   else if(a==='clDoneT'){ui.cl.doneOpen=!ui.cl.doneOpen}
   else if(a==='clXtra'){const c=clCfg(),n=t.dataset.v,k=clCatKey(clCanon(n));c.xtra=c.xtra||{};const was=clIsExtra(n);c.xtra[k]=!was;clSaveCfg();render();toast(was?n+' now uses the run’s pay period':n+' keeps its own dates and is paid as a separate column on the bank file')}
   else if(a==='clSep'){const c=clCfg(),n=t.dataset.v,k=clCatKey(clCanon(n));c.sep=c.sep||{};const was=clIsSep(n);c.sep[k]=!was;clSaveCfg();render();toast(was?n+' is now paid with the other categories':n+' now has its own pay period and a separate security list on the bank file')}
+  else if(a==='clFlagDl')clFlagDl();
   else if(a==='clFlDet'){ui.cl.flagDet=t.dataset.v==='1';render()}
   else if(a==='clFlSt'){ui.cl.flSt=t.dataset.v;ui.cl.flagDet=true;render()}
   else if(a==='clFlView'){clCfg().rep.flagView=t.dataset.v;clSaveCfg();render()}
