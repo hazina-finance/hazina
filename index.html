@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='16 Nov 2026 · verified against clerk files; name matches need confirmation';
+const APP_BUILD='23 Nov 2026 · arrears, claims and offloader group work';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -2832,7 +2832,7 @@ function clParseSheet(ws){
   const amtCol=(col.tots.filter(x=>!/bag|unit|qty|quantit|^days?\b/i.test(x.t)||/^total$/i.test(x.t)).pop()||{}).c;
   let clerkTot=null;
   for(let r=1;r<hr&&clerkTot==null;r++){const row=ws.getRow(r);for(let c=1;c<=maxC;c++){const v=clCell(row.getCell(c).value);if(typeof v==='string'&&/total/i.test(v)){for(let k=c+1;k<=Math.min(maxC,c+6);k++){const x=clCell(row.getCell(k).value);if(typeof x==='number'){clerkTot=x;break}}break}}}
-  const rows=[],idle=[],warn=[];let merged=0,marks=0,fall=0,over=0;
+  const gd={};const rows=[],idle=[],warn=[];let merged=0,marks=0,fall=0,over=0;
   for(let r=hr+1;r<=maxR;r++){const R=ws.getRow(r);const n=String(clCell(R.getCell(col.name).value)??'').replace(/\s+/g,' ').trim();
     if(!n||/^(grand\s*)?(sub\s*)?totals?\b|^calculated|^prepared|^approved|^checked/i.test(n)||/^[\d.,\s]+$/.test(n))continue;
     const o={n};if(col.id){const i=clIdStr(R.getCell(col.id).value);if(i)o.id=i}if(col.ph){const raw=clCell(R.getCell(col.ph).value),p=clPhone(raw);if(p)o.ph=p;if(p&&!clPhoneOk(p))o.phr=String(raw).replace(/\.0+$/,'').trim()}
@@ -2840,21 +2840,27 @@ function clParseSheet(ws){
     const x={};col.extra.forEach(e=>{const v=clCell(R.getCell(e.c).value);if(v!=null&&String(v).trim())x[e.t]=v instanceof Date?clIso(v):String(v).trim()});if(Object.keys(x).length)o.x=x;
     if(col.rate){const rt=num(clCell(R.getCell(col.rate).value));if(rt>0)o.r=rt}
     o.d={};const p=new Set();for(const {c,d} of col.dates){const cell=R.getCell(c);const v=clCell(cell.value);if(v==null||v==='')continue;
-      if(cell.isMerged){merged++;p.add(d);continue}let q=typeof v==='number'?v:num(v);if(!(q>0)){if(typeof v==='string'&&v.trim())marks++;continue}
+      if(cell.isMerged){merged++;p.add(d);const mv=typeof v==='number'?v:num(v);if(mv>0)gd[d]=Math.max(gd[d]||0,mv);continue}let q=typeof v==='number'?v:num(v);if(!(q>0)){if(typeof v==='string'&&v.trim())marks++;continue}
       if(kind==='day'&&o.r&&q<=1)q=q*o.r;o.d[d]=r2((o.d[d]||0)+q)}
     const ac=amtCol?clCell(R.getCell(amtCol).value):null;
     /* the clerk's own row total is kept beside the day figures; a difference becomes a red flag for the admin to decide (never auto-corrected) */
     if(Object.keys(o.d).length&&typeof ac==='number'&&ac>0){const comp=kind==='unit'?(o.r?r2(sum(Object.values(o.d))*o.r):null):r2(sum(Object.values(o.d)));if(comp!=null&&Math.abs(comp-ac)>1){o.ct=r2(ac);over++}}
     if(!Object.keys(o.d).length){delete o.d;if(typeof ac==='number'&&ac>0){o.a=r2(ac);fall++;if(p.size)o.p=[...p].sort()}}
     if(o.d||o.a)rows.push(o);else idle.push({n:o.n,id:o.id,ph:o.ph,g:o.g})}
-  if(merged)warn.push(merged+' merged day cell'+(merged===1?' was':'s were')+' read as group work (who took part), not as each worker’s own figure.');
+  if(merged)warn.push(merged+' merged cell'+(merged===1?' was':'s were')+' read as group work (who took part); each person is paid the TOTAL in their own row.');
   if(fall)warn.push(fall+' worker'+(fall===1?'’s':'s’')+' pay was taken from the clerk’s “'+((col.tots.find(x=>x.c===amtCol)||{}).t||'Total')+'” column and spread over the days they took part.');
   if(over){const L=rows.filter(o=>o.ct!=null);if(L.length>=3&&L.length>rows.length*0.6&&L.every(o=>o.ct<=31&&Number.isInteger(o.ct))){L.forEach(o=>delete o.ct);warn.push('The “'+((col.tots.find(x=>x.c===amtCol)||{}).t||'Total')+'” column looks like a count of days, not money, so it was not compared with the pay.')}
     else warn.push(over+' row'+(over===1?'':'s')+' where the clerk’s row total differs from the day figures. Each is raised as a red flag for your decision.')}
   if(marks)warn.push(marks+' day cell'+(marks===1?'':'s')+' held text instead of a number and '+(marks===1?'was':'were')+' ignored.');
   if(kind==='unit'){const md=clMode(rows.map(o=>o.r));let nr=0;rows.forEach(o=>{if(!o.r&&o.d){if(md)o.r=md;else nr++}});if(nr)warn.push(nr+' offloader'+(nr===1?' has':'s have')+' no unit rate.')}
   const dates=[...new Set(col.dates.map(x=>x.d))].sort();
-  return{sheet:ws.name,cat:clCatName(ws.name),kind,dates,rows,idle,clerkTot,warn}}
+  /* group work: the clerk merges date, bags, rate and category cells for people who worked together; each person is paid the TOTAL in their own row */
+  let grp=null;if(Object.keys(gd).length){const gr=rows.filter(o=>o.a&&!o.d);const lab=[...new Set(gr.map(o=>o.x&&(o.x.Category||o.x.Activity||o.x.Item)).filter(Boolean))];
+    grp={d:gd,bags:r2(sum(Object.values(gd))),rate:clMode(gr.map(o=>o.r)),label:lab.join(', '),n:gr.length,paid:r2(sum(gr,o=>o.a))}}
+  return{sheet:ws.name,cat:clCatName(ws.name),kind,dates,rows,idle,clerkTot,warn,grp}}
+/* one line describing the group work on an offloading sheet */
+const clGrpTxt=C=>(C.grps||[]).map(g=>'Group work'+(g.label?' · '+g.label:'')+': '+Object.keys(g.d).sort().map(d=>clDM(d)+' '+clFmtN(g.d[d])+' bags').join(', ')+(Object.keys(g.d).length>1?' = '+clFmtN(g.bags)+' bags':'')+(g.rate?' at Ksh '+clFmtN(g.rate)+' per bag ('+fmt(g.bags*g.rate)+')':'')+', offloaded by '+g.n+' people. Each person is paid the amount in the clerk’s TOTAL column ('+fmt(g.paid)+' in all), not bags × rate.').join(' ');
+const clGrpRow=(C,w)=>C.kind==='unit'&&w.fixed>0&&!w.units;
 const clRowAmt=(o,kind)=>kind==='unit'?r2(sum(Object.values(o.d||{}),num)*num(o.r)+num(o.a)):r2(sum(Object.values(o.d||{}),num)+num(o.a));
 const clSheetTot=s=>r2(sum(s.rows,o=>clRowAmt(o,s.kind)));
 
@@ -2867,14 +2873,17 @@ function clRegPut(r,cat,kind){const W=clReg(),k=clWKey(r);if(!r.n||k==='n:')retu
 /* ---------- pay period: set by the admin, or the clerks' main date range ---------- */
 /* security (e.g. Maize Guards) is a monthly payroll: its own pay period and its own list on the bank file */
 const CL_SEP_RE=/maize\s*guard|security|\bguards?\b|watchm[ae]n/i;
+/* arrears and claims sheets carry earlier dates: each is its own category with its own dates, paid as a lump sum on the bank file */
+const CL_XTRA_RE=/arrear|claim|adjust|refund|back\s*pay|top.?up|balance\s*b\/?f/i;
+const clIsExtra=name=>{const c=clCfg(),k=clCatKey(clCanon(name));if(c.xtra&&c.xtra[k]!=null)return !!c.xtra[k];return CL_XTRA_RE.test(clCanon(name))&&!clIsSep(name)};
 const clIsSep=name=>{const c=clCfg(),k=clCatKey(clCanon(name));if(c.sep&&c.sep[k]!=null)return !!c.sep[k];return CL_SEP_RE.test(clCanon(name))};
 /* a separate category's period: the dates in its own sheets (and admin entries) */
 function clSepPeriod(run,catKey){let f='',t='';const see=d=>{if(!d)return;if(!f||d<f)f=d;if(!t||d>t)t=d};
   (run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{if(clCatKey(clCanon(s.cat))!==catKey)return;(s.dates||[]).forEach(see);s.rows.forEach(r=>{Object.keys(r.d||{}).forEach(see);(r.p||[]).forEach(see)})}));
   (run.manual||[]).forEach(m=>{if(clCatKey(clCanon(m.cat))===catKey)Object.keys(m.d||{}).forEach(see)});const o=(run.sepPer||{})[catKey];if(o&&o.from&&o.to)return{from:o.from,to:o.to};return{from:f,to:t}}
 function clPeriod(run){if(run.fixed&&run.from&&run.to)return{from:run.from,to:run.to,auto:false};
-  const S=[];(run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{if(clIsSep(s.cat))return;const ds=new Set();s.rows.forEach(r=>{Object.keys(r.d||{}).forEach(d=>ds.add(d));(r.p||[]).forEach(d=>ds.add(d))});const L=[...ds].sort();if(L.length)S.push({f:L[0],t:L[L.length-1],w:sum(s.rows,r=>Object.keys(r.d||{}).length+(r.a?1:0))})}));
-  (run.manual||[]).forEach(m=>{if(clIsSep(m.cat))return;const L=Object.keys(m.d||{}).sort();if(L.length)S.push({f:L[0],t:L[L.length-1],w:L.length})});
+  const S=[];(run.uploads||[]).forEach(u=>u.sheets.forEach(s=>{if(clIsSep(s.cat)||clIsExtra(s.cat))return;const ds=new Set();s.rows.forEach(r=>{Object.keys(r.d||{}).forEach(d=>ds.add(d));(r.p||[]).forEach(d=>ds.add(d))});const L=[...ds].sort();if(L.length)S.push({f:L[0],t:L[L.length-1],w:sum(s.rows,r=>Object.keys(r.d||{}).length+(r.a?1:0))})}));
+  (run.manual||[]).forEach(m=>{if(clIsSep(m.cat)||clIsExtra(m.cat))return;const L=Object.keys(m.d||{}).sort();if(L.length)S.push({f:L[0],t:L[L.length-1],w:L.length})});
   if(!S.length)return{from:run.from||'',to:run.to||'',auto:true};
   S.sort((a,b)=>b.w-a.w);let f=S[0].f,t=S[0].t,grew=true;
   while(grew){grew=false;S.forEach(s=>{if(s.f<=t&&s.t>=f&&(s.f<f||s.t>t)){f=s.f<f?s.f:f;t=s.t>t?s.t:t;grew=true}})}
@@ -2883,7 +2892,7 @@ function clPeriod(run){if(run.fixed&&run.from&&run.to)return{from:run.from,to:ru
 /* ---------- consolidation: per category (strictly inside the period) and one de-duplicated bank list ---------- */
 const clMemo=new Map();
 function clBuild(run){const sig=clMemoSig(run);const hit=clMemo.get(run.id);if(hit&&hit.sig===sig)return hit.B;const B=clBuild0(run);clMemo.set(run.id,{sig,B});return B}
-const clMemoSig=run=>JSON.stringify(run.dec||{})+JSON.stringify(run.phOv||{})+JSON.stringify(run.idOv||{})+(run.uploads||[]).map(u=>u.sheets.length).join('.')+run.status+'|'+(run.uploads||[]).length+'|'+(run.uploads||[]).map(u=>u.id).join(',')+'|'+JSON.stringify(run.manual||[]).length+'|'+(run.excl||[]).join(',')+'|'+run.from+run.to+run.fixed+'|'+JSON.stringify(clCfg().alias)+'|'+Object.keys(clReg()).length;
+const clMemoSig=run=>JSON.stringify(run.dec||{})+JSON.stringify(run.phOv||{})+JSON.stringify(run.idOv||{})+(run.uploads||[]).map(u=>u.sheets.length).join('.')+run.status+'|'+(run.uploads||[]).length+'|'+(run.uploads||[]).map(u=>u.id).join(',')+'|'+JSON.stringify(run.manual||[]).length+'|'+(run.excl||[]).join(',')+'|'+run.from+run.to+run.fixed+'|'+JSON.stringify(clCfg().alias)+JSON.stringify(clCfg().xtra||{})+JSON.stringify(clCfg().sep||{})+'|'+Object.keys(clReg()).length;
 const CL_FIX=new Set(['calc','calc-sheet','dup']);
 const CL_FT={calc:'Calculation discrepancy · row total','calc-sheet':'Calculation discrepancy · sheet total',dup:'Recorded twice','dup-phone':'Duplicate payment number','no-phone':'Missing phone number','bad-phone':'Wrong phone number format','no-id':'Missing ID No.','bad-id':'Invalid ID No.','same-name':'Same name, paid separately','name-link':'Same name, no ID: same person?','id-name':'One ID, two names',kind:'Category type',rate:'Two rates','no-rate':'No unit rate',outside:'Outside pay period'};
 /* the effect of each decision, in words (used on screen and in the approval file) */
@@ -2933,7 +2942,7 @@ function clBuild0(run){
   (run.uploads||[]).slice().sort((a,b)=>(a.at||0)-(b.at||0)).forEach(u=>u.sheets.forEach((s,si)=>s.rows.forEach((r,ri)=>add(s.cat,s.kind,Object.assign({at:u.at||0},r),u.clerk||u.file,false,u.id+':'+si+':'+ri))));
   (run.manual||[]).forEach(m=>add(m.cat,m.kind,m,'Added by admin',true));
   /* clerk's sheet total against the rows actually paid */
-  (run.uploads||[]).forEach(u=>u.sheets.forEach((s,si)=>{if(num(s.adj)){const C=getCat(s.cat,s.kind);C.adj=r2(C.adj+num(s.adj));C.adjK.push('carried')}
+  (run.uploads||[]).forEach(u=>u.sheets.forEach((s,si)=>{if(s.grp){const C=getCat(s.cat,s.kind);(C.grps=C.grps||[]).push(s.grp)}if(num(s.adj)){const C=getCat(s.cat,s.kind);C.adj=r2(C.adj+num(s.adj));C.adjK.push('carried')}
     if(typeof s.clerkTot!=='number')return;
     const paid=r2(sum(s.rows,(o,ri)=>{const comp=clRowAmt(o,s.kind);return o.ct!=null&&Math.abs(comp-o.ct)>1&&choice('rc:'+u.id+':'+si+':'+ri)!=='system'?num(o.ct):comp}));
     if(Math.abs(s.clerkTot-paid)>1){const fk='st:'+u.id+':'+si;flag(fk,'calc-sheet','warn','“'+s.sheet+'” in '+u.file+': the clerk’s calculated total is '+fmt(s.clerkTot)+' but the worker rows add up to '+fmt(paid)+'.',{sys:paid,upl:s.clerkTot,amt:r2(s.clerkTot-paid),cat:clCanon(s.cat)});
@@ -2944,7 +2953,7 @@ function clBuild0(run){
   const out=[],outside={};let total=0;
   const miss=(C,w,d,a)=>{const o=outside[C.name]||(outside[C.name]={amt:0,ds:new Set(),ws:new Set()});o.amt=r2(o.amt+a);if(d)o.ds.add(d);o.ws.add(w.n)};
   for(const C of cats.values()){const rows=[];const all=[...C.W.values()];const md=clMode(all.map(w=>w.r));
-    C.sep=clIsSep(C.name);const CP=C.sep?clSepPeriod(run,C.key):P,inP=d=>d>=CP.from&&d<=CP.to;C.from=CP.from;C.to=CP.to;C.ds=C.sep?clDays(CP.from,CP.to):days;
+    C.sep=clIsSep(C.name);C.xtra=!C.sep&&clIsExtra(C.name);const CP=C.sep||C.xtra?clSepPeriod(run,C.key):P,inP=d=>d>=CP.from&&d<=CP.to;C.from=CP.from;C.to=CP.to;C.ds=C.sep||C.xtra?clDays(CP.from,CP.to):days;
     /* IDs and phone numbers stay exactly as uploaded; saved details from earlier runs are only offered as suggestions on the flag */
     for(const w of all){const rg=REG[w.key]||REG[w.key.split('#')[0]];w.sug={};if(rg){if(!w.id&&rg.id&&clIdNorm(rg.id))w.sug.id=rg.id;if(!clPhoneOk(w.ph)&&clPhoneOk(rg.ph)&&!(phUsed.get(rg.ph)||new Set()).size)w.sug.ph=rg.ph;if(!w.g&&rg.g)w.g=rg.g}
       w.upId=w.id;w.upPh=w.ph;if(phOv[w.key]!=null)w.ph=phOv[w.key];if(idOv[w.key]!=null)w.id=idOv[w.key];
@@ -2961,15 +2970,15 @@ function clBuild0(run){
     rows.sort((a,b)=>a.n.localeCompare(b.n,'en',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
     const ct=r2(sum(rows,w=>w.amt)+C.adj);total=r2(total+ct);
     const xk=[...new Set(rows.flatMap(w=>Object.keys(w.x)))];
-    if(rows.length||C.adj)out.push({key:C.key,name:C.name,kind:C.kind,sep:C.sep,from:C.from,to:C.to,ds:C.ds,rows,total:ct,adj:C.adj,units:r2(sum(rows,w=>w.units)),days:sum(rows,w=>w.days),xk,rate:clMode(rows.map(w=>w.r))})}
-  Object.entries(outside).forEach(([cn,o])=>flag('out:'+clCatKey(cn),'outside','bad',fmt(o.amt)+' of '+cn+' work ('+o.ws.size+' worker'+(o.ws.size===1?'':'s')+', '+[...o.ds].sort().slice(0,5).map(d=>fmtD(d)).join(', ')+(o.ds.size>5?'…':'')+') falls outside the pay period '+(P.from?fmtD(P.from)+' – '+fmtD(P.to):'')+' and is not paid in this run. Fix the clerk’s dates, or widen the period in Settings.',{amt:o.amt}));
+    if(rows.length||C.adj)out.push({key:C.key,name:C.name,kind:C.kind,sep:C.sep,xtra:C.xtra,grps:C.grps||[],from:C.from,to:C.to,ds:C.ds,rows,total:ct,adj:C.adj,units:r2(sum(rows,w=>w.units)),days:sum(rows,w=>w.days),xk,rate:clMode(rows.map(w=>w.r))})}
+  Object.entries(outside).forEach(([cn,o])=>flag('out:'+clCatKey(cn),'outside','bad',fmt(o.amt)+' of '+cn+' work ('+o.ws.size+' worker'+(o.ws.size===1?'':'s')+', '+[...o.ds].sort().slice(0,5).map(d=>fmtD(d)).join(', ')+(o.ds.size>5?'…':'')+') falls outside the pay period '+(P.from?fmtD(P.from)+' – '+fmtD(P.to):'')+' and is not paid in this run. Fix the clerk’s dates, widen the period in Settings, or, if this sheet is arrears or a claim from an earlier week, mark it “Own dates” on the Categories tab.',{amt:o.amt}));
   const grp=(OUT,pre,gname)=>{const bm=new Map();
-  OUT.forEach(C=>C.rows.forEach(w=>{let b=bm.get(w.key);if(!b){b={key:w.key,keys:[w.key],n:w.n,id:w.id,ph:w.ph,g:w.g,by:{},e:{},cd:{},amt:0,fl:new Set(),cats:new Set()};bm.set(w.key,b)}
+  OUT.forEach(C=>C.rows.forEach(w=>{let b=bm.get(w.key);if(!b){b={key:w.key,keys:[w.key],n:w.n,id:w.id,ph:w.ph,g:w.g,by:{},e:{},cd:{},lump:{},amt:0,fl:new Set(),cats:new Set()};bm.set(w.key,b)}
     if(!clIdNorm(b.id)&&clIdNorm(w.id))b.id=w.id;if(!clPhoneOk(b.ph)&&clPhoneOk(w.ph))b.ph=w.ph;if(w.id&&!b.rawId)b.rawId=w.id;if(w.ph&&!b.rawPh){b.rawPh=w.ph;b.rawTxt=w.phr||'';b.rawCat=C.name}if(!b.g&&w.g)b.g=w.g;b.by[C.key]=r2((b.by[C.key]||0)+w.amt);b.amt=r2(b.amt+w.amt);w.fl.forEach(x=>b.fl.add(x));b.cats.add(C.name);
-    Object.keys(w.e).forEach(dt=>{b.e[dt]=r2((b.e[dt]||0)+w.e[dt]);(b.cd[dt]=b.cd[dt]||[]).push(C.name)})}));
+    if(C.xtra)b.lump[C.key]=r2((b.lump[C.key]||0)+w.amt);else Object.keys(w.e).forEach(dt=>{b.e[dt]=r2((b.e[dt]||0)+w.e[dt]);(b.cd[dt]=b.cd[dt]||[]).push(C.name)})}));
   const absorb=(a,x,names)=>{x.keys.forEach(k=>a.keys.push(k));['id','g'].forEach(f=>{if(!a[f]&&x[f])a[f]=x[f]});if(names&&clNorm(x.n)!==clNorm(a.n))a.n=a.n+' / '+x.n;
     Object.entries(x.by).forEach(([k,v])=>a.by[k]=r2((a.by[k]||0)+v));a.amt=r2(a.amt+x.amt);x.fl.forEach(f=>a.fl.add(f));x.cats.forEach(c=>a.cats.add(c));
-    Object.keys(x.e).forEach(dt=>{a.e[dt]=r2((a.e[dt]||0)+x.e[dt]);(a.cd[dt]=a.cd[dt]||[]).push(...x.cd[dt])});bm.delete(x.key)};
+    Object.keys(x.e).forEach(dt=>{a.e[dt]=r2((a.e[dt]||0)+x.e[dt]);(a.cd[dt]=a.cd[dt]||[]).push(...x.cd[dt])});Object.entries(x.lump).forEach(([k,v])=>a.lump[k]=r2((a.lump[k]||0)+v));bm.delete(x.key)};
   /* one line per payment number: the same person found in several categories (same number, matching ID or name) is combined day by day */
   const tok=n=>clNorm(n).split(' ').filter(t=>t.length>1),samePerson=(a,b)=>{const ia=clIdNorm(a.id),ib=clIdNorm(b.id);if(ia&&ib)return ia===ib;const A=tok(a.n),Bt=tok(b.n);if(clNorm(a.n)===clNorm(b.n))return true;const sh=A.filter(t=>Bt.includes(t)).length;return sh>=2&&sh>=Math.min(A.length,Bt.length)-1};
   const byPh=new Map();[...bm.values()].forEach(b=>{if(clPhoneOk(b.ph))(byPh.get(b.ph)||byPh.set(b.ph,[]).get(b.ph)).push(b)});
@@ -3017,7 +3026,8 @@ function clBuild0(run){
   const pay=bank.filter(b=>!b.hold),hold=bank.filter(b=>b.hold),adj=r2(sum(out,C=>C.adj));
   const holdPh=hold.filter(b=>b.hold==='phone'),holdSh=hold.filter(b=>b.hold==='shared');
   const sdays=[...new Set(out.filter(C=>C.sep).flatMap(C=>C.ds))].sort(),secFrom=sdays[0]||'',secTo=sdays[sdays.length-1]||'';
-  return{bankM,bankS,sdays,secFrom,secTo,payM:pay.filter(b=>b.grp==='main'),payS:pay.filter(b=>b.grp==='sec'),holdPh,holdSh,cats:out,bank,pay,hold,total,adj,bankTot:r2(sum(bank,b=>b.amt)),payTot:r2(sum(pay,b=>b.amt)),holdTot:r2(sum(hold,b=>b.amt)),from:P.from,to:P.to,auto:P.auto,days,warn:[...flags.filter(f=>!f.off).map(f=>({lvl:f.dec?'info':f.lvl,msg:f.msg})),...warn],flags,pend:flags.filter(f=>!f.dec),info:warn,multi,mandays:sum(out,C=>C.days),pdays:sum(bank,b=>b.days),dual:bank.filter(b=>b.dual.length)}}
+  const xc=out.filter(C=>C.xtra);
+  return{xc,bankM,bankS,sdays,secFrom,secTo,payM:pay.filter(b=>b.grp==='main'),payS:pay.filter(b=>b.grp==='sec'),holdPh,holdSh,cats:out,bank,pay,hold,total,adj,bankTot:r2(sum(bank,b=>b.amt)),payTot:r2(sum(pay,b=>b.amt)),holdTot:r2(sum(hold,b=>b.amt)),from:P.from,to:P.to,auto:P.auto,days,warn:[...flags.filter(f=>!f.off).map(f=>({lvl:f.dec?'info':f.lvl,msg:f.msg})),...warn],flags,pend:flags.filter(f=>!f.dec),info:warn,multi,mandays:sum(out,C=>C.days),pdays:sum(bank,b=>b.days),dual:bank.filter(b=>b.dual.length)}}
 
 /* ---------- report models (preview, PDF, CSV) ---------- */
 const clRepO=()=>clCfg().rep;
@@ -3049,11 +3059,11 @@ function clModel(run,B,type,o){o=o||{};const c=clCfg(),R=clRepO(),ref=clRef(run)
   const payBlk=()=>{M.blocks.push({t:'h',x:'Payout status'});M.blocks.push({t:'recon',rows:[['Payable now · '+B.pay.length+' workers on the bank file',B.payTot,''],...(B.holdPh.length?[['On hold · '+B.holdPh.length+' awaiting phone numbers'+(B.holdPh.some(b=>b.badPh)?' ('+B.holdPh.filter(b=>!b.badPh).length+' missing, '+B.holdPh.filter(b=>b.badPh).length+' invalid)':''),r2(sum(B.holdPh,b=>b.amt)),'']]:[]),...(B.holdSh.length?[['On hold · '+B.holdSh.length+' sharing a payment number (awaiting decision)',r2(sum(B.holdSh,b=>b.amt)),'']]:[]),...(B.adj?[['Retained clerk’s total adjustments (not on the bank file)',B.adj,'']]:[]),['Total expected payout',B.total,'key']]});const pe=B.flags.filter(f=>/phone$/.test(f.type)&&f.type!=='dup-phone'&&f.held===false).length;if(pe)M.blocks.push({t:'note',x:pe+' more '+(pe===1?'person has':'people have')+' no phone number in one category but '+(pe===1?'is':'are')+' paid on the number given in another category, so they are flagged but not on hold.'})};
   if(type==='bank'){const pmd=sum(B.payM,b=>b.days);
     M.figs=[...(R.workersFig?[['Workers paid',String(B.pay.length)]]:[]),['Categories',String(B.cats.length)],...(R.mandays?[['Mandays',clFmtN(pmd)]]:[]),...(B.payS.length?[['Security (KES)',r2(sum(B.payS,b=>b.amt))]]:[]),...(B.hold.length?[['On hold (KES)',B.holdTot]]:[]),['Total to pay (KES)',B.payTot]];
-    const tbl=(L,lbl,DD)=>{const g=R.grid&&DD.length&&DD.length<=16;const cols=[{h:'No',w:20},{h:'Name'},{h:'ID No',w:g?50:62},{h:'Phone No',w:g?58:70},...(g?[]:[{h:'Categories',w:130}]),...(g?DD.map(dcol):[]),...(R.mandays?[{h:'Days',n:1,w:28}]:[]),{h:'Total (KES)',n:1,w:62}];
-      return{t:'table',cols,rows:[...L.map((b,i)=>({c:[String(i+1),b.n,b.id||'',phC(b.ph,b.key),...(g?[]:[B.cats.filter(C=>b.by[C.key]).map(C=>C.name).join(', ')]),...(g?DD.map(d=>b.e[d]?clFmtN(b.e[d]):''):[]),...(R.mandays?[String(b.days)]:[]),b.amt]})),
-      {k:'tot',c:['',lbl+(R.workersCol?' · '+L.length+' workers':''),'','',...(g?DD.map(d=>clFmtN(r2(sum(L,b=>num(b.e[d]))))):['']),...(R.mandays?[clFmtN(sum(L,b=>b.days))]:[]),r2(sum(L,b=>b.amt))]}]}};
+    const tbl=(L,lbl,DD)=>{const g=R.grid&&DD.length&&DD.length<=16,X=DD===B.days?B.xc:[];const cols=[{h:'No',w:20},{h:'Name'},{h:'ID No',w:g?50:62},{h:'Phone No',w:g?58:70},...(g?[]:[{h:'Categories',w:130}]),...(g?DD.map(dcol):[]),...X.map(C=>({h:C.name,n:1,w:54})),...(R.mandays?[{h:'Days',n:1,w:28}]:[]),{h:'Total (KES)',n:1,w:62}];
+      return{t:'table',cols,rows:[...L.map((b,i)=>({c:[String(i+1),b.n,b.id||'',phC(b.ph,b.key),...(g?[]:[B.cats.filter(C=>b.by[C.key]).map(C=>C.name).join(', ')]),...(g?DD.map(d=>b.e[d]?clFmtN(b.e[d]):''):[]),...X.map(C=>b.lump[C.key]?clFmtN(b.lump[C.key]):''),...(R.mandays?[String(b.days)]:[]),b.amt]})),
+      {k:'tot',c:['',lbl+(R.workersCol?' · '+L.length+' workers':''),'','',...(g?DD.map(d=>clFmtN(r2(sum(L,b=>num(b.e[d]))))):['']),...X.map(C=>clFmtN(r2(sum(L,b=>num(b.lump[C.key]))))),...(R.mandays?[clFmtN(sum(L,b=>b.days))]:[]),r2(sum(L,b=>b.amt))]}]}};
     M.blocks.push({t:'h',x:'Bank file'});M.blocks.push(tbl(B.payM,'Total',B.days));shNote(B.payM);
-    M.blocks.push({t:'note',x:'Each worker appears once. Pay from every category is combined per day, including two roles on the same day. Sorted alphabetically by name.'});
+    M.blocks.push({t:'note',x:'Each worker appears once. Pay from every category is combined per day, including two roles on the same day. Sorted alphabetically by name.'+(B.xc.length?' '+B.xc.map(C=>C.name+' ('+clPerLbl(C.from,C.to)+')').join(' and ')+' '+(B.xc.length===1?'is':'are')+' added as a separate column and included in each person’s total.':'')});
     if(B.bankS.length){M.blocks.push({t:'h',x:'Security · '+clPerLbl(B.secFrom,B.secTo)});M.blocks.push(tbl(B.payS,'Total security',B.sdays));shNote(B.payS)}
     const HM=B.hold.filter(b=>b.grp==='main'),HS=B.hold.filter(b=>b.grp==='sec');
     if(B.hold.length){M.blocks.push({t:'h',x:'On hold · '+[B.holdPh.length?B.holdPh.length+' awaiting phone numbers':'',B.holdSh.length?B.holdSh.length+' sharing a payment number':''].filter(Boolean).join(' · ')});if(HM.length)M.blocks.push(tbl(HM,'Total on hold',B.days));if(HS.length)M.blocks.push(tbl(HS,'Security on hold',B.sdays));M.blocks.push({t:'note',x:'These workers are in the approval file with their amounts. They move to the bank file once a valid phone number is added, or once a shared number is decided.'})}
@@ -3061,17 +3071,17 @@ function clModel(run,B,type,o){o=o||{};const c=clCfg(),R=clRepO(),ref=clRef(run)
   M.figs=[['Categories',String(B.cats.length)],...(R.workersFig?[['Workers (unique)',nW]]:[]),...(R.mandays?[['Mandays',clFmtN(B.mandays)]]:[]),...(B.hold.length?[['Payable now (KES)',B.payTot],['On hold (KES)',B.holdTot]]:[]),['Grand total (KES)',B.total]];
   M.blocks.push({t:'h',x:'Expenditure by category'});
   M.blocks.push({t:'table',cols:[{h:'No',w:26},{h:'Category'},...(R.workersCol?[{h:'Workers',n:1,w:56}]:[]),...(R.mandays?[{h:'Mandays',n:1,w:62}]:[]),{h:'Amount (KES)',n:1,w:86},...(R.share?[{h:'Cost share',n:1,w:62}]:[])],
-    rows:[...B.cats.map((C,i)=>({c:[String(i+1),C.name+(C.kind==='unit'?' (per bag)':'')+(C.sep?' · '+clPerLbl(C.from,C.to):''),...(R.workersCol?[String(C.rows.length)]:[]),...(R.mandays?[clFmtN(C.days)]:[]),C.total,...(R.share?[(B.total?C.total/B.total*100:0).toFixed(1)+'%']:[])]})),
+    rows:[...B.cats.map((C,i)=>({c:[String(i+1),C.name+(C.kind==='unit'?' (per bag)':'')+(C.sep||C.xtra?' · '+clPerLbl(C.from,C.to):''),...(R.workersCol?[String(C.rows.length)]:[]),...(R.mandays?[clFmtN(C.days)]:[]),C.total,...(R.share?[(B.total?C.total/B.total*100:0).toFixed(1)+'%']:[])]})),
       {k:'tot',c:['','Grand total',...(R.workersCol?[nW+' unique']:[]),...(R.mandays?[clFmtN(B.mandays)]:[]),B.total,...(R.share?['100%']:[])]}]});
   payBlk();flagBlk();
   if(R.agree){M.blocks.push({t:'h',x:'Agreement with the bank file'});M.blocks.push({t:'recon',rows:[['Total approved above',B.total,''],['Bank file total ('+B.pay.length+' workers)',B.payTot,''],...(B.hold.length?[['On hold ('+B.hold.length+')',B.holdTot,'']]:[]),...(B.adj?[['Retained clerk’s total adjustments',B.adj,'']]:[]),['Difference (should be nil)',r2(B.total-B.payTot-B.holdTot-B.adj),'key']]});
     if(B.multi)M.blocks.push({t:'note',x:B.multi+' worker'+(B.multi===1?'':'s')+' worked in more than one category and '+(B.multi===1?'is':'are')+' paid once with the combined amount.'})}
-  if(!o.summary)B.cats.forEach((C,ci)=>{const u=C.kind==='unit',CD=C.ds||CD,gC=R.grid&&CD.length&&CD.length<=16;
-    M.blocks.push({t:'h',x:String.fromCharCode(65+ci%26)+'. '+C.name+(C.sep?' · '+clPerLbl(C.from,C.to)+' (monthly)':'')+(R.workersCol?' · '+C.rows.length+' workers':'')});
+  if(!o.summary)B.cats.forEach((C,ci)=>{const u=C.kind==='unit',CD=C.ds||B.days,gC=R.grid&&CD.length&&CD.length<=16;
+    M.blocks.push({t:'h',x:String.fromCharCode(65+ci%26)+'. '+C.name+(C.sep?' · '+clPerLbl(C.from,C.to)+' (monthly)':C.xtra?' · '+clPerLbl(C.from,C.to):'')+(R.workersCol?' · '+C.rows.length+' workers':'')});
     const cols=[{h:'No',w:20},{h:'Name'},{h:'ID No',w:gC?50:62},{h:'Phone No',w:gC?58:74},...(gC?CD.map(dcol):[]),...(u?[{h:'Bags',n:1,w:34}]:[]),...(R.mandays?[{h:'Days',n:1,w:28}]:[]),{h:u?'Rate / bag':'Rate',n:1,w:40},{h:'Total (KES)',n:1,w:62}];
-    M.blocks.push({t:'table',cols,rows:[...C.rows.map((w,i)=>({c:[String(i+1),w.n,w.id||'',phC(w.ph,w.key),...(gC?CD.map(d=>u?(w.d[d]?clFmtN(w.d[d]):(w.e[d]?'·':'')):(w.e[d]?clFmtN(w.e[d]):'')):[]),...(u?[clFmtN(w.units)]:[]),...(R.mandays?[String(w.days)]:[]),w.r?clFmtN(w.r)+(w.rv?'*':''):'',w.amt]})),
+    if(C.grps&&C.grps.length)M.blocks.push({t:'note',x:clGrpTxt(C)});M.blocks.push({t:'table',cols,rows:[...C.rows.map((w,i)=>({c:[String(i+1),w.n,w.id||'',phC(w.ph,w.key),...(gC?CD.map(d=>u?(w.d[d]?clFmtN(w.d[d]):(w.e[d]?'·':'')):(w.e[d]?clFmtN(w.e[d]):'')):[]),...(u?[w.units?clFmtN(w.units):'']:[]),...(R.mandays?[String(w.days)]:[]),w.r&&!clGrpRow(C,w)?clFmtN(w.r)+(w.rv?'*':''):'',w.amt]})),
       ...(C.adj?[{k:'muted',c:['','Adjustment · clerk’s uploaded total (not on the bank file)','','',...(gC?CD.map(()=>''):[]),...(u?['']:[]),...(R.mandays?['']:[]),'',C.adj]}]:[]),
-      {k:'tot',c:['','Total '+C.name,'','',...(gC?CD.map(d=>{const v=r2(sum(C.rows,w=>num(u?w.d[d]:w.e[d])));return v?clFmtN(v):''}):[]),...(u?[clFmtN(C.units)]:[]),...(R.mandays?[clFmtN(C.days)]:[]),'',C.total]}]});
+      {k:'tot',c:['','Total '+C.name,'','',...(gC?CD.map(d=>{const v=r2(sum(C.rows,w=>num(u?w.d[d]:w.e[d])));return v?clFmtN(v):''}):[]),...(u?[C.units?clFmtN(C.units):'']:[]),...(R.mandays?[clFmtN(C.days)]:[]),'',C.total]}]});
     if(C.rows.some(w=>w.rv))M.blocks.push({t:'note',x:'* Daily rate varies over the period; the total is the sum of the actual days.'});shNote(C.rows.map(w=>BK.get(w.key)||{}))});
   appr();return M}
 
@@ -3116,10 +3126,10 @@ async function clWorkbook(wb,run,B,mode){
   if(mode!=='bank'){
     const dash=mkWs('Summary','portrait',false,'FF111827');
     plans.forEach(p=>{p.ws=mkWs(p.C.name,'landscape',p.nD>16);p.name=p.ws.name});
-    plans.forEach(p=>{const {C,u,cols,NC}=p,ws=p.ws,D=p.D,nD=p.nD,per=C.sep?fmtD(C.from)+' – '+fmtD(C.to):perMain;
+    plans.forEach(p=>{const {C,u,cols,NC}=p,ws=p.ws,D=p.D,nD=p.nD,per=C.sep||C.xtra?fmtD(C.from)+' – '+fmtD(C.to):perMain;
       ws.columns=Array.from({length:NC},(_,i)=>{const k=i+1;return{width:k===1?6:k===2?32:k===3?12:k===4?13:k===5?9:k<cols.d0?11:k<=cols.dN?(u?7.5:6.6):k===cols.amt?15:9.5}});
       header(ws,NC,C.name+(u?' · per bag offloaded':''),[c.season,'Pay period '+per+' ('+nD+' days)',...(R.workersCol?[C.rows.length+' workers']:[]),'Ref '+ref,'Prepared '+prep].filter(Boolean).join('  ·  '),'Calculated total',C.total);back(ws);
-      const hr=7;['S/No','Name','ID No','Phone No','Gender',...C.xk].forEach((h,i)=>hd(ws,hr,i+1,h,{wrap:false,center:i===0}));dateHd(ws,hr,cols.d0,D);
+      const hr=7;if(C.grps&&C.grps.length){put(ws,6,1,NC,clGrpTxt(C),{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(6).height=30}['S/No','Name','ID No','Phone No','Gender',...C.xk].forEach((h,i)=>hd(ws,hr,i+1,h,{wrap:false,center:i===0}));dateHd(ws,hr,cols.d0,D);
       if(u){hd(ws,hr,cols.units,'Total bags',{right:true});hd(ws,hr,cols.rate,'Rate / bag',{right:true})}
       if(R.mandays)hd(ws,hr,cols.days,'Mandays',{right:true});
       hd(ws,hr,cols.amt,nD+' Days Total (KES)',{right:true,fill:COL?TOTF:HEAD});ws.getRow(hr).height=32;
@@ -3127,17 +3137,17 @@ async function clWorkbook(wb,run,B,mode){
       C.rows.forEach((w,i)=>{const r=p.first+i,band=i%2?BAND:undefined,o={border:{bottom:thin},fill:band};ws.getRow(r).height=17;
         put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,w.n,o);put(ws,r,3,3,idV(w.id),Object.assign({},o,idO));put(ws,r,4,4,phX(w.ph,w.key),Object.assign({},o,phO,clPhoneOk(w.ph)?{}:{italic:true,color:SLATE}));put(ws,r,5,5,w.g||'',Object.assign({size:9},o));
         C.xk.forEach((k,j)=>put(ws,r,6+j,6+j,w.x[k]||'',Object.assign({size:9},o)));
-        D.forEach((d,j)=>dayCell(ws,r,cols.d0+j,u?(w.d[d]!=null?num(w.d[d]):null):(w.e[d]?w.e[d]:null),u?QTY:'#,##0',band));
+        const gR=clGrpRow(C,w);D.forEach((d,j)=>dayCell(ws,r,cols.d0+j,u?(w.d[d]!=null?num(w.d[d]):(gR&&w.e[d]?'✓':null)):(w.e[d]?w.e[d]:null),u?QTY:'#,##0',band));
         const rng=nD?dL+r+':'+dR+r:null,fx=u&&w.fixed?'+'+w.fixed:'';
-        if(u){put(ws,r,cols.units,cols.units,rng?{formula:'SUM('+rng+')',result:w.units}:w.units,Object.assign({numFmt:QTY},o));put(ws,r,cols.rate,cols.rate,w.r||0,Object.assign({numFmt:AMT},o))}
+        if(u){put(ws,r,cols.units,cols.units,gR?null:rng?{formula:'SUM('+rng+')',result:w.units}:w.units,Object.assign({numFmt:QTY},o));put(ws,r,cols.rate,cols.rate,gR?null:(w.r||0),Object.assign({numFmt:AMT},o))}
         if(R.mandays)put(ws,r,cols.days,cols.days,u||!rng?w.days:{formula:'COUNT('+rng+')',result:w.days},Object.assign({numFmt:'0',center:true},o));
-        put(ws,r,cols.amt,cols.amt,u?{formula:clColL(cols.units)+r+'*'+clColL(cols.rate)+r+fx,result:w.amt}:(rng?{formula:'SUM('+rng+')',result:w.amt}:w.amt),Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
+        put(ws,r,cols.amt,cols.amt,u?(gR?w.amt:{formula:clColL(cols.units)+r+'*'+clColL(cols.rate)+r+fx,result:w.amt}):(rng?{formula:'SUM('+rng+')',result:w.amt}:w.amt),Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
       if(C.adj){const ar=p.first+C.rows.length,o={border:{bottom:thin},italic:true,color:SLATE};put(ws,ar,1,5+C.xk.length,'Adjustment · clerk’s uploaded total (not on the bank file)',o);put(ws,ar,cols.amt,cols.amt,C.adj,Object.assign({numFmt:AMT},o))}
       const tr=p.tot,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TROW};ws.getRow(tr).height=20;
       put(ws,tr,1,5+C.xk.length,'Total'+(R.workersCol?' · '+C.rows.length+' workers':''),T2);
       const sc=(k,res,f,ex)=>{const L=clColL(k);put(ws,tr,k,k,C.rows.length?{formula:'SUM('+L+p.first+':'+L+last+')',result:res}:0,Object.assign({numFmt:f},T2,ex||{}))};
       D.forEach((d,j)=>sc(cols.d0+j,r2(sum(C.rows,w=>num(u?w.d[d]:w.e[d]))),u?'#,##0.##;-#,##0.##;""':'#,##0;-#,##0;""',{size:8,center:true}));
-      if(u){sc(cols.units,C.units,QTY);put(ws,tr,cols.rate,cols.rate,'',T2)}if(R.mandays)sc(cols.days,C.days,'0',{center:true});sc(cols.amt,C.total,AMT);
+      if(u){sc(cols.units,C.units,'#,##0.##;-#,##0.##;""');put(ws,tr,cols.rate,cols.rate,'',T2)}if(R.mandays)sc(cols.days,C.days,'0',{center:true});sc(cols.amt,C.total,AMT);
       p.totRef=clQ(ws.name)+'!'+clColL(cols.amt)+tr;p.daysRef=R.mandays?clQ(ws.name)+'!'+clColL(cols.days)+tr:null;
       ws.getRow(5).getCell(3).value={formula:clColL(cols.amt)+tr,result:C.total};
       ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false,zoomScale:90}];ws.pageSetup.printTitlesRow=hr+':'+hr;ws.autoFilter={from:{row:hr,column:1},to:{row:last<hr?hr:last,column:NC}};
@@ -3202,24 +3212,24 @@ const c0n=NC-nums.length+1,lastL=Math.max(2,c0n-1);
     approval(ws,r,NC);ws.pageSetup.fitToHeight=1;ws.views=[{showGridLines:false,zoomScale:100}];
     wb.views=[{activeTab:0}];return wb}
   // bank file workbook: S/No, Name, ID No, Phone No, Gender, every date (combined pay that day), [Mandays], Total. Workers without a valid phone go to a separate "Awaiting phone numbers" sheet.
-  const bankSheet=(name,L,title,keyL,note,DD,perT)=>{const D=DD||B.days,nD=D.length,per=perT||perMain,ws=mkWs(name,'landscape',nD>16,name==='Bank File'?undefined:name==='Security'?'FF1F4E79':'FF9CA3AF'),d0=6,BN=5+nD+(R.mandays?1:0)+1,dc=R.mandays?BN-1:0,tot=r2(sum(L,b=>b.amt)),md=sum(L,b=>b.days);
-    ws.columns=Array.from({length:BN},(_,i)=>({width:i===0?6:i===1?32:i===2?12:i===3?13:i===4?9:i===BN-1?15:i>=5&&i<5+nD?7.5:9.5}));
+  const bankSheet=(name,L,title,keyL,note,DD,perT)=>{const D=DD||B.days,nD=D.length,X=D===B.days?B.xc:[],nX=X.length,per=perT||perMain,ws=mkWs(name,'landscape',nD>16,name==='Bank File'?undefined:name==='Security'?'FF1F4E79':'FF9CA3AF'),d0=6,x0=d0+nD,BN=5+nD+nX+(R.mandays?1:0)+1,dc=R.mandays?BN-1:0,tot=r2(sum(L,b=>b.amt)),md=sum(L,b=>b.days);
+    ws.columns=Array.from({length:BN},(_,i)=>({width:i===0?6:i===1?32:i===2?12:i===3?13:i===4?9:i===BN-1?15:i>=5&&i<5+nD?7.5:i>=x0-1&&i<x0-1+nX?13:9.5}));
     header(ws,BN,title,[c.season,'Pay period '+per+' ('+nD+' days)',...(R.workersCol?[L.length+' worker'+(L.length===1?'':'s')+', each listed once']:[]),'Ref '+ref,'Prepared '+prep].filter(Boolean).join('  ·  '),keyL,tot);
-    const hr=7;['S/No','Name','ID No','Phone No','Gender'].forEach((h,i)=>hd(ws,hr,i+1,h,{wrap:false,center:i===0}));dateHd(ws,hr,d0,D);if(dc)hd(ws,hr,dc,'Mandays',{right:true});hd(ws,hr,BN,nD+' Days Total (KES)',{right:true,fill:COL?TOTF:HEAD});ws.getRow(hr).height=32;
-    const first=8,dL=clColL(d0),dR=clColL(d0+nD-1);
+    const hr=7;['S/No','Name','ID No','Phone No','Gender'].forEach((h,i)=>hd(ws,hr,i+1,h,{wrap:false,center:i===0}));dateHd(ws,hr,d0,D);X.forEach((C,j)=>hd(ws,hr,x0+j,C.name+' ('+clPerLbl(C.from,C.to)+')',{right:true,wrap:true}));if(dc)hd(ws,hr,dc,'Mandays',{right:true});hd(ws,hr,BN,nX?'Total (KES)':nD+' Days Total (KES)',{right:true,fill:COL?TOTF:HEAD});ws.getRow(hr).height=nX?44:32;
+    const first=8,dL=clColL(d0),dR=clColL(d0+nD-1),sR=clColL(x0+nX-1);
     L.forEach((b,i)=>{const r=first+i,band=i%2?BAND:undefined,o={border:{bottom:thin},fill:band};ws.getRow(r).height=17;put(ws,r,1,1,i+1,Object.assign({center:true,color:SLATE},o));put(ws,r,2,2,b.n,o);put(ws,r,3,3,idV(b.id),Object.assign({},o,idO));put(ws,r,4,4,clPhoneOk(b.ph)?clPh(b.ph):'Pending',Object.assign({},o,phO,clPhoneOk(b.ph)?{}:{italic:true,color:SLATE},b.shared?{fill:'FFFDF3E1'}:{}));put(ws,r,5,5,b.g||'',Object.assign({size:9},o));
-      D.forEach((d,j)=>dayCell(ws,r,d0+j,b.e[d]||null,'#,##0.##',band));
+      D.forEach((d,j)=>dayCell(ws,r,d0+j,b.e[d]||null,'#,##0.##',band));X.forEach((C,j)=>put(ws,r,x0+j,x0+j,b.lump[C.key]||null,Object.assign({numFmt:'#,##0.##'},o)));
       if(dc)put(ws,r,dc,dc,nD?{formula:'COUNT('+dL+r+':'+dR+r+')',result:b.days}:b.days,Object.assign({numFmt:'0',center:true},o));
-      put(ws,r,BN,BN,nD?{formula:'SUM('+dL+r+':'+dR+r+')',result:b.amt}:b.amt,Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
+      put(ws,r,BN,BN,nD+nX?{formula:'SUM('+dL+r+':'+sR+r+')',result:b.amt}:b.amt,Object.assign({numFmt:AMT,bold:true},o,COL?{fill:TOTF}:{}))});
     const tr=first+L.length,last=tr-1,T2={border:{top:med,bottom:dbl},bold:true,fill:TROW};ws.getRow(tr).height=20;put(ws,tr,1,5,'Total'+(R.workersCol?' · '+L.length+' workers':''),T2);
     const sc=(k,res,f,ex)=>{const Lc=clColL(k);put(ws,tr,k,k,L.length?{formula:'SUM('+Lc+first+':'+Lc+last+')',result:res}:0,Object.assign({numFmt:f},T2,ex||{}))};
-    D.forEach((d,j)=>sc(d0+j,r2(sum(L,b=>num(b.e[d]))),'#,##0;-#,##0;""',{size:8,center:true}));if(dc)sc(dc,md,'0',{center:true});sc(BN,tot,AMT);
+    D.forEach((d,j)=>sc(d0+j,r2(sum(L,b=>num(b.e[d]))),'#,##0;-#,##0;""',{size:8,center:true}));X.forEach((C,j)=>sc(x0+j,r2(sum(L,b=>num(b.lump[C.key]))),'#,##0;-#,##0;""'));if(dc)sc(dc,md,'0',{center:true});sc(BN,tot,AMT);
     ws.getRow(5).getCell(3).value={formula:clColL(BN)+tr,result:tot};
     ws.views=[{state:'frozen',xSplit:2,ySplit:hr,showGridLines:false,zoomScale:90}];ws.pageSetup.printTitlesRow=hr+':'+hr;ws.autoFilter={from:{row:hr,column:1},to:{row:Math.max(hr,last),column:BN}};
     let nr=tr+2;const wch=sum(Array.from({length:BN},(_,i)=>ws.getColumn(i+1).width||8.43));note.forEach(t=>{put(ws,nr,1,BN,t,{size:9,italic:true,color:SLATE,wrap:true});ws.getRow(nr).height=Math.max(15,Math.ceil(t.length*1.05/wch)*13+2);nr++});
     approval(ws,nr+1,BN)};
   const secPer=B.secFrom?fmtD(B.secFrom)+' – '+fmtD(B.secTo):perMain,HM=B.hold.filter(b=>b.grp==='main'),HS=B.hold.filter(b=>b.grp==='sec');
-  bankSheet('Bank File',B.payM,'Bank File','Total to pay',['Each worker appears once and each phone number once. Pay from every category is combined per day, including two roles on the same day (e.g. offloading in the morning, field work later). Sorted A–Z.',...(B.payM.some(b=>b.shared)?['Shaded lines combine people who share a payment number (adopted by the admin): '+[...new Set(B.payM.filter(b=>b.shared).map(b=>clPh(b.ph)))].join(', ')+'.']:[]),...(B.bankS.length?['Security ('+clPerLbl(B.secFrom,B.secTo)+') is on its own sheet.']:[]),...(B.hold.length?[B.hold.length+' worker'+(B.hold.length===1?'':'s')+' ('+fmt(B.holdTot)+') on hold are listed separately and are not part of this payment.']:[])],B.days,perMain);
+  bankSheet('Bank File',B.payM,'Bank File','Total to pay',['Each worker appears once and each phone number once. Pay from every category is combined per day, including two roles on the same day (e.g. offloading in the morning, field work later). Sorted A–Z.',...(B.payM.some(b=>b.shared)?['Shaded lines combine people who share a payment number (adopted by the admin): '+[...new Set(B.payM.filter(b=>b.shared).map(b=>clPh(b.ph)))].join(', ')+'.']:[]),...(B.xc.length?[B.xc.map(C=>C.name+' ('+clPerLbl(C.from,C.to)+')').join(' and ')+' '+(B.xc.length===1?'is':'are')+' shown in '+(B.xc.length===1?'its own column':'their own columns')+' and included in each person’s total.']:[]),...(B.bankS.length?['Security ('+clPerLbl(B.secFrom,B.secTo)+') is on its own sheet.']:[]),...(B.hold.length?[B.hold.length+' worker'+(B.hold.length===1?'':'s')+' ('+fmt(B.holdTot)+') on hold are listed separately and are not part of this payment.']:[])],B.days,perMain);
   if(B.bankS.length)bankSheet('Security',B.payS,'Bank File · Security','Total to pay',['Security payroll for '+clPerLbl(B.secFrom,B.secTo)+', kept separate from the other categories. Each phone number appears once.',...(B.payS.some(b=>b.shared)?['Shaded lines combine people who share a payment number (adopted by the admin).']:[])],B.sdays,secPer);
   const hn=[...(B.holdPh.length?[B.holdPh.length+' awaiting phone numbers (shown as Pending).']:[]),...(B.holdSh.length?[B.holdSh.length+' sharing a payment number with someone else, awaiting a decision: '+[...new Set(B.holdSh.map(b=>clPh(b.ph)))].join(', ')+'.']:[]),'These workers are in the approval file with their amounts. They move to the bank file once resolved.'];
   if(HM.length)bankSheet('On hold',HM,'On hold','Held amount',hn,B.days,perMain);
@@ -3238,10 +3248,10 @@ async function clXLSX(run,B,mode){
   const buf=await xlQuotePrefix(await wb.xlsx.writeBuffer());const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=clFile(run,B,mode)+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
 const clFile=(run,B,mode)=>{const t=B.to||todayStr();return t.replace(/-/g,'')+'_'+(mode==='bank'?'Bank File':'Casual payment record')+(B.from?' ('+clPerLbl(B.from,B.to)+')':'')};
-function clBankCSV(run,B,sec){const R=clRepO(),DD=sec?B.sdays:B.days,LL=sec?B.payS:B.payM,q=x=>{const s=typeof x==='number'?(Math.round(x*100)/100).toFixed(2):String(x==null?'':x);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
-  const L=[['S/No','Name','ID No','Phone No','Gender',...DD.map(clDM),...(R.mandays?['Mandays']:[]),DD.length+' Days Total (KES)']];
-  LL.forEach((b,i)=>L.push([i+1,b.n,b.id||'','="'+clPh(b.ph)+'"',b.g||'',...DD.map(d=>b.e[d]||''),...(R.mandays?[b.days]:[]),b.amt]));
-  L.push(['','TOTAL','','','',...DD.map(d=>r2(sum(LL,b=>num(b.e[d])))),...(R.mandays?[sum(LL,b=>b.days)]:[]),r2(sum(LL,b=>b.amt))]);
+function clBankCSV(run,B,sec){const R=clRepO(),DD=sec?B.sdays:B.days,LL=sec?B.payS:B.payM,X=sec?[]:B.xc,q=x=>{const s=typeof x==='number'?(Math.round(x*100)/100).toFixed(2):String(x==null?'':x);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+  const L=[['S/No','Name','ID No','Phone No','Gender',...DD.map(clDM),...X.map(C=>C.name+' ('+clPerLbl(C.from,C.to)+')'),...(R.mandays?['Mandays']:[]),X.length?'Total (KES)':DD.length+' Days Total (KES)']];
+  LL.forEach((b,i)=>L.push([i+1,b.n,b.id||'','="'+clPh(b.ph)+'"',b.g||'',...DD.map(d=>b.e[d]||''),...X.map(C=>b.lump[C.key]||''),...(R.mandays?[b.days]:[]),b.amt]));
+  L.push(['','TOTAL','','','',...DD.map(d=>r2(sum(LL,b=>num(b.e[d])))),...X.map(C=>r2(sum(LL,b=>num(b.lump[C.key])))),...(R.mandays?[sum(LL,b=>b.days)]:[]),r2(sum(LL,b=>b.amt))]);
   download(clFile(run,B,'bank')+(sec?' - Security':'')+'.csv',L.map(r=>r.map(q).join(',')).join('\n'))}
 async function clExport(kind,f,force){const run=clCur();if(!run)return;const B=clBuild(run);if(!B.cats.length){toast('Nothing to export yet. Upload the clerks’ files first.');return}
   if(B.pend.length&&!force){pcrModal(`${mdHead('Flagged items awaiting a decision')}<p class="small" style="margin:0">${B.pend.length} flagged item${B.pend.length===1?' has':'s have'} not been adopted or disregarded yet. Nothing has been corrected automatically: ${B.pend.some(x=>x.fix)?'calculation flags use the clerk’s uploaded figures until you choose, and ':''}every pending flag is listed in the file as “Awaiting decision”.</p>
@@ -3272,7 +3282,7 @@ async function clUpload(files){
     catch(e){console.error(e);bad.push(f.name+' (could not be read)')}}
   if(!parsed.length){toast('No files added'+(bad.length?' · '+bad.join('; '):''));return}
   const add=(run,list)=>{let rows=0;list.forEach(({f,P})=>{const up={id:nid(),file:f.name,clerk:(ui.cl.clerk||'').trim()||clClerkGuess(f.name)||'Clerk',at:Date.now(),by:pcrMyName(),skipped:P.skipped,
-      sheets:P.sheets.map(s=>({sheet:s.sheet,cat:s.cat,kind:s.kind,dates:s.dates,rows:s.rows,clerkTot:s.clerkTot,warn:s.warn}))};
+      sheets:P.sheets.map(s=>({sheet:s.sheet,cat:s.cat,kind:s.kind,dates:s.dates,rows:s.rows,clerkTot:s.clerkTot,warn:s.warn,grp:s.grp||null}))};
     (run.uploads=run.uploads||[]).push(up);P.sheets.forEach(s=>{const cn=clCanon(s.cat);clCfg().kinds[cn]=s.kind;[...s.rows,...s.idle].forEach(r=>clRegPut(r,cn,s.kind));rows+=s.rows.length})});
     ui.cl.run=run.id;ui.cl.tab='uploads';clSaveRun(run);clSaveReg();clSaveCfg();render();
     toast(list.length+' file'+(list.length===1?'':'s')+' added to '+clRef(run)+' · '+rows+' worker rows'+(bad.length?' · Skipped: '+bad.join('; '):''))};
@@ -3312,7 +3322,7 @@ function clNumEdit(run){const c=clCfg(),y0=clRef(run).slice(3,7);
       const old={no:run.no,yr:run.yr,seq:c.seq};run.no=n;if(y!==String(run.from||todayStr()).slice(0,4))run.yr=y;else delete run.yr;if($('#rnSeq').checked)c.seq=n;
       clSaveRun(run);clSaveCfg();close();render();toastAction('Run renumbered to '+clRef(run),'Undo',()=>{run.no=old.no;if(old.yr)run.yr=old.yr;else delete run.yr;c.seq=old.seq;clSaveRun(run);clSaveCfg();render()})};setTimeout(()=>$('#rnNo').select(),40)})}
 function clArchive(run){const B=clBuild(run);const up={id:'arch-'+nid(),file:'Consolidated records',clerk:'Archived',at:Date.now(),by:pcrMyName(),archived:true,skipped:[],
-    sheets:B.cats.map(C=>({sheet:C.name,cat:C.name,kind:C.kind,dates:C.ds||B.days,clerkTot:null,warn:[],adj:C.adj||0,rows:C.rows.map(w=>{const o={n:w.n};if(w.id)o.id=w.id;if(w.ph)o.ph=w.ph;if(w.g)o.g=w.g;if(Object.keys(w.x).length)o.x=w.x;
+    sheets:B.cats.map(C=>({grp:(C.grps||[])[0]||null,sheet:C.name,cat:C.name,kind:C.kind,dates:C.ds||B.days,clerkTot:null,warn:[],adj:C.adj||0,rows:C.rows.map(w=>{const o={n:w.n};if(w.id)o.id=w.id;if(w.ph)o.ph=w.ph;if(w.g)o.g=w.g;if(Object.keys(w.x).length)o.x=w.x;
       if(C.kind==='unit'){if(Object.keys(w.d).length)o.d=w.d;if(w.r)o.r=w.r;const fx=r2(num(w.fixed)+num(w.adj));if(fx){o.a=fx;o.p=Object.keys(w.e).filter(d=>!w.d[d]).sort()}}else o.d=w.e;return o})}))};
   if(!run.fixed){run.from=B.from;run.to=B.to;run.fixed=true}run.uploads=[up];run.manual=[];run.excl=[];run.archived=Date.now()}
 
@@ -3531,7 +3541,7 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
       ${ups.map(u=>{const tot=r2(sum(u.sheets,clSheetTot));return`<div class="card s12"><div class="card-h"><div><h2>${esc(u.file)}</h2><span class="small muted">${u.archived?'Original clerk files were deleted to free up space; this is the consolidated copy':esc(u.clerk)+' · uploaded '+esc(new Date(u.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+(u.by?' by '+esc(u.by):'')}</span></div>
         <div class="inline-actions"><b>${M(tot)}</b>${closed?'':`<button class="btn ghost sm danger-t" data-act="clUpDel" data-id="${u.id}">Delete upload</button>`}</div></div>
         <div class="tw"><table><thead><tr><th>Sheet</th><th>Category</th><th>Paid by</th><th class="n">Workers</th><th>Dates in file</th><th class="n">Rows add up to</th><th class="n">Clerk’s total</th><th>Check</th></tr></thead><tbody>
-        ${u.sheets.map((s,si)=>{const st=clSheetTot(s),fs=B.flags.find(f=>f.key==='st:'+u.id+':'+si),nr=B.flags.filter(f=>f.type==='calc'&&f.key.startsWith('rc:'+u.id+':'+si+':')).length,ok=!fs&&!nr;const outP=B.from&&!clIsSep(s.cat)&&s.dates.some(d=>d<B.from||d>B.to);return`<tr><td>${esc(s.sheet)}</td><td>${esc(clCanon(s.cat))}</td><td>${s.kind==='unit'?'Per bag':'Daily rate'}</td><td class="n">${s.rows.length}</td><td class="small">${s.dates.length?esc(clDM(s.dates[0]))+' – '+esc(fmtD(s.dates[s.dates.length-1]))+' · '+s.dates.length+' cols':'–'}${outP?' <span class="pill bad">outside period</span>':''}</td><td class="n">${M(st)}</td><td class="n">${typeof s.clerkTot==='number'?M(s.clerkTot):'–'}</td><td>${ok?'<span class="pill good">OK</span>':`<span class="pill warn" title="See Red flags on the dashboard">Differs${nr?' · '+nr+' row'+(nr===1?'':'s'):''}</span>`}${(s.warn||[]).length?` <span class="small muted" title="${esc(s.warn.join(' '))}">${s.warn.length} note${s.warn.length===1?'':'s'}</span>`:''}</td></tr>`}).join('')}
+        ${u.sheets.map((s,si)=>{const st=clSheetTot(s),fs=B.flags.find(f=>f.key==='st:'+u.id+':'+si),nr=B.flags.filter(f=>f.type==='calc'&&f.key.startsWith('rc:'+u.id+':'+si+':')).length,ok=!fs&&!nr;const outP=B.from&&!clIsSep(s.cat)&&!clIsExtra(s.cat)&&s.dates.some(d=>d<B.from||d>B.to);return`<tr><td>${esc(s.sheet)}</td><td>${esc(clCanon(s.cat))}</td><td>${s.kind==='unit'?'Per bag':'Daily rate'}</td><td class="n">${s.rows.length}</td><td class="small">${s.dates.length?esc(clDM(s.dates[0]))+' – '+esc(fmtD(s.dates[s.dates.length-1]))+' · '+s.dates.length+' cols':'–'}${outP?' <span class="pill bad">outside period</span>':''}</td><td class="n">${M(st)}</td><td class="n">${typeof s.clerkTot==='number'?M(s.clerkTot):'–'}</td><td>${ok?'<span class="pill good">OK</span>':`<span class="pill warn" title="See Red flags on the dashboard">Differs${nr?' · '+nr+' row'+(nr===1?'':'s'):''}</span>`}${(s.warn||[]).length?` <span class="small muted" title="${esc(s.warn.join(' '))}">${s.warn.length} note${s.warn.length===1?'':'s'}</span>`:''}</td></tr>`}).join('')}
         </tbody></table></div>${(u.skipped||[]).length?`<p class="small muted" style="margin:8px 0 0">Not read: ${esc(u.skipped.join(', '))}</p>`:''}</div>`}).join('')||'<div class="card s12"><div class="empty">No files uploaded to this run yet.</div></div>'}`}
   else if(tab==='cats'){
     const C=B.cats.find(x=>x.key===ui.cl.cat)||B.cats[0];if(C)ui.cl.cat=C.key;
@@ -3539,19 +3549,19 @@ function vCL(){if(!ui.cl)ui.cl={tab:'dash',showDef:lsGet('hz-cl-def')==='1'};set
     else{const u=C.kind==='unit',exL=(run.excl||[]).filter(x=>x.startsWith(C.key+'|'));const dcols=C.ds||B.days;
       body=`<div class="card s12"><div class="ex-opts" style="margin-bottom:10px">${B.cats.map(k=>`<button type="button" class="optchip" data-act="clCat" data-v="${k.key}" aria-pressed="${k.key===C.key}">${esc(k.name)} · ${k.rows.length}</button>`).join('')}</div>
        <div class="card-h"><div><h2>${esc(C.name)}</h2><span class="small muted">${C.sep?'<span class="pill">Security · own period '+esc(clPerLbl(C.from,C.to))+' · separate bank list</span> ':''}${C.rows.length} workers · ${C.days} mandays${u?' · '+clFmtN(C.units)+' bags':''} · ${B.days.length}-day period · A–Z</span></div>
-        <div class="inline-actions"><b>${M(C.total)}</b>${closed?'':`<button class="btn ghost sm" data-act="clSep" data-v="${esc(C.name)}" title="Security categories keep their own (monthly) pay period and a separate list on the bank file">${C.sep?'✓ Security (separate)':'Mark as security'}</button><button class="btn ghost sm" data-act="clRen">Rename</button><button class="btn sm" data-act="clAdd" data-c="${esc(C.name)}">+ Add entry</button>`}</div></div>
-       <div class="tw"><table class="cl-t"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th>${C.xk.map(k=>`<th>${esc(k)}</th>`).join('')}${dcols.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}${u?'<th class="n">Bags</th><th class="n">Rate / bag</th>':''}<th class="n">Mandays</th><th class="n">Total</th><th></th></tr></thead><tbody>
+        <div class="inline-actions"><b>${M(C.total)}</b>${closed?'':`<button class="btn ghost sm" data-act="clXtra" data-v="${esc(C.name)}" title="Arrears and claims from earlier weeks: own dates, paid as a separate column on the bank file">${C.xtra?'✓ Own dates (arrears / claims)':'Own dates (arrears / claims)'}</button><button class="btn ghost sm" data-act="clSep" data-v="${esc(C.name)}" title="Security categories keep their own (monthly) pay period and a separate list on the bank file">${C.sep?'✓ Security (separate)':'Mark as security'}</button><button class="btn ghost sm" data-act="clRen">Rename</button><button class="btn sm" data-act="clAdd" data-c="${esc(C.name)}">+ Add entry</button>`}</div></div>
+       ${C.grps&&C.grps.length?`<p class="small muted" style="margin:0 0 8px">${esc(clGrpTxt(C))}</p>`:''}<div class="tw"><table class="cl-t"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th>${C.xk.map(k=>`<th>${esc(k)}</th>`).join('')}${dcols.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}${u?'<th class="n">Bags</th><th class="n">Rate / bag</th>':''}<th class="n">Mandays</th><th class="n">Total</th><th></th></tr></thead><tbody>
        ${C.rows.map((w,i)=>`<tr><td>${i+1}</td><td><b>${esc(w.n)}</b><div class="small muted">${esc(w.src.join(', '))}</div></td><td>${esc(w.id||'')}${clIdNorm(w.id)?'':' <span class="pill bad">ID</span>'}</td><td>${esc(clPh(w.ph))}${clPhoneOk(w.ph)?'':' <span class="pill bad">Phone pending</span>'}${(()=>{const b=B.bank.find(x=>x.keys.includes(w.key))||{};return b.shared||b.hold==='shared'})()?' <span class="pill warn" title="Payment number shared">Shared</span>':''}${w.fl.has('calc')?' <span class="pill warn" title="Clerk’s row total differs">Calc</span>':''}</td><td>${esc(w.g||'')}</td>${C.xk.map(k=>`<td>${esc(w.x[k]||'')}</td>`).join('')}
          ${dcols.map(d=>`<td class="n cl-dc">${u?(w.d[d]?clFmtN(w.d[d]):(w.e[d]?'<span title="Share of the clerk’s total">'+clFmtN(w.e[d])+'</span>':'')):(w.e[d]?clFmtN(w.e[d]):'')}</td>`).join('')}
-         ${u?`<td class="n">${clFmtN(w.units)}</td><td class="n">${clFmtN(w.r)}</td>`:''}<td class="n">${w.days}</td><td class="n"><b>${M(w.amt)}</b></td>
+         ${u?`<td class="n">${w.units?clFmtN(w.units):''}</td><td class="n">${clGrpRow(C,w)?'':clFmtN(w.r)}</td>`:''}<td class="n">${w.days}</td><td class="n"><b>${M(w.amt)}</b></td>
          <td>${closed?'':`<div class="inline-actions">${w.mids.length?`<button class="x" data-act="clEdit" data-id="${w.mids[w.mids.length-1]}" aria-label="Edit">✎</button>`:''}<button class="x" data-act="clRm" data-k="${esc(C.key+'|'+w.key)}" data-n="${esc(w.n)}" aria-label="Remove from this run">×</button></div>`}</td></tr>`).join('')}
        ${C.adj?`<tr><td></td><td colspan="${4+C.xk.length+dcols.length+(u?2:0)+1}" class="small muted">Adjustment · clerk’s uploaded total kept (not on the bank file)</td><td class="n"><b>${M(C.adj)}</b></td><td></td></tr>`:''}
        <tr class="tot"><td colspan="${5+C.xk.length}">Total · ${C.rows.length} workers</td>${dcols.map(d=>{const v=r2(sum(C.rows,w=>num(u?w.d[d]:w.e[d])));return`<td class="n cl-dc">${v?clFmtN(v):''}</td>`}).join('')}${u?`<td class="n">${clFmtN(C.units)}</td><td></td>`:''}<td class="n">${C.days}</td><td class="n">${M(C.total)}</td><td></td></tr></tbody></table></div>
        ${exL.length?`<div class="cl-rm"><b class="small">Removed from this run (${exL.length})</b>${exL.map(k=>{const nm=(run.exclN||{})[k]||k.split('|')[1];return`<span class="inline-actions"><span class="small">${esc(nm)}</span>${closed?'':`<button class="btn ghost sm" data-act="clUnrm" data-k="${esc(k)}">Restore</button>`}</span>`}).join('')}</div>`:''}</div>`}}
   else if(tab==='bank'){
-    const btab=(L,ttl,DD)=>{DD=DD||B.days;return`<div class="tw"><table class="cl-t"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th>${DD.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}<th class="n">Mandays</th><th class="n">Total</th></tr></thead><tbody>
-     ${L.map((b,i)=>`<tr><td>${i+1}</td><td><b>${esc(b.n)}</b><div class="small muted">${esc(B.cats.filter(C=>b.by[C.key]).map(C=>C.name).join(', '))}</div></td><td>${esc(b.id||'')}${clIdNorm(b.id)?'':' <span class="pill bad">ID</span>'}</td><td>${esc(clPh(b.ph))}${clPhoneOk(b.ph)?'':' <span class="pill bad">Phone pending</span>'}${b.shared||b.hold==='shared'?' <span class="pill warn">Shared number</span>':''}</td><td>${esc(b.g||'')}</td>${DD.map(d=>`<td class="n cl-dc${b.cd[d]&&b.cd[d].length>1?' cl-dual':''}" ${b.cd[d]?`title="${esc(b.cd[d].join(' + '))}"`:''}>${b.e[d]?clFmtN(b.e[d]):''}</td>`).join('')}<td class="n">${b.days}</td><td class="n"><b>${M(b.amt)}</b></td></tr>`).join('')}
-     <tr class="tot"><td colspan="5">${ttl} · ${L.length} workers</td>${DD.map(d=>`<td class="n cl-dc">${clFmtN(r2(sum(L,b=>num(b.e[d]))))}</td>`).join('')}<td class="n">${sum(L,b=>b.days)}</td><td class="n">${M(r2(sum(L,b=>b.amt)))}</td></tr></tbody></table></div>`};
+    const btab=(L,ttl,DD)=>{DD=DD||B.days;const X=DD===B.days?B.xc:[];return`<div class="tw"><table class="cl-t"><thead><tr><th>No</th><th>Name</th><th>ID No</th><th>Phone No</th><th>Gender</th>${DD.map(d=>`<th class="n cl-dc">${esc(clDayLbl(d)).replace(/^(\w+) /,'$1<br>')}</th>`).join('')}${X.map(C=>`<th class="n">${esc(C.name)}<br><small>${esc(clPerLbl(C.from,C.to))}</small></th>`).join('')}<th class="n">Mandays</th><th class="n">Total</th></tr></thead><tbody>
+     ${L.map((b,i)=>`<tr><td>${i+1}</td><td><b>${esc(b.n)}</b><div class="small muted">${esc(B.cats.filter(C=>b.by[C.key]).map(C=>C.name).join(', '))}</div></td><td>${esc(b.id||'')}${clIdNorm(b.id)?'':' <span class="pill bad">ID</span>'}</td><td>${esc(clPh(b.ph))}${clPhoneOk(b.ph)?'':' <span class="pill bad">Phone pending</span>'}${b.shared||b.hold==='shared'?' <span class="pill warn">Shared number</span>':''}</td><td>${esc(b.g||'')}</td>${DD.map(d=>`<td class="n cl-dc${b.cd[d]&&b.cd[d].length>1?' cl-dual':''}" ${b.cd[d]?`title="${esc(b.cd[d].join(' + '))}"`:''}>${b.e[d]?clFmtN(b.e[d]):''}</td>`).join('')}${X.map(C=>`<td class="n">${b.lump[C.key]?clFmtN(b.lump[C.key]):''}</td>`).join('')}<td class="n">${b.days}</td><td class="n"><b>${M(b.amt)}</b></td></tr>`).join('')}
+     <tr class="tot"><td colspan="5">${ttl} · ${L.length} workers</td>${DD.map(d=>`<td class="n cl-dc">${clFmtN(r2(sum(L,b=>num(b.e[d]))))}</td>`).join('')}${X.map(C=>`<td class="n">${clFmtN(r2(sum(L,b=>num(b.lump[C.key]))))}</td>`).join('')}<td class="n">${sum(L,b=>b.days)}</td><td class="n">${M(r2(sum(L,b=>b.amt)))}</td></tr></tbody></table></div>`};
     body=`<div class="card s12"><div class="card-h"><div><h2>Consolidated bank payment file</h2><span class="small muted">${B.payM.length} workers listed once · every date of the period · two roles on one day are added together · A–Z</span></div><div class="inline-actions"><b>${M(r2(sum(B.payM,b=>b.amt)))}</b>${dl('bank')}</div></div>
      ${btab(B.payM,'Total')}
      ${B.dual.length?'<p class="small muted"><span class="cl-dual" style="padding:0 6px">Shaded</span> days combine two roles (hover to see which).</p>':''}</div>
@@ -3655,6 +3665,7 @@ function clAction(a,t){if(/^clDef/.test(a))return clDefAction(a,t);const run=clC
     const L=a==='clDec'?[t.dataset.k]:B.pend.filter(f=>f.type===t.dataset.t).map(f=>f.key);L.forEach(k=>{if(v)run.dec[k]={v,at:Date.now(),by:pcrMyName()};else delete run.dec[k]});clSaveRun(run);render();
     if(a==='clDecAll'||v==='disregard'||v==='keep'||v==='system')toastAction(L.length===1?'Decision saved':L.length+' flagged items decided','Undo',()=>{run.dec=JSON.parse(before);clSaveRun(run);render()})}
   else if(a==='clDoneT'){ui.cl.doneOpen=!ui.cl.doneOpen}
+  else if(a==='clXtra'){const c=clCfg(),n=t.dataset.v,k=clCatKey(clCanon(n));c.xtra=c.xtra||{};const was=clIsExtra(n);c.xtra[k]=!was;clSaveCfg();render();toast(was?n+' now uses the run’s pay period':n+' keeps its own dates and is paid as a separate column on the bank file')}
   else if(a==='clSep'){const c=clCfg(),n=t.dataset.v,k=clCatKey(clCanon(n));c.sep=c.sep||{};const was=clIsSep(n);c.sep[k]=!was;clSaveCfg();render();toast(was?n+' is now paid with the other categories':n+' now has its own pay period and a separate security list on the bank file')}
   else if(a==='clFlDet'){ui.cl.flagDet=t.dataset.v==='1';render()}
   else if(a==='clFlSt'){ui.cl.flSt=t.dataset.v;ui.cl.flagDet=true;render()}
