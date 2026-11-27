@@ -674,7 +674,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='23 Nov 2026 · Excel files open cleanly';
+const APP_BUILD='27 Nov 2026 · petty cash carries forward after closing';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -1920,7 +1920,20 @@ const pcrCat=id=>{const c=pcrCfg().cats.find(x=>x.id===id);return c?c.name:'Unca
 const pcrIsReimb=id=>/reimburs/i.test(pcrCat(id));
 const pcrPerson=id=>{if(String(id||'').startsWith('n:'))return id.slice(2);const p=pcrCfg().people.find(x=>x.id===id);return p?p.name:''};
 const pcrChargesCat=()=>{const c=pcrCfg().cats.find(x=>/charge|transfer/i.test(x.name));return c?c.id:''};
-const pcrEff=e=>e.kind==='in'?e.date:(e.paidDate||e.date);
+const pcrEff=e=>e.post&&pcrIsPaid(e)?e.post:e.kind==='in'?e.date:(e.paidDate||e.date);
+const pcrOwnD=e=>e.kind==='in'?e.date:(e.paidDate||e.date);
+/* an entry dated inside a closed set but recorded for the open set is posted to the open set's first day */
+function pcrAutoPost(e){const ls=pcrSets()[pcrSets().length-1];if(ls&&pcrIsPaid(e)&&pcrOwnD(e)<=ls.to)e.post=addDay(ls.to);else delete e.post;return e}
+/* one-off repair: cash or expenses keyed after a set was closed, but dated on its last day, belong to the new set */
+function pcrRepairSets(){if(pcrClerk()||store.viewing)return;const c=pcrCfg(),ls=c.sets[c.sets.length-1];if(!ls||ls.chk)return;ls.chk=1;
+  const inS=e=>pcrIsPaid(e)&&!e.post&&pcrEff(e)>=ls.from&&pcrEff(e)<=ls.to,cut=new Date(ls.closedOn+'T00:00').getTime();
+  const fix=(L,diff,val)=>{if(diff<=0.004)return[];const C=L.filter(e=>num(e.ts)>=cut).sort((a,b)=>num(b.ts)-num(a.ts));
+    for(let i=0;i<C.length&&i<12;i++){let t=0;const pick=[];for(let j=i;j<C.length;j++){t+=val(C[j]);pick.push(C[j]);if(Math.abs(t-diff)<0.005)return pick;if(t>diff)break}}
+    const one=C.find(e=>Math.abs(val(e)-diff)<0.005);return one?[one]:[]};
+  const A=pcrAll().filter(inS),inL=A.filter(e=>e.kind==='in'),apL=A.filter(e=>e.kind==='ap');
+  const mv=[...fix(inL,sum(inL,e=>num(e.amt))-num(ls.dispensed),e=>num(e.amt)),...fix(apL,sum(apL,pcrOut)-num(ls.exp),pcrOut)];
+  mv.forEach(e=>{e.post=addDay(ls.to);pcrSave(e)});pcrSaveCfg();
+  if(mv.length)setTimeout(()=>toast(mv.length+' entr'+(mv.length===1?'y':'ies')+' recorded after closing '+pcrSetRef(ls.no,ls.from)+' moved into the current reconciliation'),400)}
 const pcrIsPaid=e=>e.kind==='in'||e.status==='paid';
 const pcrOut=e=>num(e.amt)+num(e.fee);
 const pcrLogo=()=>pcrCfg().logo||PCR_LOGO_DEFAULT;
@@ -2287,7 +2300,7 @@ async function pcrExport(type,f){
 }
 
 /* ---------- screens ---------- */
-function vPCR(){
+function vPCR(){try{pcrRepairSets()}catch(e){console.warn(e)}
   pcrAdopt();const clerk=pcrClerk();if(clerk)ui.pcrTab='reports';
   const c=pcrCfg(),[from,to]=pcrRange(),R=pcrReport(from,to),tab=ui.pcrTab||'summary',o=pcrOpts();
   setTimeout(pcrFontsPreview,0);
@@ -2535,11 +2548,11 @@ function openPayModal(ids){
     $('#mdForm').onsubmit=ev=>{ev.preventDefault();const S=items.filter(e=>sel.has(e.id));if(!S.length)return;const d=$('#pyDate').value;if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){toast('Pick the date paid');return}
       const fee=num($('#pyFee').value),pt=String($('#pyPt').value||'').trim(),ref=$('#pyRef').value.trim(),payId=S.length>1?nid():'',prev=S.map(e=>JSON.parse(JSON.stringify(e)));
       if(pt&&!c.points.some(x=>x.toLowerCase()===pt.toLowerCase())){c.points.push(pt);pcrSaveCfg()}
-      S.forEach((e,i)=>{e.status='paid';e.paidDate=d;if(pt)e.point=pt;if(ref)e.payRef=ref;else delete e.payRef;e.fee=i===S.length-1?fee:0;if(payId)e.payId=payId;else delete e.payId;pcrSave(e)});
+      S.forEach((e,i)=>{e.status='paid';e.paidDate=d;pcrAutoPost(e);if(pt)e.point=pt;if(ref)e.payRef=ref;else delete e.payRef;e.fee=i===S.length-1?fee:0;if(payId)e.payId=payId;else delete e.payId;pcrSave(e)});
       const tot=sum(S,e=>num(e.amt))+fee;close();render();
       toastAction('Paid '+fmt(tot)+' · added to the PCR report. Petty cash balance '+fmt(pcrBal()),'Undo',()=>{prev.forEach(p=>pcrSave(p));render()})}});
 }
-function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.payId;delete e.payRef;pcrSave(e);render();
+function pcrUnpay(id){const e=pcrAll().find(x=>x.id===id);if(!e)return;const prev=JSON.parse(JSON.stringify(e));e.status='planned';delete e.paidDate;delete e.post;delete e.payId;delete e.payRef;pcrSave(e);render();
   toastAction('Moved back to planned payables','Undo',()=>{pcrSave(prev);render()})}
 function pcrApView(R,live){
   const item=(e,g,paid)=>`<div class="apitem"><div class="api-main"><span>${esc(e.desc||'(no description)')}</span><small class="muted">${paid?esc(fmtD(e.date))+(e.paidDate&&e.paidDate!==e.date?' · paid '+esc(fmtD(e.paidDate)):''):'Due '+esc(fmtD(e.date))}${e.by?' · by '+esc(e.by):''}${e.point?' · '+esc(e.point):''}${!g.reimb&&e.payee?' · '+esc(e.payee):''}${e.ref?' · Receipt '+esc(e.ref):''}${e.payRef?' · Code '+esc(e.payRef):''}</small></div>
@@ -2630,7 +2643,7 @@ function openCloseSet(){
       <div class="inline-actions"><button class="btn" type="submit" style="flex:1">Close &amp; start new reconciliation ${esc(pcrSetRef(no+1,addDay(to)))}</button></div></form></div>`;
     $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});$('#csX').onclick=close;
     $('#csTo').onchange=ev=>{const v=ev.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v)&&v>=from){to=v;draw()}};
-    $('#csForm').onsubmit=ev=>{ev.preventDefault();const c=pcrCfg(),s={id:nid(),no,from,to,closedOn:todayStr(),previous:D.previous,dispensed:D.dispensed,exp:D.totalExp,balance:D.balance};
+    $('#csForm').onsubmit=ev=>{ev.preventDefault();const c=pcrCfg(),s={id:nid(),no,from,to,closedOn:todayStr(),closedTs:Date.now(),chk:1,previous:D.previous,dispensed:D.dispensed,exp:D.totalExp,balance:D.balance};
       c.sets.push(s);pcrSaveCfg();ui.pcr.preset='set';close();render();
       toastAction(pcrSetRef(no,from)+' closed. '+pcrSetRef(no+1,addDay(to))+' starts with '+fmt(D.balance),'View closed set',()=>{ui.pcr.preset='set:'+s.id;render()})};
   };
@@ -2640,6 +2653,7 @@ function openCloseSet(){
 function openPcr(e,opts){
   const c=pcrCfg(),ed=e&&e.id&&pcrAll().some(x=>x.id===e.id);const t=e?{...e}:{kind:(opts&&opts.k)||'ap',status:(opts&&opts.s)||'paid',date:todayStr()};
   let kind=t.kind,status=t.status||'paid';
+  const ls0=pcrLastSet();let toCur=!ed||!!t.post||!!(ls0&&ls0.closedTs&&num(t.ts)>ls0.closedTs);
   const base=pcrBal()+(ed&&pcrIsPaid(e)?(e.kind==='in'?-num(e.amt):pcrOut(e)):0);
   const draw=()=>{
     const catOptsP=c.cats.map(k=>({v:k.id,l:k.name,g:'Category'})),ptOpts=c.points.map(x=>({v:x,l:x,g:'Payment point'})),pplOpts=c.people.map(x=>({v:x.id,l:x.name,g:'Person'}));
@@ -2650,6 +2664,7 @@ function openPcr(e,opts){
       <div class="pcbal" id="pcBal"></div>
       <div class="field amt-in"><label for="pcAmt">Amount (Ksh)</label><input id="pcAmt" class="numin" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(t.amt)}" placeholder="0"></div>
       <div class="fgrid"><div class="field"><label for="pcDate">${kind==='ap'&&status!=='paid'?'Due date':kind==='ap'?'Date of item / receipt':'Date'}</label><input id="pcDate" type="date" value="${esc(t.date||todayStr())}"></div>${kind==='ap'&&status==='paid'?`<div class="field"><label for="pcPaidOn">Paid on <small class="muted">(decides the set it counts in)</small></label><input id="pcPaidOn" type="date" value="${esc(t.paidDate||todayStr())}"></div>`:''}<div class="field"><label for="pcRef">Ref / receipt no. (optional)</label><input id="pcRef" value="${esc(t.ref||'')}"></div></div>
+      <div id="pcSetF"></div>
       <div class="field"><label for="pcDesc">Description of item / service</label><input id="pcDesc" value="${esc(t.desc||'')}" placeholder="${kind==='ap'?'e.g. Fuel for KDT 598M':'e.g. Petty cash dispensed for November'}" maxlength="160"></div>
       ${kind==='ap'?`<div class="fgrid"><div class="field"><label for="pcCat-q">Category</label>${combo('pcCat',catOptsP,t.cat||'',{ph:'Type a category'})}</div>
         <div class="field" id="pcPersonF"><label for="pcPerson-q">Person reimbursed</label>${combo('pcPerson',pplOpts,t.person||'',{ph:'Type a name, new or existing',free:true})}</div>
@@ -2661,13 +2676,16 @@ function openPcr(e,opts){
     $('#pcAmt').focus();$('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});$('#pcClose').onclick=close;
     document.querySelectorAll('[data-pk]').forEach(b=>b.onclick=()=>{grab();kind=b.dataset.pk;draw()});
     document.querySelectorAll('[data-ps]').forEach(b=>b.onclick=()=>{grab();status=b.dataset.ps;draw()});
-    $('#pcAmt').addEventListener('input',live);$('#pcDate').addEventListener('change',live);const fe=$('#pcFee');if(fe)fe.addEventListener('input',live);const cc=$('#pcCat');if(cc)cc.onchange=live;live();
+    $('#pcAmt').addEventListener('input',live);$('#pcDate').addEventListener('change',live);const pon=$('#pcPaidOn');if(pon)pon.addEventListener('change',live);const fe=$('#pcFee');if(fe)fe.addEventListener('input',live);const cc=$('#pcCat');if(cc)cc.onchange=live;live();
     $('#pcForm').onsubmit=ev=>{ev.preventDefault();save(false)};const ag=$('#pcAgain');if(ag)ag.onclick=()=>save(true);
   };
   const live=()=>{const a=num($('#pcAmt').value),f=num(($('#pcFee')||{value:0}).value),box=$('#pcBal');
     const after=kind==='in'?base+a:status==='paid'?base-a-f:base;const cls=after<0?'bad':after<num(c.alert)?'warn':'good';
     box.className='pcbal '+cls;box.innerHTML=kind==='ap'&&status!=='paid'?`Petty cash balance <b>${fmt(base)}</b>. Planned items don’t change it until they are paid.`:`Petty cash balance <b>${fmt(base)}</b> → after this ${kind==='in'?'cash':'expense'}: <b>${fmt(after)}</b>${after<0?' · this overdraws petty cash':after<num(c.alert)?' · below your '+fmt(num(c.alert))+' alert level':''}${kind==='ap'&&f?' (amount + fee '+fmt(a+f)+')':''}`;
-    const ls=pcrLastSet(),dv=$('#pcDate').value;if(ls&&dv&&dv<=ls.to)box.innerHTML+=`<br><b>Note:</b> this date is in closed set ${esc(pcrSetRef(ls.no,ls.from))}, so saving changes that set’s figures.`;
+    const ls=pcrLastSet(),po=$('#pcPaidOn'),dv=kind==='in'?$('#pcDate').value:status==='paid'?(po?po.value:$('#pcDate').value):'',sf=$('#pcSetF');
+    if(ls&&dv&&dv<=ls.to){const cs=pcrSets().find(x=>dv>=x.from&&dv<=x.to)||ls;
+      sf.innerHTML=`<div class="field"><label>This date is in closed set ${esc(pcrSetRef(cs.no,cs.from))} (${esc(fmtD(cs.from))} – ${esc(fmtD(cs.to))}). Count it in:</label><div class="seg seg2"><button type="button" data-pset="cur" aria-pressed="${toCur}">Current reconciliation ${esc(pcrSetRef(pcrCurNo(),pcrSetStart()))}</button><button type="button" data-pset="old" aria-pressed="${!toCur}">Closed set ${esc(pcrSetRef(cs.no,cs.from))}</button></div><small class="muted">${toCur?'The receipt keeps its date, but the amount counts from '+esc(fmtD(pcrSetStart()))+' in the current reconciliation. The closed set stays as it was.':'Saving changes the closed set’s figures and the balance carried forward.'}</small></div>`;
+      sf.querySelectorAll('[data-pset]').forEach(b=>b.onclick=()=>{toCur=b.dataset.pset==='cur';live()})}else sf.innerHTML='';
     const cc=$('#pcCat');if(cc){const r=pcrIsReimb(cc.value);$('#pcPersonF').hidden=!r;$('#pcPayeeF').hidden=r}};
   const grab=()=>{t.amt=$('#pcAmt').value;t.date=$('#pcDate').value;const po=$('#pcPaidOn');if(po)t.paidDate=po.value;t.ref=$('#pcRef').value;t.desc=$('#pcDesc').value;t.payee=$('#pcPayee').value;const cc=$('#pcCat');if(cc)t.cat=cc.value;const pp=$('#pcPerson');if(pp)t.person=pp.value;t.point=$('#pcPt').value;const f=$('#pcFee');if(f)t.fee=f.value};
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',esc_)};const esc_=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',esc_);
@@ -2679,6 +2697,7 @@ function openPcr(e,opts){
     const pt=String(t.point||'').trim();if(pt&&!c.points.some(x=>x.toLowerCase()===pt.toLowerCase())){c.points.push(pt);pcrSaveCfg()}
     const rec={id:ed?t.id:nid(),ts:t.ts||Date.now(),kind,amt,date:d,ref:(t.ref||'').trim(),desc:(t.desc||'').trim(),payee:person?'':(t.payee||'').trim(),point:pt};
     if(kind==='ap'){rec.cat=t.cat;rec.fee=num(t.fee);if(person)rec.person=person;rec.status=status==='paid'?'paid':'planned';if(rec.status==='paid'){rec.paidDate=/^\d{4}-\d{2}-\d{2}$/.test(t.paidDate||'')?t.paidDate:d}if(t.by)rec.by=t.by;if(t.payId)rec.payId=t.payId;if(t.payRef)rec.payRef=t.payRef}
+    {const ls=pcrLastSet();if(ls&&pcrIsPaid(rec)&&pcrOwnD(rec)<=ls.to&&toCur)rec.post=pcrSetStart()}
     pcrSave(rec);const nb=pcrBal();
     if(nb<0)toast('Saved. Petty cash is now overdrawn: '+fmt(nb));else if(nb<num(c.alert))toast('Saved. Low petty cash balance: '+fmt(nb));else toast('Saved. Petty cash balance: '+fmt(nb));
     close();render();if(again)openPcr(null,{k:kind,s:status});
@@ -2720,7 +2739,7 @@ function pcrAction(a,t){
   else if(a==='pcPv')pcrPvExport(t.dataset.i==null?null:t.dataset.i);
   else if(a==='pcPayPerson')openPayModal(t.dataset.ids.split(','));
   else if(a==='pcUnpay')pcrUnpay(t.dataset.id);
-  else if(a==='pcPayOld'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const prev={...e};e.status='paid';e.paidDate=todayStr();pcrSave(e);render();toastAction('Paid · now in the ledger and PCR report. Balance '+fmt(pcrBal()),'Undo',()=>{pcrSave(prev);render()})}
+  else if(a==='pcPayOld'){const e=pcrAll().find(x=>x.id===t.dataset.id);if(!e)return;const prev={...e};e.status='paid';e.paidDate=todayStr();pcrAutoPost(e);pcrSave(e);render();toastAction('Paid · now in the ledger and PCR report. Balance '+fmt(pcrBal()),'Undo',()=>{pcrSave(prev);render()})}
   else if(a==='pcCatAdd'){c.cats.push({id:nid(),name:'New category'});pcrSaveCfg();render()}
   else if(a==='pcCatDel'){if(pcrAll().some(e=>e.cat===t.dataset.id)){toast('This category is used by entries. Rename it instead.');return}c.cats=c.cats.filter(x=>x.id!==t.dataset.id);pcrSaveCfg();render()}
   else if(a==='pcPplAdd'){c.people.push({id:nid(),name:'New person'});pcrSaveCfg();render();const ins=document.querySelectorAll('[data-ppl]');const l=ins[ins.length-1];if(l){l.focus();l.select()}}
