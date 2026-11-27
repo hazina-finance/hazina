@@ -2214,6 +2214,9 @@ function pcrSigMigrate(){const c=pcrCfg();if(pcrSigBusy||c.sigV===2||!pcrSuper()
   Promise.all(['sigPrep','sigAppr'].map(async k=>{if(c[k])c[k]=await sigClean(c[k])})).then(()=>{c.sigV=2;pcrSaveCfg();pcrSigBusy=false;render()})}
 /* the date every signatory signs on: the closing date for a closed set, otherwise today */
 const pcrSignDate=(from,to)=>{const st=pcrSets().find(x=>x.from===from&&x.to===to);return fmtD(st&&st.closedOn?st.closedOn:todayStr())};
+/* after reopening a set: its original dates, or (for sets reopened before this was recorded) the day before entries that were kept for the next set */
+function pcrReclose(){const c=pcrCfg(),from=pcrSetStart();if(c.reopened&&c.reopened.set&&c.reopened.set.from===from)return{to:c.reopened.set.to,closedOn:c.reopened.set.closedOn||c.reopened.set.to,known:true};
+  const ps=pcrAll().filter(e=>e.post&&pcrIsPaid(e)&&e.post>from).map(e=>e.post).sort();if(ps.length)return{to:dayBefore(ps[0]),closedOn:dayBefore(ps[0]),known:false};return null}
 const pcrSuper=()=>isAdmin()&&!store.viewing&&!pcrClerk();
 const pcrOpts=()=>{const c=pcrCfg();return{showBy:!(c.rep&&c.rep.showBy===false),mode:ui.pcrMode||c.mode,share:c.rep.share,people:c.rep.people,ap:ui.pcrRep.ap,rc:ui.pcrRep.rc,covers:ui.pcrRep.covers}};
 const PCR_TITLES={pcr:'Petty Cash Reconciliation Report',ap:'Accounts Payable Report',ledger:'Petty Cash Ledger',rc:'Supporting Documents Schedule'};
@@ -2549,7 +2552,8 @@ function vPCR(){try{pcrRepairSets();pcrSigMigrate()}catch(e){console.warn(e)}
     <td><div class="inline-actions">${e.status!=='paid'?`<button class="addrow" style="margin:0" data-act="pcPay" data-id="${e.id}">Mark as paid</button>`:''}<button class="x" data-act="pcEdit" data-id="${e.id}" aria-label="Edit">✎</button><button class="x" data-act="pcDel" data-id="${e.id}" aria-label="Delete">×</button></div></td></tr>`;
   const nW=Object.keys(c.words||{}).length+Object.keys(c.wordsT||{}).length;
   const wordBar=clerk?'':`<div class="wordbar ${ui.pcrWords?'on':''}"><button type="button" class="optchip" data-act="pcWords" aria-pressed="${!!ui.pcrWords}">${ui.pcrWords?'✓ Done editing wording':'✎ Edit wording'}</button><span class="small muted">${ui.pcrWords?'Click any text in the report below and type. Press Enter to finish a line. Changes are used in the PDF, Excel and CSV.':nW?nW+' wording change'+(nW===1?'':'s')+' applied to downloads.':'Change any heading, label or line of text before downloading.'}</span>${nW?'<button type="button" class="btn ghost sm" data-act="pcWordsReset">Reset wording</button>':''}</div>`;
-  const setBar=`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn sm" data-act="pcCloseSet">Close &amp; start new reconciliation</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
+  const rc=ui.pcr.preset==='set'&&!pcrClerk()?pcrReclose():null;
+  const setBar=(rc?`<div class="note warn" style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:0 0 10px"><span><b>${esc(curRef)} is reopened.</b> ${rc.known?'It was originally':'Entries kept for the next reconciliation start on '+esc(fmtD(addDay(rc.to)))+', so it was'} closed for ${esc(fmtD(pcrSetStart()))} – ${esc(fmtD(rc.to))}. Close it again with those dates to put everything back as it was.</span><button class="btn sm" data-act="pcReclose">Close ${esc(curRef)} again as before</button></div>`:'')+`<div class="setbar"><div><div class="eyebrow">Reimbursement set</div><b>${ui.pcr.preset==='set'?esc(curRef)+' · open since '+esc(fmtD(pcrSetStart())):esc(pcrRef(from,to)||'Custom period')}</b></div>${ui.pcr.preset==='set'?`<button class="btn sm" data-act="pcCloseSet">Close &amp; start new reconciliation</button>`:`<button class="btn ghost sm" data-act="pcGoSet">Go to the current set</button>`}</div>`;
   let body='';
   if(tab==='summary'){
     const anc=c.anchors.some(a=>a.date===from),first=pcrIsFirst(from);
@@ -2885,19 +2889,22 @@ function openFresh(){
       c.sets=[];c.anchors=[];c.opening=num($('#frAmt').value);c.openingDate=d;pcrSaveCfg();
       ui.pcr.preset='set';ui.pcrTab='summary';close();render();toastAction('Started afresh from '+fmtD(d)+' with '+fmt(c.opening),'Undo',()=>pcrRevive(bt))}});
 }
-function openCloseSet(){
-  const from=pcrSetStart(),no=pcrCurNo();let to=todayStr();if(to<from)to=from;
+function openCloseSet(pre){
+  const from=pcrSetStart(),no=pcrCurNo();pre=pre||pcrReclose();let to=pre?pre.to:todayStr();if(to<from)to=from;let con=pre?pre.closedOn:todayStr();if(con<to)con=to;
   const draw=()=>{const D=pcrDoc(from,to,'detailed');
     $('#modalRoot').innerHTML=`<div class="scrim" id="scrim"><form class="modal" id="csForm" role="dialog" aria-modal="true" aria-labelledby="csT" novalidate>
       <div class="card-h" style="margin:0"><h2 id="csT">Close ${esc(pcrSetRef(no,from))}</h2><button type="button" class="x" id="csX" aria-label="Close">×</button></div>
       <p class="small muted" style="margin:0">Closing ends this reimbursement set. Its closing balance becomes the previous balance of the next set automatically. You can still open and download closed sets from the Period list.</p>
-      <div class="field"><label for="csTo">Last day of this set</label><input type="date" id="csTo" min="${from}" value="${to}"></div>
+      ${pre?`<p class="note" style="margin:0">Prefilled with the dates ${esc(pcrSetRef(no,from))} had before it was reopened. Entries after ${esc(fmtD(to))} stay in the next reconciliation.</p>`:''}
+      <div class="fgrid"><div class="field"><label for="csTo">Last day of this set</label><input type="date" id="csTo" min="${from}" value="${to}"></div>
+      <div class="field"><label for="csOn">Date closed <small class="muted">(signature date on reports)</small></label><input type="date" id="csOn" min="${to}" value="${con}"></div></div>
       <div class="pcbal">${esc(fmtD(from))} – ${esc(fmtD(to))}<br>Previous balance ${fmt(D.previous)} + dispensed ${fmt(D.dispensed)} − expenditure ${fmt(D.totalExp)} = <b>${fmt(D.balance)}</b> carried forward</div>
       <div class="inline-actions"><button class="btn" type="submit" style="flex:1">Close &amp; start new reconciliation ${esc(pcrSetRef(no+1,addDay(to)))}</button></div></form></div>`;
     $('#scrim').addEventListener('click',ev=>{if(ev.target.id==='scrim')close()});$('#csX').onclick=close;
-    $('#csTo').onchange=ev=>{const v=ev.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v)&&v>=from){to=v;draw()}};
-    $('#csForm').onsubmit=ev=>{ev.preventDefault();const c=pcrCfg(),s={id:nid(),no,from,to,closedOn:todayStr(),closedTs:Date.now(),chk:1,previous:D.previous,dispensed:D.dispensed,exp:D.totalExp,balance:D.balance};
-      c.sets.push(s);pcrSaveCfg();ui.pcr.preset='set';close();render();
+    $('#csTo').onchange=ev=>{const v=ev.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v)&&v>=from){to=v;if(con<to)con=to;draw()}};
+    $('#csOn').onchange=ev=>{const v=ev.target.value;if(/^\d{4}-\d{2}-\d{2}$/.test(v))con=v<to?to:v};
+    $('#csForm').onsubmit=ev=>{ev.preventDefault();const c=pcrCfg(),old=c.reopened&&c.reopened.set&&c.reopened.set.from===from?c.reopened.set:null,s={id:old?old.id:nid(),no,from,to,closedOn:con,closedTs:Date.now(),chk:1,previous:D.previous,dispensed:D.dispensed,exp:D.totalExp,balance:D.balance};
+      c.sets.push(s);delete c.reopened;pcrSaveCfg();ui.pcr.preset='set';close();render();
       toastAction(pcrSetRef(no,from)+' closed. '+pcrSetRef(no+1,addDay(to))+' starts with '+fmt(D.balance),'View closed set',()=>{ui.pcr.preset='set:'+s.id;render()})};
   };
   const close=()=>{$('#modalRoot').innerHTML='';document.removeEventListener('keydown',esc_)};const esc_=ev=>{if(ev.key==='Escape')close()};document.addEventListener('keydown',esc_);
@@ -3017,7 +3024,8 @@ function pcrAction(a,t){
   else if(a==='pcErase')openErase();
   else if(a==='pcFresh')openFresh();
   else if(a==='pcGoSet'){ui.pcr.preset='set';render()}
-  else if(a==='pcReopen'){const s=c.sets.pop();if(!s)return;pcrSaveCfg();ui.pcr.preset='set';render();toastAction(pcrSetRef(s.no,s.from)+' reopened','Undo',()=>{c.sets.push(s);pcrSaveCfg();render()})}
+  else if(a==='pcReclose'){const r=pcrReclose();openCloseSet(r)}
+  else if(a==='pcReopen'){const s=c.sets.pop();if(!s)return;c.reopened={set:s,at:todayStr()};pcrSaveCfg();ui.pcr.preset='set';render();toastAction(pcrSetRef(s.no,s.from)+' reopened','Undo',()=>{c.sets.push(s);delete c.reopened;pcrSaveCfg();render()})}
   else if(a==='pcSigDel'){delete c[t.dataset.k];pcrSaveCfg();render()}
   else if(a==='pcFontReset'){Promise.all(['body','bold','head'].map(k=>fontPut(k,null))).then(()=>{pcrFontP=null;pcrFontFaces=false;ui.pcrFontNames='';toast('Using the built-in report fonts');render()}).catch(()=>{})}
   else return false;
