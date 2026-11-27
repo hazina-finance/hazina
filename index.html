@@ -395,7 +395,7 @@ td input.trk-name{font-weight:500}
 .exec .ex-note{font-size:.78rem;color:#4b5563;margin:12px 0 0}
 .exec .ex-box{display:inline-block;width:12px;height:12px;border:1px solid #6b7280;border-radius:2px;vertical-align:middle}
 .exec .ex-approve th{background:#f3f4f6;border-bottom:1.5px solid #111827}.exec .ex-approve td{height:54px;vertical-align:bottom;border-bottom:1px solid #e5e7eb}.exec .ex-sigc{width:34%}
-.exec .ex-sig{max-height:46px;max-width:100%;display:block}
+.exec .ex-sig{max-height:76px;max-width:100%;display:block;object-fit:contain}
 .exec .ex-covers{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
 .exec .ex-cover{border:1px solid #d1d5db;border-top:3px double #111827;padding:12px;display:flex;flex-direction:column;gap:4px;text-align:center}
 .exec .ex-cover b{font-family:"PCR Head","Aptos Serif",Georgia,serif;font-size:2rem;line-height:1}.exec .ex-cover span{font-weight:600;font-size:.85rem}.exec .ex-cover small{color:#6b7280;font-size:.72rem}
@@ -403,7 +403,7 @@ td input.trk-name{font-weight:500}
 .optchip{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font:inherit;font-size:.85rem;cursor:pointer}
 .optchip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .setbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface-2);border-radius:10px;padding:10px 12px;margin-bottom:12px}
-.sigset{display:flex;gap:12px;align-items:center;margin:8px 0}.sigbox{width:170px;height:64px;border:1px dashed var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;padding:4px}.sigbox img{max-width:100%;max-height:100%}
+.sigset{display:flex;gap:12px;align-items:center;margin:8px 0;flex-wrap:wrap}.sigslot{position:relative;width:230px!important;height:70px!important;align-items:flex-end!important;justify-content:flex-start!important;padding:4px 8px 8px!important;border-style:solid!important;border-width:0 0 1px!important;border-radius:0!important;overflow:visible}.sigslot img{max-width:100%;object-fit:contain}.sigslot i{position:absolute;right:4px;top:2px;font-size:.62rem;color:var(--ink-2);font-style:normal}.sigz{display:flex;flex-direction:column;gap:2px;min-width:150px}.sigz input{width:150px}.sigbox{width:170px;height:64px;border:1px dashed var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;padding:4px}.sigbox img{max-width:100%;max-height:100%}
 /* period figures + erase */
 .pfig{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .pfig>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;align-items:flex-start}
@@ -688,7 +688,7 @@ const ui={month:curMK(),view:'dashboard',priv:lsGet('hz-priv')==='1',txFilter:{t
 
 /* ---------- persistence (Supabase) ---------- */
 const APP_VERSION='1.6';
-const APP_BUILD='27 Nov 2026 · payables report, amount filter, budget advice, entered-by control';
+const APP_BUILD='27 Nov 2026 · signature sizing, dates for all signatories';
 const CFG=Object.assign({},window.HZ_CONFIG||{});try{CFG.supabaseUrl=new URL(String(CFG.supabaseUrl).trim()).origin}catch(e){}CFG.supabaseAnonKey=String(CFG.supabaseAnonKey||'').trim();
 const configured=!!(window.supabase&&CFG.supabaseUrl&&CFG.supabaseAnonKey&&!/YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey));
 /* offline before the database library was ever saved on this device: run from the saved figures, reload when back online */
@@ -2199,13 +2199,28 @@ function pcrDoc(from,to,mode){
 }
 
 /* ---------- report models (one model feeds the preview, PDF, Excel and CSV) ---------- */
+/* signatures: trimmed of empty margins, white made transparent, sized per signatory to sit well in the slot */
+const pcrSigZ=k=>{const z=num((pcrCfg()||{})[k+'Z']);return z>0?Math.min(1.6,Math.max(0.5,z)):1};
+function sigClean(src,maxW,maxH){return new Promise((res)=>{const im=new Image();im.onload=()=>{try{
+  const cv=document.createElement('canvas');cv.width=im.naturalWidth;cv.height=im.naturalHeight;const g=cv.getContext('2d');g.drawImage(im,0,0);
+  const D=g.getImageData(0,0,cv.width,cv.height),d=D.data;let x0=cv.width,y0=cv.height,x1=-1,y1=-1;
+  for(let y=0;y<cv.height;y++)for(let x=0;x<cv.width;x++){const i=(y*cv.width+x)*4,a=d[i+3],l=(d[i]+d[i+1]+d[i+2])/3;
+    if(a<16||l>232){d[i+3]=0;continue}if(l>200)d[i+3]=Math.round(a*(232-l)/32);if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+  if(x1<0){res(src);return}g.putImageData(D,0,0);const pad=Math.round(Math.max(x1-x0,y1-y0)*0.03)+2;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(cv.width-1,x1+pad);y1=Math.min(cv.height-1,y1+pad);
+  const w=x1-x0+1,h=y1-y0+1,sc=Math.min(1,(maxW||900)/w,(maxH||300)/h),o=document.createElement('canvas');o.width=Math.round(w*sc);o.height=Math.round(h*sc);
+  o.getContext('2d').drawImage(cv,x0,y0,w,h,0,0,o.width,o.height);res(o.toDataURL('image/png'))}catch(e){res(src)}};im.onerror=()=>res(src);im.src=src})}
+let pcrSigBusy=false;
+function pcrSigMigrate(){const c=pcrCfg();if(pcrSigBusy||c.sigV===2||!pcrSuper()||!(c.sigPrep||c.sigAppr))return;pcrSigBusy=true;
+  Promise.all(['sigPrep','sigAppr'].map(async k=>{if(c[k])c[k]=await sigClean(c[k])})).then(()=>{c.sigV=2;pcrSaveCfg();pcrSigBusy=false;render()})}
+/* the date every signatory signs on: the closing date for a closed set, otherwise today */
+const pcrSignDate=(from,to)=>{const st=pcrSets().find(x=>x.from===from&&x.to===to);return fmtD(st&&st.closedOn?st.closedOn:todayStr())};
 const pcrSuper=()=>isAdmin()&&!store.viewing&&!pcrClerk();
 const pcrOpts=()=>{const c=pcrCfg();return{showBy:!(c.rep&&c.rep.showBy===false),mode:ui.pcrMode||c.mode,share:c.rep.share,people:c.rep.people,ap:ui.pcrRep.ap,rc:ui.pcrRep.rc,covers:ui.pcrRep.covers}};
 const PCR_TITLES={pcr:'Petty Cash Reconciliation Report',ap:'Accounts Payable Report',ledger:'Petty Cash Ledger',rc:'Supporting Documents Schedule'};
 function pcrModel(type,o){
-  o=o||pcrOpts();const c=pcrCfg(),[from,to]=pcrRange(),today=fmtD(todayStr());
+  o=o||pcrOpts();const c=pcrCfg(),[from,to]=pcrRange(),today=pcrSignDate(from,to);
   const M={type,title:PCR_TITLES[type],org:c.org||'',from,to,ref:pcrRef(from,to),prepared:today,orient:'p',figs:null,blocks:[],
-    approve:[{role:'Prepared by',name:c.custodian||'',sig:c.sigPrep||'',date:today},{role:'Approved by',name:c.approver||'',sig:c.sigAppr||'',date:''}]};
+    approve:[{role:'Prepared by',name:c.custodian||'',sig:c.sigPrep||'',z:pcrSigZ('sigPrep'),date:today},{role:'Approved by',name:c.approver||'',sig:c.sigAppr||'',z:pcrSigZ('sigAppr'),date:today}]};
   M.kick=M.org||'Petty cash';M.sub=pcrSubLine(M);M.foot=[M.org,M.title,M.ref?'Ref '+M.ref:''].filter(Boolean).join('  ·  ');
   M.L={approval:'Approval',name:'Name',signature:'Signature',date:'Date',supp:'Supporting documents',coverNote:'Place the receipts for this category behind this page, in item-number order.',page:'Page'};
   const B=M.blocks;
@@ -2381,7 +2396,7 @@ function pcrHTML(M){
    ${M.figs?`<div class="ex-figs" style="grid-template-columns:repeat(${M.figs.length},1fr)">${M.figs.map(([l,v],i)=>`<div class="${i===M.figs.length-1?'ex-key':''}"><small>${ew(l)}</small><b>${typeof v==='number'?pcrA(v):ew(v)}</b></div>`).join('')}</div>`:''}
    ${M.blocks.map(blk).join('')}
    ${M.noApprove?'':`<div class="ex-h">${ew(M.L.approval)}</div>
-   <table class="ex-approve"><tr><th></th><th>${ew(M.L.name)}</th><th>${ew(M.L.signature)}</th><th>${ew(M.L.date)}</th></tr>${M.approve.map(a=>`<tr><td>${ew(a.role)}</td><td>${ew(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" src="${a.sig}" alt="Signature">`:''}</td><td>${ew(a.date)}</td></tr>`).join('')}</table>`}
+   <table class="ex-approve"><tr><th></th><th>${ew(M.L.name)}</th><th>${ew(M.L.signature)}</th><th>${ew(M.L.date)}</th></tr>${M.approve.map(a=>`<tr><td>${ew(a.role)}</td><td>${ew(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" style="height:${Math.round(46*(a.z||1))}px" src="${a.sig}" alt="Signature">`:''}</td><td>${ew(a.date)}</td></tr>`).join('')}</table>`}
    <div class="ex-foot"><span>${ew(M.foot)}</span></div></div>`;
 }
 
@@ -2429,12 +2444,12 @@ async function pcrPDF(M,file){
   if(!M.noApprove){if(y>H-170){doc.addPage();y=70}lab(M.L.approval);}
   const ap=M.noApprove?[]:M.approve,dims=await Promise.all(ap.map(a=>a.sig?imgDims(a.sig).catch(()=>null):null));
   if(!M.noApprove)tbl({startY:y,head:[['',tx(M.L.name),tx(M.L.signature),tx(M.L.date)]],body:ap.map(a=>[tx(a.role),tx(a.name||''),'',tx(a.date||'')]),
-    rowPageBreak:'avoid',styles:{font:FN.body,fontStyle:'normal',fontSize:9,textColor:INK,minCellHeight:46,valign:'bottom',cellPadding:{top:6,bottom:7,left:5,right:5}},
+    rowPageBreak:'avoid',styles:{font:FN.body,fontStyle:'normal',fontSize:9,textColor:INK,minCellHeight:56,valign:'bottom',cellPadding:{top:6,bottom:7,left:5,right:5}},
     columnStyles:{0:{cellWidth:96,fontStyle:'bold'},2:{cellWidth:(R0-L0)*0.34},3:{cellWidth:96}},
     didParseCell:d=>{if(d.section==='head'){d.cell.styles.minCellHeight=0;d.cell.styles.valign='middle'}},
     didDrawCell:d=>{const x=d.cell.x,yy=d.cell.y,w=d.cell.width,h=d.cell.height;if(d.section==='head'){doc.setDrawColor(...INK);doc.setLineWidth(.9);doc.line(x,yy+h,x+w,yy+h);return}
       lineB(x,yy+h,w);const a=ap[d.row.index],dm=dims[d.row.index];if(!a)return;
-      if(d.column.index===2&&a.sig&&dm){let ih=h-8,iw=ih*dm.w/dm.h;if(iw>w-10){iw=w-10;ih=iw*dm.h/dm.w}try{doc.addImage(a.sig,'PNG',x+5,yy+h-ih-3,iw,ih)}catch(e){}}}});
+      if(d.column.index===2&&a.sig&&dm){const z=a.z||1;let ih=(h-10)*z,iw=ih*dm.w/dm.h;if(iw>w-10){iw=w-10;ih=iw*dm.h/dm.w}try{doc.addImage(a.sig,'PNG',x+5,yy+h-ih-4,iw,ih)}catch(e){}}}});
   const cv=M.blocks.find(b=>b.t==='covers');
   if(cv)cv.list.forEach(l=>{doc.addPage();covers.add(doc.getNumberOfPages());const cx=W/2,t0=H*0.32;
     doc.setFont(FN.body,'normal');doc.setFontSize(8);doc.setTextColor(...SLATE);doc.text(tx(((M.org?M.org+'  ·  ':'')+M.L.supp).toUpperCase()),cx,t0-16,{align:'center',charSpace:1.4});
@@ -2494,8 +2509,8 @@ async function pcrXLSX(M,file){
   }
   label(M.L.approval);const A1=[1,2],A2=[3,5],A3=[6,NC-2],A4=[NC-1,NC];
   [['',A1],[M.L.name,A2],[M.L.signature,A3],[M.L.date,A4]].forEach(([h,[c1,c2]])=>put(r,c1,c2,h,{bold:true,size:9,fill:FILL,border:{bottom:med}}));r++;
-  for(const a of M.approve){[[a.role,A1,true],[a.name,A2],['',A3],[a.date,A4]].forEach(([v,[c1,c2],bd])=>put(r,c1,c2,v,{bold:!!bd,border:{bottom:thin},top:false}));ws.getRow(r).height=44;
-    if(a.sig){try{const dm=await imgDims(a.sig);const id=wb.addImage({base64:a.sig,extension:'png'});let h=48,w=h*dm.w/dm.h;if(w>200){w=200;h=w*dm.h/dm.w}ws.addImage(id,{tl:{col:A3[0]-1+0.1,row:r-1+0.05},ext:{width:w,height:h}})}catch(e){}}r++}
+  for(const a of M.approve){[[a.role,A1,true],[a.name,A2],['',A3],[a.date,A4]].forEach(([v,[c1,c2],bd])=>put(r,c1,c2,v,{bold:!!bd,border:{bottom:thin},top:false}));ws.getRow(r).height=Math.max(44,52*(a.z||1));
+    if(a.sig){try{const dm=await imgDims(a.sig);const id=wb.addImage({base64:a.sig,extension:'png'});let h=48*(a.z||1),w=h*dm.w/dm.h;if(w>240){w=240;h=w*dm.h/dm.w}ws.addImage(id,{tl:{col:A3[0]-1+0.1,row:r-1+0.05},ext:{width:w,height:h}})}catch(e){}}r++}
   const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=file+'.xlsx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
 }
@@ -2511,13 +2526,13 @@ function pcrCSV(M,file){
   download(file+'.csv',L.map(r=>r.map(q).join(',')).join('\n'));
 }
 async function pcrExport(type,f,o){
-  const M=pcrTr(pcrModel(type,o));const base={pcr:'petty-cash-reconciliation',ap:'accounts-payable',ledger:'petty-cash-ledger',rc:'supporting-documents'}[type];
-  const file=(M.ref?base+'-'+M.ref.replace(/\//g,'-').toLowerCase():base)+'-'+M.from+'-to-'+M.to;
+  const M=pcrTr(pcrModel(type,o));const base={pcr:'Petty-cash-reconciliation',ap:'Accounts-payable',ledger:'Petty-cash-ledger',rc:'Supporting-documents'}[type];
+  const file=(M.ref?base+'-'+M.ref.replace(/\//g,'-'):base)+'-'+M.from+'-to-'+M.to;
   if(f==='csv')pcrCSV(M,file);else if(f==='pdf')await pcrPDF(M,file);else await pcrXLSX(M,file);
 }
 
 /* ---------- screens ---------- */
-function vPCR(){try{pcrRepairSets()}catch(e){console.warn(e)}
+function vPCR(){try{pcrRepairSets();pcrSigMigrate()}catch(e){console.warn(e)}
   pcrAdopt();const clerk=pcrClerk();if(clerk)ui.pcrTab='reports';
   const c=pcrCfg(),[from,to]=pcrRange(),R=pcrReport(from,to),tab=ui.pcrTab||'summary',o=pcrOpts();
   setTimeout(pcrFontsPreview,0);
@@ -2579,7 +2594,7 @@ function vPCR(){try{pcrRepairSets()}catch(e){console.warn(e)}
       ${wordBar}${clerk&&!pcrViewer()?pcrClerkEntries(R,from,to):''}<p class="small muted" style="margin:8px 0 12px">Uses the period chosen above · ${esc(fmtD(from))} – ${esc(fmtD(to))}${pcrRef(from,to)?' · '+esc(pcrRef(from,to)):''}</p>
       ${pcrHTML(pcrModel(ty,o))}</div>`;
   } else {
-    const sig=(k,l)=>`<div class="sigset"><div class="sigbox">${c[k]?`<img src="${c[k]}" alt="${l} signature">`:'<span class="small muted">No signature</span>'}</div><div><b class="small">${l}</b><div class="inline-actions" style="margin-top:6px"><label class="btn ghost sm" for="${k}File" style="display:inline-flex;align-items:center">Upload signature</label><input type="file" id="${k}File" data-sig="${k}" accept="image/png,image/webp,image/jpeg" hidden>${c[k]?`<button class="btn ghost sm" data-act="pcSigDel" data-k="${k}">Remove</button>`:''}</div></div></div>`;
+    const sig=(k,l)=>`<div class="sigset"><div class="sigbox sigslot">${c[k]?`<img src="${c[k]}" alt="${l} signature" style="height:${Math.round(46*pcrSigZ(k))}px;max-height:none">`:'<span class="small muted">No signature</span>'}<i>Signature slot as it prints</i></div>${c[k]?`<div class="sigz"><label class="small" for="${k}Z">Size <b>${Math.round(pcrSigZ(k)*100)}%</b></label><input type="range" id="${k}Z" data-sigz="${k}" min="50" max="160" step="5" value="${Math.round(pcrSigZ(k)*100)}" oninput="this.previousElementSibling.querySelector('b').textContent=this.value+'%';const im=this.closest('.sigset').querySelector('.sigslot img');if(im)im.style.height=Math.round(46*this.value/100)+'px'"></div>`:''}<div><b class="small">${l}</b><div class="inline-actions" style="margin-top:6px"><label class="btn ghost sm" for="${k}File" style="display:inline-flex;align-items:center">Upload signature</label><input type="file" id="${k}File" data-sig="${k}" accept="image/png,image/webp,image/jpeg" hidden>${c[k]?`<button class="btn ghost sm" data-act="pcSigDel" data-k="${k}">Remove</button>`:''}</div></div></div>`;
     body=`<div class="card s6"><div class="card-h"><h2>Report details</h2></div>
       <div class="logoset"><img src="${pcrLogo()}" alt="Report logo"><div class="inline-actions"><label class="btn ghost sm" for="pcLogoFile" style="display:inline-flex;align-items:center">Upload logo</label><input type="file" id="pcLogoFile" accept="image/png,image/jpeg,image/webp" hidden>${c.logo?'<button class="btn ghost sm" data-act="pcLogoReset">Use default logo</button>':''}</div></div>
       <div class="fgrid" style="margin-top:12px"><div class="field"><label for="pc-org">Organisation / farm</label><input id="pc-org" data-pcfg="org" value="${esc(c.org||'')}" placeholder="e.g. Selu Galana Farm"></div>
@@ -2657,7 +2672,7 @@ function pcrVouchers(){
       V.push({kind:'person',catId:s.id,pid:g.pid||'',no:base+'-'+s.letter+(i+1),letter:s.letter,cat:s.title,payee:g.title,items,amt:g.amt,fee:g.fee,total:g.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),transfers:tr,date:fmtD(items.map(x=>x.paid).sort().pop())})});
     else{const items=s.groups.flatMap(g=>g.items).map(row),py=uniq(items.map(x=>x.to));
       V.push({kind:'cat',catId:s.id,no:base+'-'+s.letter,letter:s.letter,cat:s.title,payee:py.length===1?py[0]:py.length?'Various (see particulars)':'—',items,amt:s.amt,fee:s.fee,total:s.total,points:uniq(items.map(x=>x.point)),refs:uniq(items.map(x=>x.code)),date:fmtD(items.map(x=>x.paid).sort().pop())})}});
-  return{V,from,to,ref,org:c.org||'',prep:{name:c.custodian||'',sig:c.sigPrep||''},appr:{name:c.approver||'',sig:c.sigAppr||''}};
+  return{V,from,to,ref,org:c.org||'',sdate:pcrSignDate(from,to),prep:{name:c.custodian||'',sig:c.sigPrep||'',z:pcrSigZ('sigPrep')},appr:{name:c.approver||'',sig:c.sigAppr||'',z:pcrSigZ('sigAppr')}};
 }
 const pvRng=nos=>nos.length>1?nos[0]+'–'+nos[nos.length-1]:nos[0];
 const pvTrLabel=(v,t)=>'Transfer to '+v.payee+' · '+t.date+(t.point?' · '+t.point:'')+(t.ref?' · Ref '+t.ref:'')+' · Ksh '+pcrA(t.amt+t.fee)+' (items '+pvRng(t.nos)+')';
@@ -2674,7 +2689,7 @@ function pvHTML(P){
     <tr class="ex-tot"><td></td><td></td><td>${v.kind==='person'?'Total reimbursed':'Total '+esc(v.cat.toLowerCase())}</td>${v.kind==='cat'?'<td></td>':''}<td></td><td class="n">${pcrA(v.amt)}</td>${fee?`<td class="n">${pcrA(v.fee)}</td><td class="n">${pcrA(v.total)}</td>`:''}</tr></tbody></table></div>
     <div class="pv-words"><span>Amount in words</span><b>${esc(kesWords(v.total))}</b></div>
     <div class="ex-h">Approval</div>
-    <table class="ex-approve"><tr><th></th><th>Name</th><th>Signature</th><th>Date</th></tr>${[['Prepared by',P.prep,fmtD(todayStr())],['Approved by',P.appr,'']].map(([r,a,d])=>`<tr><td>${r}</td><td>${esc(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" src="${a.sig}" alt="Signature">`:''}</td><td>${esc(d)}</td></tr>`).join('')}</table>
+    <table class="ex-approve"><tr><th></th><th>Name</th><th>Signature</th><th>Date</th></tr>${[['Prepared by',P.prep,P.sdate],['Approved by',P.appr,P.sdate]].map(([r,a,d])=>`<tr><td>${r}</td><td>${esc(a.name)}</td><td class="ex-sigc">${a.sig?`<img class="ex-sig" style="height:${Math.round(46*(a.z||1))}px" src="${a.sig}" alt="Signature">`:''}</td><td>${esc(d)}</td></tr>`).join('')}</table>
     <div class="ex-h">Supporting documents</div>
     ${v.kind==='person'?`<div class="pv-sec">1. Proof of transfer — money sent to ${esc(v.payee)}</div>${v.transfers.map(t=>`<div class="pv-box"><b>${esc(pvTrLabel(v,t))}</b><span>Attach the M-Pesa / bank confirmation here</span></div>`).join('')}
       <div class="pv-sec">2. Proof of expense — receipts for how the money was used</div>`:''}
@@ -2695,7 +2710,7 @@ async function pvDocx(P,list,file){
     borders:{top:o.top||none,bottom:o.bottom||thin,left:none,right:none},margins:{top:70,bottom:70,left:90,right:90},verticalAlign:o.va||VerticalAlign.CENTER,columnSpan:o.span});
   const img=async(src,maxW,maxH)=>{try{const dm=await imgDims(src);let w=maxW,h=w*dm.h/dm.w;if(h>maxH){h=maxH;w=h*dm.w/dm.h}return new ImageRun({data:dataUrlBytes(src),transformation:{width:Math.round(w),height:Math.round(h)}})}catch(e){return null}};
   const label=t=>Pg(T(t.toUpperCase(),{size:8,bold:true,color:SLATE,sp:20}),{before:220,after:80,keepNext:true});
-  const logo=await img(pcrLogo(),110,58),sP=P.prep.sig?await img(P.prep.sig,150,44):null,sA=P.appr.sig?await img(P.appr.sig,150,44):null;
+  const logo=await img(pcrLogo(),110,58),sP=P.prep.sig?await img(P.prep.sig,170*P.prep.z,44*P.prep.z):null,sA=P.appr.sig?await img(P.appr.sig,170*P.appr.z,44*P.appr.z):null;
   const sections=[];
   for(const v of list){const fee=v.fee>0,C=[];
     C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[FW-2000,2000],borders:noB,rows:[new TableRow({children:[
@@ -2716,7 +2731,7 @@ async function pvDocx(P,list,file){
     C.push(label('Approval'));
     const aw=[1700,2700,3046,2300],ah=new TableRow({children:['','Name','Signature','Date'].map((h,i)=>cell(Pg(T(h,{size:8.5,bold:true})),{w:aw[i],fill:FILL,bottom:ink}))});
     const ar=(role,a,sg,d)=>new TableRow({height:{value:820,rule:HeightRule.ATLEAST},cantSplit:true,children:[cell(Pg(T(role,{bold:true})),{w:aw[0],va:VerticalAlign.BOTTOM}),cell(Pg(T(a.name)),{w:aw[1],va:VerticalAlign.BOTTOM}),cell(Pg(sg?[sg]:[T('')]),{w:aw[2],va:VerticalAlign.BOTTOM}),cell(Pg(T(d)),{w:aw[3],va:VerticalAlign.BOTTOM})]});
-    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:aw,borders:noB,rows:[ah,ar('Prepared by',P.prep,sP,fmtD(todayStr())),ar('Approved by',P.appr,sA,'')]}));
+    C.push(new Table({width:{size:FW,type:WidthType.DXA},columnWidths:aw,borders:noB,rows:[ah,ar('Prepared by',P.prep,sP,P.sdate),ar('Approved by',P.appr,sA,P.sdate)]}));
     C.push(label('Supporting documents'));
     const dot={style:BorderStyle.DOTTED,size:8,color:'8A919C'};
     const box=(t,hint)=>[new Table({width:{size:FW,type:WidthType.DXA},columnWidths:[FW],borders:{top:dot,bottom:dot,left:dot,right:dot,insideHorizontal:none,insideVertical:none},rows:[new TableRow({height:{value:2600,rule:HeightRule.ATLEAST},children:[new TableCell({width:{size:FW,type:WidthType.DXA},borders:{top:dot,bottom:dot,left:dot,right:dot},margins:{top:100,bottom:100,left:140,right:140},verticalAlign:VerticalAlign.TOP,children:[Pg(T(t,{bold:true,size:9})),Pg(T(hint,{it:true,size:8,color:SLATE})),Pg(T(''))]})]})]}),Pg(T(''),{after:120})];
@@ -2733,7 +2748,7 @@ const pvKey=v=>v.kind==='person'?'per:'+v.catId+':'+v.pid:'cat:'+v.catId;
 function pcrPvFilter(P){const f=ui.pcrRep.pv||'all';if(f==='all')return P.V;if(f.startsWith('reimb:'))return P.V.filter(v=>v.kind==='person'&&v.catId===f.slice(6));const L=P.V.filter(v=>pvKey(v)===f);return L.length?L:(ui.pcrRep.pv='all',P.V)}
 function pcrPvExport(i){const P0=pcrVouchers(),P=Object.assign({},P0,{V:pcrPvFilter(P0)});if(!P.V.length){toast('No paid items in this period yet');return}
   const list=i==null?P.V:[P.V[+i]];const tag=list.length===1?list[0].no.split('-').pop():(ui.pcrRep.pv&&ui.pcrRep.pv!=='all'?'selection':'all');
-  pvDocx(P,list,'payment-vouchers-'+(P.ref?P.ref.replace(/\//g,'-').toLowerCase()+'-':'')+tag);}
+  pvDocx(P,list,'Payment-vouchers-'+(P.ref?P.ref.replace(/\//g,'-')+'-':'')+tag);}
 function pcrGroup(L){const c=pcrCfg(),known=id=>c.cats.some(k=>k.id===id),out=[];L=L.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||num(b.ts)-num(a.ts));
   [...c.cats,{id:'__other',name:'Other expenses'}].forEach(k=>{const I=L.filter(e=>(known(e.cat)?e.cat:'__other')===k.id);if(!I.length)return;
     const reimb=k.id!=='__other'&&pcrIsReimb(k.id),g={id:k.id,name:k.name,reimb,items:I,amt:sum(I,e=>num(e.amt)),fee:sum(I,e=>num(e.fee))};g.total=g.amt+g.fee;
@@ -2951,7 +2966,8 @@ document.addEventListener('change',ev=>{
   if(el.id==='pc-from'||el.id==='pc-to'){ui.pcr[el.id==='pc-from'?'from':'to']=el.value;ui.pcr.preset='custom';render();return}
   const c=pcrCfg();
   if(el.id==='pcLogoFile'){const f=el.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const k=Math.min(1,320/Math.max(img.width,img.height));const cv=document.createElement('canvas');cv.width=Math.round(img.width*k);cv.height=Math.round(img.height*k);const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);g.drawImage(img,0,0,cv.width,cv.height);c.logo=cv.toDataURL('image/png');pcrSaveCfg();toast('Logo updated');render()};img.onerror=()=>toast('That image could not be read');img.src=r.result};r.readAsDataURL(f);return}
-  if(el.dataset.sig){const f=el.files[0],k=el.dataset.sig;if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const sc=Math.min(1,600/img.width,240/img.height);const cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);c[k]=cv.toDataURL('image/png');pcrSaveCfg();toast('Signature saved');render()};img.onerror=()=>toast('That image could not be read');img.src=r.result};r.readAsDataURL(f);return}
+  if(el.dataset.sig){const f=el.files[0],k=el.dataset.sig;if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{sigClean(r.result,900,300).then(u=>{c[k]=u;c.sigV=2;pcrSaveCfg();toast('Signature saved · margins trimmed to fit the slot');render()})};img.onerror=()=>toast('That image could not be read');img.src=r.result};r.readAsDataURL(f);return}
+  if(el.dataset.sigz){c[el.dataset.sigz+'Z']=Math.round(num(el.value))/100;pcrSaveCfg();render();return}
   if(el.id==='pcFontFile'){const fs=[...el.files];if(!fs.length)return;pcrFontUpload(fs).then(n=>{toast(n?n+' font file'+(n===1?'':'s')+' saved on this device':'No usable .ttf font found. Choose Aptos.ttf, Aptos-Bold.ttf or Aptos-Serif-Bold.ttf');render()}).catch(()=>toast('Couldn’t save the fonts on this device'));return}
   if(el.dataset.pcfg){const k=el.dataset.pcfg;c[k]=k==='opening'||k==='alert'?num(el.value):el.value;if(k==='mode')ui.pcrMode=null;pcrSaveCfg();render();return}
   if(el.dataset.pcat){const k=c.cats.find(x=>x.id===el.dataset.pcat);if(k&&el.value.trim()){k.name=el.value.trim();pcrSaveCfg();render()}return}
